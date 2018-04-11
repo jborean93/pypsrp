@@ -45,6 +45,7 @@ nosetests.xml
 coverage.xml
 *.cover
 .hypothesis/
+.pytest_cache/
 
 # Translations
 *.mo
@@ -99,3 +100,13 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# IDEA Files
+.idea
+*~
+
+# Visual Studio Code Files
+.vscode/
+
+# MacOS File
+.DS_Store
