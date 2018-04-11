@@ -2,7 +2,6 @@
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 import logging
-import re
 import sys
 import uuid
 
@@ -42,7 +41,8 @@ NAMESPACES = {
     "wst": "http://schemas.xmlsoap.org/ws/2004/09/transfer",
     "wsp": "http://schemas.xmlsoap.org/ws/2004/09/policy",
     "wse": "http://schemas.xmlsoap.org/ws/2004/08/eventing",
-    "i": "http://schemas.microsoft.com/wbem/wsman/1/cim/interactive.xsd"
+    "i": "http://schemas.microsoft.com/wbem/wsman/1/cim/interactive.xsd",
+    "xml": "http://www.w3.org/XML/1998/namespace"
 }
 
 
@@ -63,9 +63,17 @@ class WSManAction(object):
     COMMAND = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command"
     COMMAND_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/windows/" \
                        "shell/CommandResponse"
+    DISCONNECT = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/" \
+                 "Disconnect"
+    DISCONNECT_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/" \
+                          "windows/shell/DisconnectResponse"
     RECEIVE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive"
     RECEIVE_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/windows/" \
                        "shell/ReceiveResponse"
+    RECONNECT = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/" \
+                "Reconnect"
+    RECONNECT_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/windows/" \
+                         "shell/ReconnectResponse"
     SEND = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Send"
     SEND_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/windows/" \
                     "shell/SendResponse"
@@ -74,68 +82,9 @@ class WSManAction(object):
                       "shell/SignalResponse"
 
 
-def _duration_to_float(duration):
-    pattern = re.compile('P(?:(?P<years>\d+)Y)'
-                         '?(?:(?P<months>\d+)M)'
-                         '?(?:(?P<days>\d+)D)'
-                         '?(?:T(?:(?P<hours>\d+)H)'
-                         '?(?:(?P<minutes>\d+)M)'
-                         '?(?:(?P<seconds>\d+[.]?\d*)S)?)')
-    duration_value = 0
-    groups = re.match(pattern, duration)
-    if groups:
-        info = groups.groupdict()
-        seconds = float(info['seconds'] if info['seconds'] else 0)
-        minutes = float(info['minutes'] if info['minutes'] else 0)
-        hours = float(info['hours'] if info['hours'] else 0)
-        days = float(info['days'] if info['days'] else 0)
-        months = float(info['months'] if info['months'] else 0)
-        years = float(info['years'] if info['years'] else 0)
-
-        duration_value += seconds
-        duration_value += minutes * 60
-        duration_value += hours * 3600
-        duration_value += days * 86400
-        duration_value += months * 2592000
-        duration_value += years * 31536000
-    else:
-        raise ValueError("Expecting XML duration string but value did "
-                         "not match pattern: %s" % duration)
-
-    return duration_value
-
-
-def _float_to_duration(value):
-    # https://tools.ietf.org/html/rfc2445#section-4.3.6
-    if isinstance(value, str):
-        if value.startswith('P'):
-            return value
-        value = float(value)
-
-    duration = "P"
-    if value > 86400:
-        days = int(value / 86400)
-        value -= 86400 * days
-        duration += "%dD" % days
-    if value > 0:
-        duration += "T"
-        if value > 3600:
-            hours = int(value / 3600)
-            value -= 3600 * hours
-            duration += "%dH" % hours
-        if value > 60:
-            minutes = int(value / 60)
-            value -= 60 * minutes
-            duration += "%dM" % minutes
-        if value > 0:
-            duration += "%sS" % value
-
-    return duration
-
-
 class WSMan(object):
 
-    def __init__(self, transport, max_envelope_size=4294967295,
+    def __init__(self, transport, max_envelope_size=153600,
                  operation_timeout=60):
         """
         Class that handles the WS-Man actions that are required. This is a
@@ -145,8 +94,9 @@ class WSMan(object):
         https://msdn.microsoft.com/en-us/library/cc251598.aspx
 
         :param transport: The transport to send the SOAP messages over
-        :param max_envelope_size: The maximum size the envelope response that
-            the server can send.
+        :param max_envelope_size: The maximum size of the envelope that can be
+            sent to the server. Use update_max_envelope_size() to query the
+            server for the true value
         :param locale: Specifies the language in which the client wants the
             response text to be translated.
         :param data_locale: Language in which the response text should be
@@ -167,6 +117,20 @@ class WSMan(object):
         for key, value in NAMESPACES.items():
             ET.register_namespace(key, value)
 
+        # This is the approx max size of a Base64 string that can be sent in a
+        # SOAP message payload (PSRP fragment or send input data) to the
+        # server. This value is dependent on the server's MaxEnvelopSizekb
+        # value set on the WinRM service and the default is different depending
+        # on the Windows version. Server 2008 (R2) detaults to 150KiB while
+        # newer hosts are 500 KiB and this can be configured manually. Because
+        # we don't know the OS version before we connect, we set the default to
+        # 150KiB to ensure we are compatible with older hosts. This can be
+        # manually adjusted with the max_envelope_size param which is the
+        # MaxEnvelopeSizekb value * 1024. Otherwise the
+        # update_max_envelope_size() function can be called and it will gather
+        # this information for you.
+        self._max_payload_size = self._calc_envelope_size(max_envelope_size)
+
     def command(self, resource_uri, resource, option_set=None,
                 selector_set=None):
         header = self._create_header(WSManAction.COMMAND, resource_uri,
@@ -176,6 +140,12 @@ class WSMan(object):
     def create(self, resource_uri, resource, option_set=None,
                selector_set=None):
         header = self._create_header(WSManAction.CREATE, resource_uri,
+                                     option_set, selector_set)
+        return self._invoke(header, resource)
+
+    def disconnect(self, resource_uri, resource, option_set=None,
+                   selector_set=None):
+        header = self._create_header(WSManAction.DISCONNECT, resource_uri,
                                      option_set, selector_set)
         return self._invoke(header, resource)
 
@@ -197,6 +167,12 @@ class WSMan(object):
                                      option_set, selector_set)
         return self._invoke(header, resource)
 
+    def reconnect(self, resource_uri, resource=None, option_set=None,
+                  selector_set=None):
+        header = self._create_header(WSManAction.RECONNECT, resource_uri,
+                                     option_set, selector_set)
+        return self._invoke(header, resource)
+
     def send(self, resource_uri, resource, option_set=None,
              selector_set=None):
         header = self._create_header(WSManAction.SEND, resource_uri,
@@ -213,6 +189,16 @@ class WSMan(object):
         resource_uri = "http://schemas.microsoft.com/wbem/wsman/1/%s" % uri
         log.info("Getting server config with URI %s" % resource_uri)
         return self.get(resource_uri)
+
+    def update_max_payload_size(self):
+        config = self.get_server_config()
+        max_size_kb = config.find("cfg:Config/"
+                                  "cfg:MaxEnvelopeSizekb",
+                                  namespaces=NAMESPACES).text
+
+        server_max_size = int(max_size_kb) * 1024
+        max_envelope_size = self._calc_envelope_size(server_max_size)
+        self._max_payload_size = max_envelope_size
 
     def _invoke(self, header, resource):
         s = NAMESPACES['s']
@@ -250,6 +236,43 @@ class WSMan(object):
         response_body = response_xml.find("s:Body", namespaces=NAMESPACES)
         return response_body
 
+    def _calc_envelope_size(self, max_envelope_size):
+        # get a mock Header which should cover most cases where large fragments
+        # are used
+        empty_uuid = "00000000-0000-0000-0000-000000000000"
+
+        selector_set = SelectorSet()
+        selector_set.add_option("ShellId", empty_uuid)
+        header = self._create_header(
+            WSManAction.SEND,
+            "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/cmd",
+            selector_set=selector_set
+        )
+
+        # get a skeleton Body to calculate the size without the payload
+        rsp = NAMESPACES['rsp']
+        send = ET.Element("{%s}Send" % rsp)
+        ET.SubElement(send, "{%s}Stream" % rsp, Name="stdin",
+                      CommandId=empty_uuid).text = ""
+
+        envelope = ET.Element("{%s}Envelope" % NAMESPACES['s'])
+        envelope.append(header)
+        envelope.append(send)
+        envelope = ET.tostring(envelope, encoding='utf-8', method='xml')
+
+        # add the Header and Envelope and pad some extra bytes to cover
+        # slightly different scenarios, multiple options, different body types
+        # while this isn't perfect it's better than wasting CPU cycles
+        # calculating it per message and a few bytes don't make too much of a
+        # difference
+        envelope_size = len(envelope) + 256
+        max_bytes_size = max_envelope_size - envelope_size
+
+        # Data is sent as Base64 encoded which inflates the size, we need to
+        # calculate how large that can be
+        base64_size = int(max_bytes_size / 4 * 3)
+        return base64_size
+
     def _create_header(self, action, resource_uri, option_set=None,
                        selector_set=None):
         log.debug("Creating WSMan header (Action: %s, Resource URI: %s, "
@@ -259,6 +282,7 @@ class WSMan(object):
         wsa = NAMESPACES['wsa']
         wsman = NAMESPACES['wsman']
         wsmv = NAMESPACES['wsmv']
+        xml = NAMESPACES['xml']
 
         header = ET.Element("{%s}Header" % s)
 
@@ -272,14 +296,14 @@ class WSMan(object):
             header,
             "{%s}DataLocale" % wsmv,
             attrib={"{%s}mustUnderstand" % s: "false",
-                    "xml:lang": "en-US"}
+                    "{%s}lang" % xml: "en-US"}
         )
 
         ET.SubElement(
             header,
             "{%s}Locale" % wsman,
             attrib={"{%s}mustUnderstand" % s: "false",
-                    "xml:lang": "en-US"}
+                    "{%s}lang" % xml: "en-US"}
         )
 
         ET.SubElement(
@@ -291,16 +315,10 @@ class WSMan(object):
         ET.SubElement(header, "{%s}MessageID" % wsa).text = \
             "uuid:%s" % str(uuid.uuid4()).upper()
 
-        # ET.SubElement(
-        #     header,
-        #     "{%s}OperationID" % wsmv,
-        #     attrib={"{%s}mustUnderstand" % s: "false"}
-        # ).text = "uuid:%s" % str(uuid.uuid4()).upper()
-
         ET.SubElement(
             header,
             "{%s}OperationTimeout" % wsman
-        ).text = _float_to_duration(self.operation_timeout)
+        ).text = "PT%sS" % str(self.operation_timeout)
 
         reply_to = ET.SubElement(header, "{%s}ReplyTo" % wsa)
         ET.SubElement(
@@ -316,15 +334,9 @@ class WSMan(object):
             attrib={"{%s}mustUnderstand" % s: "true"}
         ).text = resource_uri
 
-        # ET.SubElement(
-        #     header,
-        #     "{%s}SequenceId" % wsmv,
-        #     attrib={"{%s}mustUnderstand" % s: "false"}
-        # ).text = "1"
-
         ET.SubElement(
             header,
-            "{%s}SessionID" % wsmv,
+            "{%s}SessionId" % wsmv,
             attrib={"{%s}mustUnderstand" % s: "false"}
         ).text = "uuid:%s" % str(self.session_id).upper()
 
@@ -413,6 +425,13 @@ class _WSManSet(object):
         self.child_element_name = child_element_name
         self.must_understand = must_understand
         self.values = []
+
+    def __str__(self):
+        dict_object = {}
+        for value in self.values:
+            dict_object[value[0]] = value[1]
+        string_value = str(dict_object)
+        return string_value
 
     def add_option(self, name, value, attributes=None):
         attributes = attributes if attributes is not None else {}

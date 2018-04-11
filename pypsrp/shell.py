@@ -5,7 +5,7 @@ import base64
 import sys
 
 from pypsrp.exceptions import WSManFaultError
-from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet, _float_to_duration
+from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet
 
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
     # ElementTree in Python 2.6 does not support namespaces so we need to use
@@ -51,10 +51,14 @@ class WinRS(object):
     def open(self, input_streams='stdin', output_streams='stdout stderr',
              codepage=None, environment=None, idle_time_out=None,
              lifetime=None, name=None, no_profile=None,
-             working_directory=None, open_content=None, base_options=None):
+             working_directory=None, shell_id=None, open_content=None,
+             base_options=None):
         rsp = NAMESPACES['rsp']
 
         shell = ET.Element("{%s}Shell" % rsp)
+        if shell_id is not None:
+            shell.attrib['ShellId'] = shell_id
+
         ET.SubElement(shell, "{%s}InputStreams" % rsp).text = input_streams
         ET.SubElement(shell, "{%s}OutputStreams" % rsp).text = output_streams
         if environment is not None:
@@ -65,11 +69,11 @@ class WinRS(object):
 
         if idle_time_out is not None:
             ET.SubElement(shell, "{%s}IdleTimeOut" % rsp).text = \
-                _float_to_duration(idle_time_out)
+                "PT%sS" % str(idle_time_out)
 
         if lifetime is not None:
             ET.SubElement(shell, "{%s}Lifetime" % rsp).text = \
-                _float_to_duration(lifetime)
+                "PT%sS" % (lifetime)
 
         if name is not None:
             ET.SubElement(shell, "{%s}Name" % rsp).text = name
@@ -97,19 +101,10 @@ class WinRS(object):
         self.shell_id = response.find("rsp:Shell/rsp:ShellId",
                                       namespaces=NAMESPACES).text
 
-    def run_executable(self, executable, arguments=None, no_shell=True):
-        rsp = NAMESPACES['rsp']
-        arguments = arguments if arguments is not None else []
-
-        command_line = ET.Element("{%s}CommandLine" % rsp)
-        ET.SubElement(command_line, "{%s}Command" % rsp).text = executable
-        for argument in arguments:
-            ET.SubElement(command_line, "{%s}Arguments" % rsp).text = argument
-
+    def run_executable(self, executable, arguments=None, no_shell=False):
         options = OptionSet()
         options.add_option('WINRS_SKIP_CMD_SHELL', no_shell)
-        response = self._invoke(self.wsman.command, command_line, options,
-                                self.shell_id)
+        response = self._command(executable, arguments, options=options)
         return response.find("rsp:CommandResponse/rsp:CommandId",
                              namespaces=NAMESPACES).text
 
@@ -121,8 +116,7 @@ class WinRS(object):
 
         while not done:
             try:
-                state, rc, buffer = \
-                    self._get_receive_response("stdout stderr", command_id)
+                state, rc, buffer = self._receive("stdout stderr", command_id)
                 done = state == CommandState.DONE
                 stdout += buffer['stdout']
                 stderr += buffer['stderr']
@@ -139,13 +133,7 @@ class WinRS(object):
         return rc, stdout, stderr
 
     def send_input(self, command_id, data, end=True):
-        rsp = NAMESPACES['rsp']
-
-        send = ET.ElementTree("{%s}Send" % rsp)
-        stream = ET.SubElement(send, "{%s}Stream" % rsp, CommandId=command_id,
-                               End=end, Name='stdin')
-        stream.text = base64.b64encode(data).decode('utf-8')
-        self._invoke(self.wsman.send, send, shell_id=self.shell_id)
+        self._send(data, command_id=command_id, end=end)
 
     def signal(self, code, command_id):
         rsp = NAMESPACES['rsp']
@@ -166,7 +154,39 @@ class WinRS(object):
 
         return function(self.resource_uri, resource, options, selector_set)
 
-    def _get_receive_response(self, desired_stream, command_id=None):
+    def _command(self, command, arguments=None, command_id=None,
+                 options=None):
+        rsp = NAMESPACES['rsp']
+        arguments = arguments if arguments is not None else []
+
+        cmd = ET.Element("{%s}CommandLine" % rsp)
+        if command_id is not None:
+            cmd.attrib['CommandId'] = command_id
+
+        ET.SubElement(cmd, "{%s}Command" % rsp).text = command
+        for argument in arguments:
+            ET.SubElement(cmd, "{%s}Arguments" % rsp).text = argument
+
+        response = self._invoke(self.wsman.command, cmd, options,
+                                self.shell_id)
+        return response
+
+    def _send(self, data, name='stdin', command_id=None, end=None):
+        rsp = NAMESPACES['rsp']
+
+        send = ET.Element("{%s}Send" % rsp)
+        stream = ET.SubElement(send, "{%s}Stream" % rsp, Name=name)
+        if end is not None:
+            stream.attrib['End'] = str(end)
+        if command_id is not None:
+            stream.attrib['CommandId'] = command_id
+
+        stream.text = base64.b64encode(data).decode('utf-8')
+        result = self._invoke(self.wsman.send, send, shell_id=self.shell_id)
+
+        return result
+
+    def _receive(self, desired_stream, command_id=None):
         rsp = NAMESPACES['rsp']
 
         receive = ET.Element("{%s}Receive" % rsp)
