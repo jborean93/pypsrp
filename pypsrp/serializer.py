@@ -9,13 +9,14 @@ import uuid
 
 from six import string_types
 
-from pypsrp.messages import DebugRecord, ErrorRecord, InformationRecord, \
-    VerboseRecord, WarningRecord
 from pypsrp.complex_objects import ApartmentState, Color, Coordinates, \
     ComplexObject, DictionaryMeta, GenericComplexObject, \
     HostMethodIdentifier, InformationalRecord, ListMeta, ObjectMeta, \
     PipelineResultTypes, ProgressRecordType, PSThreadOptions, QueueMeta, \
     RemoteStreamOptions, Size, StackMeta
+from pypsrp.exceptions import SerializationError
+from pypsrp.messages import DebugRecord, ErrorRecord, InformationRecord, \
+    VerboseRecord, WarningRecord
 from pypsrp._utils import to_bytes, to_string, to_unicode
 
 try:
@@ -505,8 +506,8 @@ class Serializer(object):
 
     def _serialize_secure_string(self, value):
         if self.cipher is None:
-            raise Exception("Cannot generate secure string as cipher is not "
-                            "initialised")
+            raise SerializationError("Cannot generate secure string as cipher "
+                                     "is not initialised")
 
         # convert the string to a UTF-16 byte string as that is what is
         # expected in Windows. If a byte string (native string in Python 2) was
@@ -531,65 +532,32 @@ class Serializer(object):
         if to_string_value is not None:
             obj._to_string = self._deserialize_string(to_string_value.text)
 
-        for attr, property_meta in obj._property_sets:
-            property_filter = ""
-            if property_meta.name is not None:
-                property_filter = "[@N='%s']" % property_meta.name
+        def deserialize_property(prop_tag, properties):
+            for attr, property_meta in properties:
+                property_filter = ""
+                if property_meta.name is not None:
+                    property_filter = "[@N='%s']" % property_meta.name
 
-            tag = property_meta.tag
-            # The below tags are actually seen as Obj in the parent element
-            if tag in ["DCT", "LST", "IE", "QUE", "STK", "ObjDynamic"]:
-                tag = "Obj"
-            value = element.find("%s%s" % (tag, property_filter))
+                tag = property_meta.tag
+                # The below tags are actually seen as Obj in the parent element
+                if tag in ["DCT", "LST", "IE", "QUE", "STK", "ObjDynamic"]:
+                    tag = "Obj"
+                val = element.find("%s%s%s" % (prop_tag, tag, property_filter))
 
-            if value is None and not property_meta.optional:
-                value = element.find("Nil%s" % property_filter)
-                if value is None:
-                    raise Exception("Mandatory return value was not found")
-                value = None
-            elif value is not None:
-                value = self.deserialize(value, property_meta, clear=False)
-            setattr(obj, attr, value)
+                if val is None and not property_meta.optional:
+                    val = element.find("%sNil%s" % (prop_tag, property_filter))
+                    if val is None:
+                        raise SerializationError(
+                            "Mandatory return value was not found"
+                        )
+                    val = None
+                elif val is not None:
+                    val = self.deserialize(val, property_meta, clear=False)
+                setattr(obj, attr, val)
 
-        for attr, property_meta in obj._adapted_properties:
-            property_filter = ""
-            if property_meta.name is not None:
-                property_filter = "[@N='%s']" % property_meta.name
-
-            tag = property_meta.tag
-            # The below tags are actually seen as Obj in the parent element
-            if tag in ["DCT", "LST", "IE", "QUE", "STK", "ObjDynamic"]:
-                tag = "Obj"
-            value = element.find("Props/%s%s" % (tag, property_filter))
-
-            if value is None and not property_meta.optional:
-                value = element.find("Props/Nil%s" % property_filter)
-                if value is None:
-                    raise Exception("Mandatory return value was not found")
-                value = None
-            elif value is not None:
-                value = self.deserialize(value, property_meta, clear=False)
-            setattr(obj, attr, value)
-
-        for attr, property_meta in obj._extended_properties:
-            property_filter = ""
-            if property_meta.name is not None:
-                property_filter = "[@N='%s']" % property_meta.name
-
-            tag = property_meta.tag
-            # The below tags are actually seen as Obj in the parent element
-            if tag in ["DCT", "LST", "IE", "QUE", "STK", "ObjDynamic"]:
-                tag = "Obj"
-            value = element.find("MS/%s%s" % (tag, property_filter))
-
-            if value is None and not property_meta.optional:
-                value = element.find("MS/Nil%s" % property_filter)
-                if value is None:
-                    raise Exception("Mandatory return value was not found")
-                value = None
-            elif value is not None:
-                value = self.deserialize(value, property_meta, clear=False)
-            setattr(obj, attr, value)
+        deserialize_property("", obj._property_sets)
+        deserialize_property("Props/", obj._adapted_properties)
+        deserialize_property("MS/", obj._extended_properties)
 
         return obj
 

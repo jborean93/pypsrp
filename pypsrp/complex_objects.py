@@ -237,6 +237,76 @@ class Color(ComplexObject):
         self.color = kwargs.get('color')
 
 
+class RunspacePoolState(object):
+    BEFORE_OPEN = 0
+    OPENING = 1
+    OPENED = 2
+    CLOSED = 3
+    CLOSING = 4
+    BROKEN = 5
+    NEGOTIATION_SENT = 6
+    NEGOTIATION_SUCCEEDED = 7
+    CONNECTING = 8
+    DISCONNECTED = 9
+
+    def __init__(self, state):
+        """
+        [MS-PSRP] 2.2.3.4 RunspacePoolState
+        https://msdn.microsoft.com/en-us/library/dd341723.aspx
+
+        Represents the state of the RunspacePool.
+
+        :param state: The state int value
+        """
+        self.state = state
+
+    def __str__(self):
+        return {
+            0: "BeforeOpen",
+            1: "Opening",
+            2: "Opened",
+            3: "Closed",
+            4: "Closing",
+            5: "Broken",
+            6: "NegotiationSent",
+            7: "NegotiationSucceeded",
+            8: "Connecting",
+            9: "Disconnected"
+        }[self.state]
+
+
+class PSInvocationState(object):
+    NOT_STARTED = 0
+    RUNNING = 1
+    STOPPING = 2
+    STOPPED = 3
+    COMPLETED = 4
+    FAILED = 5
+    DISCONNECTED = 6
+
+    def __init__(self, state):
+        """
+        [MS-PSRP] 2.2.3.5 PSInvocationState
+        https://msdn.microsoft.com/en-us/library/dd341651.aspx
+
+        Represents the state of a pipeline invocation.
+
+        :param state: The state int value
+        """
+        self.state = state
+
+    def __str__(self):
+        return {
+            0: "NotStarted",
+            1: "Running",
+            2: "Stopping",
+            3: "Stopped",
+            4: "Completed",
+            5: "Failed",
+            6: "Disconnected"
+        }[self.state]
+
+
 class PSThreadOptions(Enum):
     DEFAULT = 0
     USE_NEW_THREAD = 1

@@ -1,4 +1,4 @@
-import PY3
+from six import PY3
 
 from pypsrp._utils import to_bytes, to_string, to_unicode
 

@@ -1,6 +1,8 @@
 # Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
+from pypsrp.complex_objects import RunspacePoolState
+
 
 class WinRMError(Exception):
     # Base WinRM Error
@@ -94,3 +96,59 @@ class WSManFaultError(WinRMError):
 
     def __str__(self):
         return self.message
+
+
+# PSRP Exceptions below
+class _InvalidStateError(WinRMError):
+    @property
+    def current_state(self):
+        return self.args[0]
+
+    @property
+    def expected_state(self):
+        return self.args[1]
+
+    @property
+    def action(self):
+        return self.args[2]
+
+    @property
+    def message(self):
+        current_state = str(RunspacePoolState(self.current_state))
+        expected_state = self.expected_state
+        if not isinstance(expected_state, list):
+            expected_state = [expected_state]
+        exp_state = [str(RunspacePoolState(s)) for s in expected_state]
+        return "Cannot '%s' on the current state '%s', expecting state(s): " \
+               "'%s'" % (self.action, current_state, ", ".join(exp_state))
+
+    def __str__(self):
+        return self.message
+
+
+class InvalidRunspacePoolStateError(_InvalidStateError):
+    # Used in PSRP when the state of a RunspacePool does not meet the required
+    # state for the operation to run
+    pass
+
+
+class InvalidPipelineStateError(_InvalidStateError):
+    # Used in PSRP when teh state of a PowerShell Pipeline does not meet the
+    # required state for the operation to run
+    pass
+
+
+class InvalidPSRPOperation(WinRMError):
+    # Generic error used to denote an operation that is invalid or could not
+    # run until other conditions are met
+    pass
+
+
+class FragmentError(WinRMError):
+    # Any error occurred during the packet fragmentation
+    pass
+
+
+class SerializationError(WinRMError):
+    # Any error during the serialization process
+    pass

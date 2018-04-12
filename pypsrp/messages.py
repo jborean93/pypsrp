@@ -161,9 +161,6 @@ class Message(object):
             MessageType.RESET_RUNSPACE_STATE: ResetRunspaceState
         }[message_type]
 
-        if message_obj is None:
-            raise Exception("Message obj %d was not found" % message_type)
-
         # PIPELINE_OUTPUT is a weird one, it contains the actual output objects
         # not encapsulated so we set it to a dynamic object and the serializer
         # will work out what is best

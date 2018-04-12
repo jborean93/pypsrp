@@ -10,8 +10,10 @@ import uuid
 from random import randint
 
 from pypsrp.complex_objects import ApartmentState, Command, \
-    CommandParameter, HostInfo, Pipeline, PSThreadOptions, RemoteStreamOptions
-from pypsrp.exceptions import WinRMError
+    CommandParameter, HostInfo, Pipeline, PSInvocationState, PSThreadOptions, \
+    RemoteStreamOptions, RunspacePoolState
+from pypsrp.exceptions import FragmentError, InvalidPipelineStateError, \
+    InvalidPSRPOperation, InvalidRunspacePoolStateError
 from pypsrp.messages import CreatePipeline, Destination, \
     GetAvailableRunspaces, InitRunspacePool, Message, MessageType, PublicKey, \
     SessionCapability, SetMaxRunspaces, SetMinRunspaces
@@ -38,41 +40,6 @@ else:  # pragma: no cover
     import xml.etree.ElementTree as ET
 
 log = logging.getLogger(__name__)
-
-
-class RunspacePoolState(object):
-    """
-    [MS-PSRP] 2.2.3.4 RunspacePoolState
-    https://msdn.microsoft.com/en-us/library/dd341723.aspx
-
-    Represents the state of the RunspacePool.
-    """
-    BEFORE_OPEN = 0
-    OPENING = 1
-    OPENED = 2
-    CLOSED = 3
-    CLOSING = 4
-    BROKEN = 5
-    NEGOTIATION_SENT = 6
-    NEGOTIATION_SUCCEEDED = 7
-    CONNECTING = 8
-    DISCONNECTED = 9
-
-
-class PSInvocationState(object):
-    """
-    [MS-PSRP] 2.2.3.5 PSInvocationState
-    https://msdn.microsoft.com/en-us/library/dd341651.aspx
-
-    Represents the state of a pipeline invocation.
-    """
-    NOT_STARTED = 0
-    RUNNING = 1
-    STOPPING = 2
-    STOPPED = 3
-    COMPLETED = 4
-    FAILED = 5
-    DISCONNECTED = 6
 
 
 class RunspacePool(object):
@@ -208,8 +175,10 @@ class RunspacePool(object):
         if self.state == RunspacePoolState.OPENED:
             return
         elif self.state != RunspacePoolState.DISCONNECTED:
-            raise WinRMError("Cannot connect to a runspace pool that is not "
-                             "in a disconnected state")
+            raise InvalidRunspacePoolStateError(
+                self.state, RunspacePoolState.DISCONNECTED,
+                "connect to a disconnected Runspace Pool"
+            )
 
         selector_set = SelectorSet()
         selector_set.add_option("ShellId", self.shell.shell_id)
@@ -235,8 +204,10 @@ class RunspacePool(object):
         if self.state == RunspacePoolState.DISCONNECTED:
             return
         elif self.state != RunspacePoolState.OPENED:
-            raise WinRMError("Cannot disconnect a runspace pool that is not in"
-                             " an opened state")
+            raise InvalidRunspacePoolStateError(
+                self.state, RunspacePoolState.OPENED,
+                "disconnect a Runspace Pool"
+            )
 
         disconnect = ET.Element("{%s}Disconnect" % NAMESPACES['rsp'])
         selector_set = SelectorSet()
@@ -294,9 +265,13 @@ class RunspacePool(object):
         Opens the runspace pool, this step must be called before it can be
         used.
         """
+        if self.state == RunspacePoolState.OPENED:
+            return
         if self.state != RunspacePoolState.BEFORE_OPEN:
-            raise WinRMError("Cannot open runspace pool when not in the "
-                             "Before Open state")
+            raise InvalidRunspacePoolStateError(
+                self.state, RunspacePoolState.BEFORE_OPEN,
+                "open a new Runspace Pool"
+            )
 
         session_capability = SessionCapability("2.3", "2.0", "1.1.0.1")
 
@@ -320,8 +295,17 @@ class RunspacePool(object):
                         base_options=options)
         self.state = RunspacePoolState.NEGOTIATION_SENT
 
-        while self.state != RunspacePoolState.OPENED:
-            self._receive()
+        while self.state == RunspacePoolState.NEGOTIATION_SENT:
+            responses = self._receive()
+
+        error_states = [RunspacePoolState.BROKEN, RunspacePoolState.CLOSED]
+        if self.state in error_states:
+            # TODO: get error_record from RunspacePoolState message
+            state_response = None
+
+            raise InvalidRunspacePoolStateError(
+                self.state, error_states, "open new Runspace Pool"
+            )
 
     def exchange_keys(self):
         """
@@ -331,8 +315,8 @@ class RunspacePool(object):
         happen.
         """
         if not HAS_CRYPTO:
-            raise Exception("Failed to import cryptography, cannot generate "
-                            "RSA key: %s" % str(CRYPTO_IMP_ERR))
+            raise ImportError("Failed to import cryptography, cannot generate "
+                              "RSA key: %s" % str(CRYPTO_IMP_ERR))
         elif self._key_exchanged or self._exchange_key is not None:
             # key is already exchanged or we are still in the processes of
             # exchanging it, no need to run again
@@ -438,8 +422,7 @@ class RunspacePool(object):
 
     def _process_runspacepool_state(self, message):
         self.state = message.data.state
-        if self.state in [RunspacePoolState.BROKEN, RunspacePoolState.CLOSED]:
-            raise Exception("Failed to initialise RunspacePool")
+        return message.data
 
     def _process_application_private_data(self, message):
         self._application_private_data = message.data
@@ -603,8 +586,7 @@ class PowerShell(object):
 
     def invoke(self, input=None, add_to_history=False, apartment_state=None,
                host=None,
-               remote_stream_options=RemoteStreamOptions.ADD_INVOCATION_INFO,
-               raw_output=False):
+               remote_stream_options=RemoteStreamOptions.ADD_INVOCATION_INFO):
         """
         Invoke the command and return the output collection of return objects.
 
@@ -613,15 +595,17 @@ class PowerShell(object):
         :param apartment_state:
         :param host:
         :param remote_stream_options:
-        :param raw_output: Controls whether the output objects will be a raw
-            CLIXML representation or whether Python will attempt to convert
-            them to a Python type. The object can still be a complex object
-            if it is a type not known to pypsrp
         :return: A list of output objects, the type is controlled by raw_output
         """
+        if self.state != PSInvocationState.NOT_STARTED:
+            raise InvalidPipelineStateError(
+                self.state, PSInvocationState.NOT_STARTED,
+                "start a PowerShell pipeline"
+            )
+
         if len(self.commands.commands) == 0:
-            raise WinRMError("Cannot invoke PowerShell without any commands "
-                             "being set")
+            raise InvalidPSRPOperation("Cannot invoke PowerShell without any "
+                                       "commands being set")
 
         no_input = input is None or not input
         apartment_state = apartment_state or self.runspace_pool.apartment_state
@@ -670,6 +654,11 @@ class PowerShell(object):
         if self.state in [PSInvocationState.STOPPING,
                           PSInvocationState.STOPPED]:
             return
+        elif self.state != PSInvocationState.RUNNING:
+            raise InvalidPipelineStateError(
+                self.state, PSInvocationState.RUNNING,
+                "stop a running pipeline"
+            )
 
         self.state = PSInvocationState.STOPPING
         self.runspace_pool.shell.signal(SignalCode.TERMINATE,
@@ -855,32 +844,33 @@ class Fragmenter(object):
     def defragment(self, data):
         fragments = []
         while data != b"":
-            fragment, data = Fragment.unpack(data)
-            if fragment.object_id != self.incoming_object_id:
-                raise WinRMError("Fragment Object Id: %d != Expected Object "
-                                 "Id: %d" % (fragment.object_id,
-                                             self.incoming_object_id))
+            frag, data = Fragment.unpack(data)
+            if frag.object_id != self.incoming_object_id:
+                raise FragmentError(
+                    "Fragment Object Id: %d != Expected Object Id: %d"
+                    % (frag.object_id, self.incoming_object_id)
+                )
 
-            if fragment.fragment_id != self.incoming_fragment_id:
-                raise WinRMError("Fragment Fragment Id: %d != Expected "
-                                 "Fragment Id: %d"
-                                 % (fragment.fragment_id,
-                                    self.incoming_fragment_id))
+            if frag.fragment_id != self.incoming_fragment_id:
+                raise FragmentError(
+                    "Fragment Fragment Id: %d != Expected Fragment Id: %d"
+                    % (frag.fragment_id, self.incoming_fragment_id)
+                )
 
-            if fragment.start and fragment.end:
-                fragments.append(fragment.data)
+            if frag.start and frag.end:
+                fragments.append(frag.data)
                 self.incoming_object_id += 1
                 self.incoming_fragment_id = 0
-            elif fragment.start:
-                self.incoming_buffer = fragment.data
+            elif frag.start:
+                self.incoming_buffer = frag.data
                 self.incoming_fragment_id += 1
-            elif fragment.end:
-                fragments.append(self.incoming_buffer + fragment.data)
+            elif frag.end:
+                fragments.append(self.incoming_buffer + frag.data)
                 self.incoming_buffer = b""
                 self.incoming_object_id += 1
                 self.incoming_fragment_id = 0
             else:
-                self.incoming_buffer += fragment.data
+                self.incoming_buffer += frag.data
                 self.incoming_fragment_id += 1
 
         messages = [Message.unpack(fragment, self.serializer)

@@ -111,7 +111,7 @@ def test_psrp_object():
         a = ""
         ps = PowerShell(runspace_pool)
         ps.add_cmdlet("Get-Service")
-        output = ps.invoke(raw_output=True)
+        output = ps.invoke()
     finally:
         runspace_pool.close()
 
