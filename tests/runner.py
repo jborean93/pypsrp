@@ -1,5 +1,3 @@
-# coding: utf-8
-
 import os
 import re
 import sys
@@ -58,7 +56,7 @@ class TransportFake(object):
                                  'responses/%s.yml' % test_name)
 
         if os.path.exists(meta_path):
-            with open(meta_path, 'r') as o:
+            with open(meta_path, 'rb') as o:
                 self._test_meta = yaml.load(o)
         else:
             raise Exception("Test metadata yml file does not exist at %s"
