@@ -53,9 +53,8 @@ class RunspacePool(object):
         self.id = str(uuid.uuid4()).upper()
         self.state = RunspacePoolState.BEFORE_OPEN
         self.wsman = wsman
-        self.shell = WinRS(wsman)
-        self.shell.resource_uri = "http://schemas.microsoft.com/powershell/" \
-                                  "Microsoft.PowerShell"
+        self.shell = WinRS(wsman, "http://schemas.microsoft.com/powershell/"
+                                  "Microsoft.PowerShell")
         self.ci_table = {}
         self.pipelines = {}
         self.session_key_timeout_ms = session_key_timeout_ms
@@ -363,7 +362,7 @@ class RunspacePool(object):
             Response: The return object of the response handler function for
                 the message type
         """
-        responses = self.shell._receive("stdout", command_id=id)[2]['stdout']
+        responses = self.shell.receive("stdout", command_id=id)[2]['stdout']
         messages = self._fragmenter.defragment(responses)
         pipeline = self.pipelines.get(id)
 
@@ -454,8 +453,6 @@ class PowerShell(object):
 
         This is meant to be a near representation of the
         System.Management.Automation.PowerShell .NET class
-        https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.powershell?view=powershellsdk-1.1.0
-        https://github.com/PowerShell/PowerShell/blob/master/src/System.Management.Automation/engine/hostifaces/PowerShell.cs
 
         :param runspace_pool: The RunspacePool that the PowerShell instance
             will run over

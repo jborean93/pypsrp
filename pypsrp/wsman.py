@@ -350,7 +350,8 @@ class WSMan(object):
 
         return header
 
-    def _parse_wsman_fault(self, xml_text):
+    @staticmethod
+    def _parse_wsman_fault(xml_text):
         xml = ET.fromstring(xml_text)
         code = None
         reason = None
@@ -427,10 +428,12 @@ class _WSManSet(object):
         self.values = []
 
     def __str__(self):
-        dict_object = {}
+        # can't just str({}) as the ordering is important
+        entry_values = []
         for value in self.values:
-            dict_object[value[0]] = value[1]
-        string_value = str(dict_object)
+            entry_values.append("'%s': '%s'" % (value[0], value[1]))
+
+        string_value = "{%s}" % ", ".join(entry_values)
         return string_value
 
     def add_option(self, name, value, attributes=None):
@@ -451,29 +454,14 @@ class _WSManSet(object):
 
         return element
 
-    def _unpack(self, data):
-        raise NotImplementedError()
-
 
 class OptionSet(_WSManSet):
 
     def __init__(self):
         super(OptionSet, self).__init__("OptionSet", "Option", True)
 
-    @staticmethod
-    def unpack(data):
-        option_set = OptionSet()
-        option_set._unpack(data)
-        return option_set
-
 
 class SelectorSet(_WSManSet):
 
     def __init__(self):
         super(SelectorSet, self).__init__("SelectorSet", "Selector", False)
-
-    @staticmethod
-    def unpack(data):
-        selector_set = SelectorSet()
-        selector_set._unpack(data)
-        return selector_set

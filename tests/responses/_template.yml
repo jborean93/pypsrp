@@ -1,0 +1,15 @@
+messages:
+# repeat as necessary, each message can be an actual message from a real
+# exchange, the test runner strips out any unique identifiers before
+# comparing
+- request: The XML message to validate against
+  response: The XML message to send back to the server
+  auth_error: yes  # no or omit if this message should not raise an AuthenticationError
+  transport_error:  # omit to not fire a WinRMTransportError in this message
+    protocol: http
+    code: 500
+  overrides:
+  - path: The path to the element, this is requirement
+    attributes:
+    - attribute1: attribute 1 value
+    text: The text of the element to override with

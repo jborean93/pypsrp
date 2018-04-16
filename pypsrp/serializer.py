@@ -4,6 +4,7 @@
 import base64
 import binascii
 import logging
+import re
 import sys
 import uuid
 
@@ -34,7 +35,7 @@ if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
     # ElementTree in Python 2.6 does not support namespaces so we need to use
     # lxml instead for this version
     from lxml import etree as ET
-    element_type = ET.ElementBase
+    element_type = ET._Element
 else:  # pragma: no cover
     import xml.etree.ElementTree as ET
     element_type = ET.Element
@@ -51,6 +52,24 @@ class Serializer(object):
         self.tn = {}
 
         self.cipher = None
+        # Finds C0, C1 and surrogate pairs in a unicode string for us to
+        # encode according to the PSRP rules
+        if sys.maxunicode == 65535:
+            # using a narrow Python build or Python 2.x, the regex we need to
+            # use to find surrogate pairs is different than a wide build or on
+            # Python 3
+            self._serial_str = re.compile(u"[\u0000-\u001F]|"
+                                          u"[\u007F-\u009F]|"
+                                          u"[\uD800-\uDBFF][\uDC00-\uDFFF]")
+        else:
+            self._serial_str = re.compile(u'[\u0000-\u001F'
+                                          u'\u007F-\u009F'
+                                          u'\U00010000-\U0010FFFF]')
+
+        # to support surrogate UTF-16 pairs we need to use a UTF-16 regex
+        # so we can replace the UTF-16 string representation with the actual
+        # UTF-16 byte value and then decode that
+        self._deserial_str = re.compile(b"\\x00_\\x00x([\0\w]{8})\\x00_")
 
     def serialize(self, value, metadata=None, parent=None, clear=True):
         """
@@ -122,7 +141,7 @@ class Serializer(object):
             element = ET.Element("Nil")
         else:
             element_value = pack_function(metadata, value)
-            if isinstance(element_value, str):
+            if isinstance(element_value, string_types):
                 element = ET.Element(metadata.tag)
                 element.text = element_value
             else:
@@ -442,6 +461,9 @@ class Serializer(object):
 
     def _serialize_lst(self, metadata, values, tag="LST"):
         obj = ET.Element("Obj", RefId=self._get_obj_id())
+        if not isinstance(metadata, ListMeta):
+            metadata = ListMeta(name=metadata.name,
+                                optional=metadata.optional)
         self._create_tn(obj, metadata.list_types)
 
         lst = ET.SubElement(obj, tag)
@@ -473,36 +495,24 @@ class Serializer(object):
         return obj
 
     def _serialize_string(self, value):
-        if sys.version_info[0] == 2:
-            unichr_func = unichr
-        else:
-            unichr_func = chr
+        if value is None:
+            return None
 
-        char_ranges = [
-            # C0 Control Chars - U+0000 - U+001F
-            (0, 32),
-            # C1 Control Chars - U+007F - U+009F
-            (127, 160),
-            # TODO: also encode UTF surrogate characters as well
-        ]
+        def rplcr(matchobj):
+            surrogate_char = matchobj.group(0)
+            byte_char = to_bytes(surrogate_char, encoding='utf-16-be')
+            hex_char = to_unicode(binascii.hexlify(byte_char)).upper()
+            hex_split = [hex_char[i:i + 4] for i in range(0, len(hex_char), 4)]
 
-        translation = {}
-        for char_range in char_ranges:
-            for i in range(char_range[0], char_range[1]):
-                utf_bytes = to_bytes(unichr_func(i), encoding='utf-16-be')
-                hex_string = binascii.hexlify(utf_bytes)
-                translation[i] = '_x%s_' % to_string(hex_string)
-
-        string_value = str(value)
+            return u"".join([u"_x%s_" % i for i in hex_split])
 
         # before running the translation we need to make sure _ before x is
         # encoded, normally _ isn't encoded except when preceding x
-        string_value = string_value.replace("_x", "_x005f_x")
+        string_value = to_unicode(value)
+        string_value = string_value.replace(u"_x", u"_x005F_x")
+        string_value = re.sub(self._serial_str, rplcr, string_value)
 
-        # now translate our string with the map provided
-        string_value = to_unicode(string_value).translate(translation)
-
-        return to_string(string_value)
+        return string_value
 
     def _serialize_secure_string(self, value):
         if self.cipher is None:
@@ -633,8 +643,28 @@ class Serializer(object):
         return dictionary
 
     def _deserialize_string(self, value):
-        # TODO: actually implement this
-        return value
+        if value is None:
+            return None
+
+        def rplcr(matchobj):
+            # The matched object is the UTF-16 byte representation of the UTF-8
+            # hex string value. We need to decode the byte str to unicode and
+            # then unhexlify that hex string to get the actual bytes of the
+            # _x****_ value, e.g.
+            # group(0) == b"\x00_\x00x\x000\x000\x000\x00A\x00_"
+            # group(1) == b"\x000\x000\x000\x00A"
+            # unicode (from utf-16-be) == u"000A"
+            # returns b"\x00\x0A"
+            match_hex = matchobj.group(1)
+            hex_string = to_unicode(match_hex, encoding='utf-16-be')
+            return binascii.unhexlify(hex_string)
+
+        # need to ensure we start with a unicode representation of the string
+        # so that we can get the actual UTF-16 bytes value from that string
+        unicode_value = to_unicode(value)
+        unicode_bytes = to_bytes(unicode_value, encoding='utf-16-be')
+        bytes_value = re.sub(self._deserial_str, rplcr, unicode_bytes)
+        return to_unicode(bytes_value, encoding='utf-16-be')
 
     def _deserialize_secure_string(self, value):
         if self.cipher is None:

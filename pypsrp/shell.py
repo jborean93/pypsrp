@@ -42,10 +42,10 @@ class SignalCode(object):
 
 class WinRS(object):
 
-    def __init__(self, wsman):
+    def __init__(self, wsman, resource_uri="http://schemas.microsoft.com/wbem/"
+                                           "wsman/1/windows/shell/cmd"):
         self.wsman = wsman
-        self.resource_uri = "http://schemas.microsoft.com/wbem/wsman/1/" \
-                            "windows/shell/cmd"
+        self.resource_uri = resource_uri
         self.shell_id = None
 
     def open(self, input_streams='stdin', output_streams='stdout stderr',
@@ -63,9 +63,9 @@ class WinRS(object):
         ET.SubElement(shell, "{%s}OutputStreams" % rsp).text = output_streams
         if environment is not None:
             env = ET.SubElement(shell, "{%s}Environment" % rsp)
-            for key, value in environment:
-                ET.SubElement(env, "{%s}Variable" % rsp, Name=key).text = \
-                    str(value)
+            for key, value in environment.items():
+                ET.SubElement(env, "{%s}Variable" % rsp,
+                              Name=str(key)).text = str(value)
 
         if idle_time_out is not None:
             ET.SubElement(shell, "{%s}IdleTimeOut" % rsp).text = \
@@ -116,7 +116,7 @@ class WinRS(object):
 
         while not done:
             try:
-                state, rc, buffer = self._receive("stdout stderr", command_id)
+                state, rc, buffer = self.receive("stdout stderr", command_id)
                 done = state == CommandState.DONE
                 stdout += buffer['stdout']
                 stderr += buffer['stderr']
@@ -132,7 +132,53 @@ class WinRS(object):
 
         return rc, stdout, stderr
 
-    def send_input(self, command_id, data, end=True):
+    def receive(self, desired_stream='stdout stderr', command_id=None):
+        rsp = NAMESPACES['rsp']
+
+        receive = ET.Element("{%s}Receive" % rsp)
+        stream = ET.SubElement(receive,
+                               "{%s}DesiredStream" % rsp)
+        stream.text = desired_stream
+        if command_id is not None:
+            stream.attrib['CommandId'] = command_id
+
+        options = OptionSet()
+        options.add_option('WSMAN_CMDSHELL_OPTION_KEEPALIVE', True)
+
+        response = self._invoke(self.wsman.receive, receive,
+                                options=options,
+                                shell_id=self.shell_id)
+
+        command_state = response.find("rsp:ReceiveResponse/"
+                                      "rsp:CommandState",
+                                      namespaces=NAMESPACES)
+        if command_state is not None:
+            command_state = command_state.attrib['State']
+
+        rc = response.find("rsp:ReceiveResponse/"
+                           "rsp:CommandState/"
+                           "rsp:ExitCode",
+                           namespaces=NAMESPACES)
+        if rc is not None:
+            rc = int(rc.text)
+
+        buffer = {}
+        for stream_name in desired_stream.split(" "):
+            buffer[stream_name] = b""
+        streams = response.findall("rsp:ReceiveResponse/"
+                                   "rsp:Stream",
+                                   namespaces=NAMESPACES)
+        for stream in streams:
+            if stream.text is None:
+                continue
+
+            stream_value = base64.b64decode(stream.text.encode('utf-8'))
+            stream_name = stream.attrib['Name']
+            buffer[stream_name] += stream_value
+
+        return command_state, rc, buffer
+
+    def send(self, command_id, data, end=True):
         self._send(data, command_id=command_id, end=end)
 
     def signal(self, code, command_id):
@@ -185,49 +231,3 @@ class WinRS(object):
         result = self._invoke(self.wsman.send, send, shell_id=self.shell_id)
 
         return result
-
-    def _receive(self, desired_stream, command_id=None):
-        rsp = NAMESPACES['rsp']
-
-        receive = ET.Element("{%s}Receive" % rsp)
-        stream = ET.SubElement(receive,
-                               "{%s}DesiredStream" % rsp)
-        stream.text = desired_stream
-        if command_id is not None:
-            stream.attrib['CommandId'] = command_id
-
-        options = OptionSet()
-        options.add_option('WSMAN_CMDSHELL_OPTION_KEEPALIVE', True)
-
-        response = self._invoke(self.wsman.receive, receive,
-                                options=options,
-                                shell_id=self.shell_id)
-
-        command_state = response.find("rsp:ReceiveResponse/"
-                                      "rsp:CommandState",
-                                      namespaces=NAMESPACES)
-        if command_state is not None:
-            command_state = command_state.attrib['State']
-
-        rc = response.find("rsp:ReceiveResponse/"
-                           "rsp:CommandState/"
-                           "rsp:ExitCode",
-                           namespaces=NAMESPACES)
-        if rc is not None:
-            rc = int(rc.text)
-
-        buffer = {}
-        for stream_name in desired_stream.split(" "):
-            buffer[stream_name] = b""
-        streams = response.findall("rsp:ReceiveResponse/"
-                                   "rsp:Stream",
-                                   namespaces=NAMESPACES)
-        for stream in streams:
-            if stream.text is None:
-                continue
-
-            stream_value = base64.b64decode(stream.text.encode('utf-8'))
-            stream_name = stream.attrib['Name']
-            buffer[stream_name] += stream_value
-
-        return command_state, rc, buffer

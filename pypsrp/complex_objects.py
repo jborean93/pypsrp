@@ -1,6 +1,8 @@
 # Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
+from copy import deepcopy
+
 
 class ObjectMeta(object):
 
@@ -402,14 +404,6 @@ class Pipeline(ComplexObject):
         def __init__(self, cmd_types, cmds):
             # Used to encapsulate ExtraCmds in the structure required
             super(Pipeline._ExtraCmds, self).__init__()
-            cmd_types = [
-                "System.Collections.Generic.List`1[["
-                "System.Management.Automation.PSObject, "
-                "System.Management.Automation, "
-                "Version=1.0.0.0, Culture=neutral, "
-                "PublicKeyToken=31bf3856ad364e35]]",
-                "System.Object",
-            ]
             self._extended_properties = (
                 ('cmds', ListMeta(
                     name="Cmds",
@@ -499,7 +493,10 @@ class Pipeline(ComplexObject):
         # set the last command to be the end of the statement
         self.commands[-1].end_of_statement = True
         for command in self.commands:
-            current_statement.append(command)
+            # need to use deepcopy as the values can be appended to multiple
+            # parents and in lxml that removes it from the original parent,
+            # whereas this will create a copy of the statement for each parent
+            current_statement.append(deepcopy(command))
             if command.end_of_statement:
                 statements.append(current_statement)
                 current_statement = []
