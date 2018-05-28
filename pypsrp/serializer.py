@@ -8,6 +8,7 @@ import re
 import sys
 import uuid
 
+from cryptography.hazmat.primitives.padding import PKCS7
 from six import string_types
 
 from pypsrp.complex_objects import ApartmentState, Color, Coordinates, \
@@ -19,12 +20,6 @@ from pypsrp.exceptions import SerializationError
 from pypsrp.messages import DebugRecord, ErrorRecord, InformationRecord, \
     VerboseRecord, WarningRecord
 from pypsrp._utils import to_bytes, to_string, to_unicode
-
-try:
-    # used for Secure Strings and is an optional import with this library
-    from cryptography.hazmat.primitives.padding import PKCS7
-except ImportError:
-    pass
 
 try:
     from queue import Queue, Empty
@@ -211,10 +206,6 @@ class Serializer(object):
 
         # not a primitive object, so try and decode the complex object
         if metadata.object is None:
-            # TODO: Handle something like
-            # System.Collections.Generic.List`1[[System.String, mscorlib,
-            # Version=4.0.0.0, Culture=neutral,
-            # PublicKeyToken=b77a5c561934e089]]
             structures = {
                 "System.Array": ListMeta(),
                 "System.Management.Automation.DebugRecord":
@@ -248,6 +239,7 @@ class Serializer(object):
                 "System.Management.Automation.WarningRecord":
                     ObjectMeta("Obj", object=WarningRecord),
                 "System.Collections.Hashtable": DictionaryMeta(),
+                "System.Collections.Generic.List": ListMeta(),
                 "System.Collections.Queue": QueueMeta(),
                 "System.Collections.Stack": StackMeta(),
                 "System.ConsoleColor": ObjectMeta("Obj", object=Color),
@@ -286,6 +278,12 @@ class Serializer(object):
                 is_list = False
                 if obj_type.endswith("[]"):
                     obj_type = obj_type[0:-2]
+                    is_list = True
+                elif obj_type.startswith("System.Collections."
+                                         "Generic.List`1[["):
+                    list_info = obj_type[35:-1]
+                    obj_type = list_info.split(",")[0]
+                    obj_type = obj_type
                     is_list = True
 
                 obj_meta = structures.get(obj_type)
@@ -405,23 +403,23 @@ class Serializer(object):
             ET.SubElement(obj, "ToString").text = \
                 self._serialize_string(value.to_string)
 
-        for key, property in value.property_sets.items():
+        for key, prop in value.property_sets.items():
             metadata = ObjectMeta(name=key)
-            self.serialize(property, metadata=metadata, parent=obj,
+            self.serialize(prop, metadata=metadata, parent=obj,
                            clear=False)
 
         if len(value.extended_properties.keys()) > 0:
             ms = ET.SubElement(obj, "MS")
-            for key, property in value.extended_properties.items():
+            for key, prop in value.extended_properties.items():
                 metadata = ObjectMeta(name=key)
-                self.serialize(property, metadata=metadata, parent=ms,
+                self.serialize(prop, metadata=metadata, parent=ms,
                                clear=False)
 
         if len(value.adapted_properties.keys()) > 0:
             props = ET.SubElement(obj, "Props")
-            for key, property in value.adapted_properties.items():
+            for key, prop in value.adapted_properties.items():
                 metadata = ObjectMeta(name=key)
-                self.serialize(property, metadata=metadata, parent=props,
+                self.serialize(prop, metadata=metadata, parent=props,
                                clear=False)
 
         return obj
@@ -574,39 +572,39 @@ class Serializer(object):
     def _deserialize_dynamic_obj(self, element, metadata):
         obj = metadata.object()
 
-        for property in element:
+        for obj_property in element:
             # TODO: what if TNRef is used instead
-            if property.tag == "TN":
-                for type in property:
-                    obj.types.append(type.text)
-            elif property.tag == "Props":
-                for adapted_property in property:
+            if obj_property.tag == "TN":
+                for obj_type in obj_property:
+                    obj.types.append(obj_type.text)
+            elif obj_property.tag == "Props":
+                for adapted_property in obj_property:
                     key = adapted_property.attrib['N']
                     value = self.deserialize(adapted_property, clear=False)
                     obj.adapted_properties[key] = value
-            elif property.tag == "MS":
-                for extended_property in property:
+            elif obj_property.tag == "MS":
+                for extended_property in obj_property:
                     key = extended_property.attrib['N']
                     value = self.deserialize(extended_property, clear=False)
                     obj.extended_properties[key] = value
-            elif property.tag == "ToString":
-                value = self.deserialize(property, clear=False)
+            elif obj_property.tag == "ToString":
+                value = self.deserialize(obj_property, clear=False)
                 obj.to_string = value
             else:
-                value = self.deserialize(property, clear=False)
+                value = self.deserialize(obj_property, clear=False)
                 obj.property_sets.append(value)
 
         return obj
 
     def _deserialize_lst(self, element):
-        list = []
+        list_value = []
 
         entries = element.find("LST")
         for entry in entries:
             entry_value = self.deserialize(entry, clear=False)
-            list.append(entry_value)
+            list_value.append(entry_value)
 
-        return list
+        return list_value
 
     def _deserialize_que(self, element):
         queue = Queue()
@@ -722,7 +720,7 @@ class Serializer(object):
             self.tn[main_type] = ref_id
 
             tn = ET.SubElement(parent, "TN", RefId=str(ref_id))
-            for type in types:
-                ET.SubElement(tn, "T").text = type
+            for type_name in types:
+                ET.SubElement(tn, "T").text = type_name
         else:
             ET.SubElement(parent, "TNRef", RefId=str(ref_id))

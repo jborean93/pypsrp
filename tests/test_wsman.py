@@ -86,6 +86,16 @@ class TestWSMan(object):
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
 
+    def test_invoke_connect(self, monkeypatch):
+        def mockuuid():
+            return uuid.UUID("00000000-0000-0000-0000-000000000000")
+        monkeypatch.setattr(uuid, 'uuid4', mockuuid)
+
+        wsman = WSMan(_TransportTest(WSManAction.CONNECT))
+        actual = wsman.connect("", None)
+        assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
+        assert actual.text == "body"
+
     def test_invoke_create(self, monkeypatch):
         def mockuuid():
             return uuid.UUID("00000000-0000-0000-0000-000000000000")
@@ -103,6 +113,16 @@ class TestWSMan(object):
 
         wsman = WSMan(_TransportTest(WSManAction.DISCONNECT))
         actual = wsman.disconnect("", None)
+        assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
+        assert actual.text == "body"
+
+    def test_invoke_enumerate(self, monkeypatch):
+        def mockuuid():
+            return uuid.UUID("00000000-0000-0000-0000-000000000000")
+        monkeypatch.setattr(uuid, 'uuid4', mockuuid)
+
+        wsman = WSMan(_TransportTest(WSManAction.ENUMERATE))
+        actual = wsman.enumerate("", None)
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
 
@@ -359,6 +379,45 @@ class TestWSMan(object):
             "The Windows Remote Shell cannot process the request. The SOAP " \
             "packet contains an element Argument that is invalid. Retry the " \
             "request with the correct XML element."
+
+    @pytest.mark.parametrize('winrm_transport',
+                             # we just want to validate against different env
+                             # set on a server
+                             [[False, 'test_wsman_update_envelope_size_150']],
+                             indirect=True)
+    def test_wsman_update_envelope_size_150(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+        wsman.update_max_payload_size()
+        assert wsman.max_envelope_size == 153600
+        # this next value is dependent on a lot of things such as python
+        # version and rounding differences, we will just assert against a range
+        assert 113574 <= wsman._max_payload_size <= 113952
+
+    @pytest.mark.parametrize('winrm_transport',
+                             # we just want to validate against different env
+                             # set on a server
+                             [[False, 'test_wsman_update_envelope_size_500']],
+                             indirect=True)
+    def test_wsman_update_envelope_size_500(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+        wsman.update_max_payload_size()
+        assert wsman.max_envelope_size == 512000
+        # this next value is dependent on a lot of things such as python
+        # version and rounding differences, we will just assert against a range
+        assert 382374 <= wsman._max_payload_size <= 382752
+
+    @pytest.mark.parametrize('winrm_transport',
+                             # we just want to validate against different env
+                             # set on a server
+                             [[False, 'test_wsman_update_envelope_size_4096']],
+                             indirect=True)
+    def test_wsman_update_envelope_size_4096(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+        wsman.update_max_payload_size()
+        assert wsman.max_envelope_size == 4194304
+        # this next value is dependent on a lot of things such as python
+        # version and rounding differences, we will just assert against a range
+        assert 3144102 <= wsman._max_payload_size <= 3144480
 
 
 class TestOptionSet(object):

@@ -1,5 +1,3 @@
-import re
-
 from six import PY3, text_type, binary_type
 
 
@@ -35,7 +33,7 @@ Python 2 and 3 handle native strings differently, 2 is like a byte string while
 3 uses unicode as the native string. The function to_string is used to easily
 convert an existing string like object to the native version that is required
 """
-if PY3:
+if PY3:  # pragma: no cover
     to_string = to_unicode
-else:
+else:  # pragma: no cover
     to_string = to_bytes

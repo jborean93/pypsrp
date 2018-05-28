@@ -17,6 +17,7 @@ setup(
     version='0.0.1',
     packages=['pypsrp'],
     install_requires=[
+        'cryptography',
         'requests',
         'six',
     ],
@@ -24,9 +25,6 @@ setup(
         ':python_version<"2.7"': [
             'lxml',
         ],
-        'crypto': [
-            'cryptography',
-        ]
     },
     author='Jordan Borean',
     author_email='jborean93@gmail.com',

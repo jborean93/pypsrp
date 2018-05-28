@@ -11,5 +11,5 @@ messages:
   overrides:
   - path: The path to the element, this is requirement
     attributes:
-    - attribute1: attribute 1 value
+      attribute1: attribute 1 value
     text: The text of the element to override with

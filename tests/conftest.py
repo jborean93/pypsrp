@@ -1,5 +1,7 @@
+import base64
 import os
 import re
+import struct
 import sys
 import uuid
 import yaml
@@ -9,7 +11,7 @@ import pytest
 from pypsrp.exceptions import AuthenticationError, WinRMTransportError
 from pypsrp.transport import TransportHTTP
 from pypsrp.wsman import NAMESPACES
-from pypsrp._utils import to_bytes, to_string, to_unicode
+from pypsrp._utils import to_bytes, to_string
 
 import xml.etree.ElementTree as ETNew
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
@@ -62,8 +64,18 @@ class TransportFake(object):
             raise Exception("Test metadata yml file does not exist at %s"
                             % meta_path)
 
+        # override the messages used if a particular python version is set
+        # lxml serializes messages a bit differently which is quite
+        # problemtatic for the PSRP messages embeded in the WSMAN bodies
+        current_version = "%s%s" % (sys.version_info[0], sys.version_info[1])
+        node_entries = self._test_meta.keys()
+        if "messages-py%s" % current_version in node_entries:
+            self._test_messages = "messages-py%s" % current_version
+        else:
+            self._test_messages = "messages"
+
     def send(self, message):
-        current_msg = self._test_meta['messages'][self._msg_counter]
+        current_msg = self._test_meta[self._test_messages][self._msg_counter]
         message = self._normalise_xml(message, generify=False)
         request = self._normalise_xml(
             current_msg['request'],
@@ -112,6 +124,39 @@ class TransportFake(object):
                 attributes = override.get('attributes', {})
                 for attr_key, attr_value in attributes.items():
                     override_element.attrib[attr_key] = attr_value
+
+            # PSRP messages contain the runspace and pipeline ID that is
+            # base64 encoded, this needs to be converted back to \x00 * 16
+            # for mock test
+            creation_xml = xml_obj.find("s:Body/rsp:Shell/{http://schemas."
+                                        "microsoft.com/powershell}creationXml",
+                                        NAMESPACES)
+            if creation_xml is not None:
+                self._generify_fragment(creation_xml)
+
+            connect_xml = xml_obj.find("s:Body/rsp:Connect/pwsh:connectXml",
+                                       NAMESPACES)
+            if connect_xml is not None:
+                self._generify_fragment(connect_xml)
+
+            # when resource uri is PowerShell we know the Send/Command messages
+            # contain PSRP fragments and we need to generify them
+            exp_res_uri = "http://schemas.microsoft.com/powershell/Microsoft." \
+                          "PowerShell"
+            res_uri = \
+                xml_obj.find("s:Header/wsman:ResourceURI", NAMESPACES)
+            if res_uri is not None:
+                res_uri = res_uri.text
+
+            streams = xml_obj.findall("s:Body/rsp:Send/rsp:Stream", NAMESPACES)
+            if res_uri == exp_res_uri and len(streams) > 0:
+                for stream in streams:
+                    self._generify_fragment(stream)
+
+            command = xml_obj.find("s:Body/rsp:CommandLine/rsp:Arguments",
+                                   NAMESPACES)
+            if res_uri == exp_res_uri and command is not None:
+                self._generify_fragment(command)
         else:
             xml_obj = ET.fromstring(to_bytes(xml))
 
@@ -152,6 +197,24 @@ class TransportFake(object):
 
         return new_element
 
+    def _generify_fragment(self, element):
+        f_data = base64.b64decode(element.text)
+        new_value = b""
+        while len(new_value) != len(f_data):
+            idx = len(new_value)
+            length = struct.unpack(">I", f_data[idx + 17:idx + 21])[0]
+            start_end_byte = \
+                struct.unpack("B", f_data[idx + 16:idx + 17])[0]
+            start = start_end_byte & 0x1 == 0x1
+            m_data = f_data[idx + 21:idx + length + 21]
+
+            if start:
+                # replace the pid and rpid with \x00 * 16
+                m_data = m_data[0:8] + b"\x00" * 32 + m_data[40:]
+
+            new_value += f_data[idx:idx + 21] + m_data
+        element.text = base64.b64encode(new_value).decode('utf-8')
+
 
 @pytest.fixture(scope='module')
 def winrm_transport(request, monkeypatch):
@@ -170,7 +233,7 @@ def winrm_transport(request, monkeypatch):
 
     # these are optional vars that can further control the transport setup
     auth = os.environ.get('PYPSRP_AUTH', 'basic')
-    port = int(os.environ.get('PYPSRP_PORT', '5985'))
+    port = int(os.environ.get('PYPSRP_PORT', '5986'))
     ssl = port != 5985
 
     if allow_real and username is not None and password is not None and \
@@ -184,4 +247,11 @@ def winrm_transport(request, monkeypatch):
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
         transport = TransportFake(test_name, "fakehost", port, "username",
                                   "password", ssl, "wsman", auth)
-    return transport
+    yield transport
+
+    # used as an easy way to be results for a test, requires the _test_messages
+    # to be uncommented in pypsrp/transport.py
+    test_messages = getattr(transport, '_test_messages', None)
+    if test_messages is not None:
+        print(yaml.dump({"messages": test_messages}, default_flow_style=False,
+                        width=9999))

@@ -28,16 +28,26 @@ class TransportHTTP(object):
                  % self.endpoint)
         self.session = None
 
+        # used when building tests, keep commented out
+        self._test_messages = []
+
     def send(self, message):
         if self.session is None:
             self.session = self._build_session()
 
         log.debug("Sending message: %s" % message)
+
+        # for testing, keep commented out
+        self._test_messages.append({"request": message.decode('utf-8'),
+                                    "response": None})
         request = requests.Request('POST', self.endpoint, data=message)
         prep_request = self.session.prepare_request(request)
 
         response = self.session.send(prep_request)
         response_text = response.text if response.content else ''
+
+        # for testing, keep commented out
+        self._test_messages[-1]['response'] = response_text
         log.debug("Received message: %s" % response_text)
         try:
             response.raise_for_status()

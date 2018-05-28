@@ -96,12 +96,15 @@ class Message(object):
 
     def pack(self):
         if self.message_type == MessageType.PUBLIC_KEY_REQUEST:
-            # PUBLIC_KEY_REQUEST is special and isn't an object
-            message_data = b"<S></S>"
+            message_data = ET.Element("S")
         elif self.message_type == MessageType.END_OF_PIPELINE_INPUT:
             message_data = b""
         elif self.message_type == MessageType.PIPELINE_INPUT:
             message_data = self._serializer.serialize(self.data.data)
+        elif self.message_type == MessageType.CONNECT_RUNSPACEPOOL and \
+                (self.data.min_runspaces is None and
+                 self.data.max_runspaces is None):
+            message_data = ET.Element("S")
         else:
             message_data = self._serializer.serialize(self.data)
 
@@ -796,14 +799,9 @@ class ConnectRunspacePool(ComplexObject):
                                          optional=True)),
             ('max_runspaces', ObjectMeta("I32", name="MaxRunspaces",
                                          optional=True)),
-            ('_default_data', ObjectMeta("S", optional=True)),
         )
         self.min_runspaces = min_runspaces
         self.max_runspaces = max_runspaces
-        if min_runspaces is None and max_runspaces is None:
-            self._default_data = ""
-        else:
-            self._default_data = None
 
 
 class RunspacePoolInitData(ComplexObject):

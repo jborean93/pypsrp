@@ -7,30 +7,21 @@ import struct
 import sys
 import uuid
 
-from random import randint
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
 
 from pypsrp.complex_objects import ApartmentState, Command, \
     CommandParameter, HostInfo, Pipeline, PSInvocationState, PSThreadOptions, \
     RemoteStreamOptions, RunspacePoolState
 from pypsrp.exceptions import FragmentError, InvalidPipelineStateError, \
     InvalidPSRPOperation, InvalidRunspacePoolStateError
-from pypsrp.messages import CreatePipeline, Destination, \
+from pypsrp.messages import ConnectRunspacePool, CreatePipeline, Destination, \
     GetAvailableRunspaces, InitRunspacePool, Message, MessageType, PublicKey, \
     SessionCapability, SetMaxRunspaces, SetMinRunspaces
 from pypsrp.serializer import Serializer
-from pypsrp.shell import SignalCode, WinRS
+from pypsrp.shell import Process, SignalCode, WinRS
 from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet
-
-HAS_CRYPTO = False
-CRYPTO_IMP_ERR = None
-try:
-    from cryptography.hazmat.primitives.asymmetric import rsa, padding
-    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, \
-        modes
-    from cryptography.hazmat.backends import default_backend
-    HAS_CRYPTO = True
-except ImportError as ie:
-    CRYPTO_IMP_ERR = ie
 
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
     # ElementTree in Python 2.6 does not support namespaces so we need to use
@@ -40,6 +31,10 @@ else:  # pragma: no cover
     import xml.etree.ElementTree as ET
 
 log = logging.getLogger(__name__)
+
+PROTOCOL_VERSION = "2.3"
+PS_VERSION = "2.0"
+SERIALIZATION_VERSION = "1.1.0.1"
 
 
 class RunspacePool(object):
@@ -53,8 +48,9 @@ class RunspacePool(object):
         self.id = str(uuid.uuid4()).upper()
         self.state = RunspacePoolState.BEFORE_OPEN
         self.wsman = wsman
-        self.shell = WinRS(wsman, "http://schemas.microsoft.com/powershell/"
-                                  "Microsoft.PowerShell")
+        resuri = "http://schemas.microsoft.com/powershell/Microsoft.PowerShell"
+        self.shell = WinRS(wsman, resource_uri=resuri, id=self.id,
+                           input_streams='stdin pr', output_streams='stdout')
         self.ci_table = {}
         self.pipelines = {}
         self.session_key_timeout_ms = session_key_timeout_ms
@@ -73,12 +69,13 @@ class RunspacePool(object):
                                       self._serializer)
         self._exchange_key = None
         self._key_exchanged = False
+        self._new_client = False
+        self._ci_counter = 0
 
     @property
     def application_private_data(self):
         """
         Private data to be used by applications built on top of PowerShell.
-
         Runspace data is gathered when creating the remote runspace pool and
         will be None if the runspace is not connected.
         """
@@ -103,18 +100,21 @@ class RunspacePool(object):
             return
 
         def response_handler(response):
-            self._min_runspaces = response
+            if not response:
+                raise InvalidPSRPOperation("Failed to set minimum runspaces")
             return response
 
-        ci = randint(1, 9223372036854775807)
+        ci = self._ci_counter
+        self._ci_counter += 1
         self.ci_table[ci] = response_handler
 
         set_min_runspace = SetMinRunspaces(min_runspaces=min_runspaces, ci=ci)
         data = self._fragmenter.fragment(set_min_runspace, self.id)[0]
-        self.shell._send(data, name='stdin')
+        self.shell.send('stdin', data)
 
         while not isinstance(self.ci_table[ci], bool):
             self._receive()
+        self._min_runspaces = min_runspaces
         del self.ci_table[ci]
 
     @property
@@ -137,19 +137,29 @@ class RunspacePool(object):
             return
 
         def response_handler(response):
-            self._max_runspaces = response
+            if not response:
+                raise InvalidPSRPOperation("Failed to set maximum runspaces")
             return response
 
-        ci = randint(1, 9223372036854775807)
+        ci = self._ci_counter
+        self._ci_counter += 1
         self.ci_table[ci] = response_handler
 
         set_max_runspace = SetMaxRunspaces(max_runspaces=max_runspaces, ci=ci)
         data = self._fragmenter.fragment(set_max_runspace, self.id)[0]
-        self.shell._send(data, name='stdin')
+        self.shell.send('stdin', data)
 
         while not isinstance(self.ci_table[ci], bool):
             self._receive()
+        self._max_runspaces = max_runspaces
         del self.ci_table[ci]
+
+    def __enter__(self):
+        self.open()
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
 
     def close(self):
         """
@@ -167,7 +177,7 @@ class RunspacePool(object):
 
     def connect(self):
         """
-        Connects the runspaace pool, Runspace pool must be in a disconnected
+        Connects the runspace pool, Runspace pool must be in a disconnected
         state. This only supports reconnecting to a runspace pool created by
         the same client with the same SessionId value in the WSMan headers.
         """
@@ -179,12 +189,62 @@ class RunspacePool(object):
                 "connect to a disconnected Runspace Pool"
             )
 
+        if self._new_client:
+            self._connect_new_client()
+            self._new_client = False
+        else:
+            self._connect_existing_client()
+
+    def _connect_existing_client(self):
         selector_set = SelectorSet()
-        selector_set.add_option("ShellId", self.shell.shell_id)
+        selector_set.add_option("ShellId", self.shell.id)
 
         self.wsman.reconnect(self.shell.resource_uri,
                              selector_set=selector_set)
         self.state = RunspacePoolState.OPENED
+
+    def _connect_new_client(self):
+        rsp = NAMESPACES['rsp']
+        session_capability = SessionCapability(PROTOCOL_VERSION, PS_VERSION,
+                                               SERIALIZATION_VERSION)
+        connect_runspace = ConnectRunspacePool()
+        data = self._fragmenter.fragment(session_capability, self.id)[0]
+        data += self._fragmenter.fragment(connect_runspace, self.id)[0]
+
+        connect = ET.Element("{%s}Connect" % rsp)
+        selectors = SelectorSet()
+        selectors.add_option("ShellId", self.id)
+
+        options = OptionSet()
+        options.add_option("protocolversion", PROTOCOL_VERSION,
+                           {"MustComply": "true"})
+
+        open_content = ET.SubElement(connect, "connectXml",
+                                     xmlns="http://schemas.microsoft.com/"
+                                           "powershell")
+        open_content.text = base64.b64encode(data).decode('utf-8')
+
+        response = self.wsman.connect(self.shell.resource_uri, connect,
+                                      options, selectors)
+        response_xml = response.find("rsp:ConnectResponse/"
+                                     "pwsh:connectResponseXml",
+                                     NAMESPACES).text
+        fragments = base64.b64decode(response_xml)
+
+        # The first reconnect messages on a connect contains the original
+        # session's fragmenter Object ID. We need to manually handle this
+        # when parsing these first messages
+        object_id = struct.unpack(">I", fragments[4:8])[0]
+        self._fragmenter.incoming_object_id = object_id
+        self._fragmenter.outgoing_object_id = object_id + 1
+        self._parse_responses(fragments)
+
+        # Now we are connected we need to change the Object ID back to what it
+        # should be for this reconnected session
+        self._fragmenter.incoming_object_id = 3
+        self._fragmenter.outgoing_object_id = 4
+        self.shell.id = self.id  # need to sync up the ShellID with the rs ID
+        self._receive()
 
     def create_disconnected_power_shells(self):
         """
@@ -210,7 +270,7 @@ class RunspacePool(object):
 
         disconnect = ET.Element("{%s}Disconnect" % NAMESPACES['rsp'])
         selector_set = SelectorSet()
-        selector_set.add_option("ShellId", self.shell.shell_id)
+        selector_set.add_option("ShellId", self.shell.id)
 
         self.wsman.disconnect(self.shell.resource_uri, disconnect,
                               selector_set=selector_set)
@@ -227,12 +287,13 @@ class RunspacePool(object):
             self._max_runspaces = response
             return response
 
-        ci = randint(1, 9223372036854775807)
+        ci = self._ci_counter
+        self._ci_counter += 1
         self.ci_table[ci] = response_handler
 
         get_runspaces = GetAvailableRunspaces(ci=ci)
         data = self._fragmenter.fragment(get_runspaces, self.id)[0]
-        self.shell._send(data, name='stdin')
+        self.shell.send('stdin', data)
 
         avail_runspaces = None
         while avail_runspaces is None:
@@ -244,7 +305,7 @@ class RunspacePool(object):
         return avail_runspaces
 
     @staticmethod
-    def get_runspace_pools(connection_info, host, type_table):
+    def get_runspace_pools(wsman):
         """
         Queries the server for disconnected runspace pools and creates a list
         of runspace pool objects associated with each disconnected runspace
@@ -252,12 +313,65 @@ class RunspacePool(object):
         in the Disconnected state and can be connected to the server by calling
         the connect() method on the runspace pool.
 
-        :param connection_info: Connection object for the target server
-        :param host: Client host object
-        :param type_table: TypeTable object
+        :param wsman: The WSMan instance that is used to transport the messages
+            to the server
         :return: List<RunspacePool> objects each in the Disconnected state
         """
-        raise NotImplementedError()
+        wsen = NAMESPACES['wsen']
+        wsmn = NAMESPACES['wsman']
+
+        enum_msg = ET.Element("{%s}Enumerate" % wsen)
+        ET.SubElement(enum_msg, "{%s}OptimizeEnumeration" % wsmn)
+        ET.SubElement(enum_msg, "{%s}MaxElements" % wsmn).text = "32000"
+
+        # TODO: support wsman:EndOfSequence
+        response = wsman.enumerate("http://schemas.microsoft.com/wbem/wsman/1/"
+                                   "windows/shell", enum_msg)
+        shells = response.findall("wsen:EnumerateResponse/"
+                                  "wsman:Items/"
+                                  "rsp:Shell", NAMESPACES)
+
+        runspace_pools = []
+        for shell in shells:
+            shell_id = shell.find("rsp:ShellId", NAMESPACES).text
+            pool = RunspacePool(wsman)
+            pool.id = shell_id
+            pool.shell.shell_id = shell_id
+            pool._new_client = True
+
+            # Seems like the server sends all pools not just disconnected but
+            # the .NET API always sets the state to Disconnected when callling
+            # GetRunspacePools
+            pool.state = RunspacePoolState.DISCONNECTED
+
+            enum_msg = ET.Element("{%s}Enumerate" % wsen)
+            ET.SubElement(enum_msg, "{%s}OptimizeEnumeration" % wsmn)
+            ET.SubElement(enum_msg, "{%s}MaxElements" % wsmn).text = "32000"
+            filter = ET.SubElement(enum_msg, "{%s}Filter" % wsmn,
+                                   Dialect="http://schemas.dmtf.org/wbem/wsman"
+                                           "/1/wsman/SelectorFilter")
+            selector_set = SelectorSet()
+            selector_set.add_option("ShellId", shell_id)
+            filter.append(selector_set.pack())
+
+            response = wsman.enumerate("http://schemas.microsoft.com/wbem/"
+                                       "wsman/1/windows/shell/Command",
+                                       enum_msg)
+            commands = response.findall("wsen:EnumerateResponse/"
+                                        "wsman:Items/"
+                                        "rsp:Command", NAMESPACES)
+            pipelines = []
+            for command in commands:
+                command_id = command.find("rsp:CommandId", NAMESPACES).text
+
+                powershell = PowerShell(pool)
+                powershell.id = command_id
+                powershell.state = PSInvocationState.DISCONNECTED
+                pipelines.append(powershell)
+
+            pool.piplines = pipelines
+            runspace_pools.append(pool)
+        return runspace_pools
 
     def open(self):
         """
@@ -272,8 +386,8 @@ class RunspacePool(object):
                 "open a new Runspace Pool"
             )
 
-        session_capability = SessionCapability("2.3", "2.0", "1.1.0.1")
-
+        session_capability = SessionCapability(PROTOCOL_VERSION, PS_VERSION,
+                                               SERIALIZATION_VERSION)
         init_runspace_pool = InitRunspacePool(
             self.min_runspaces, self.max_runspaces,
             PSThreadOptions(value=self.thread_options),
@@ -288,10 +402,9 @@ class RunspacePool(object):
         open_content.text = base64.b64encode(data).decode('utf-8')
 
         options = OptionSet()
-        options.add_option("protocolversion", "2.3", {"MustComply": "true"})
-        self.shell.open(input_streams='stdin pr', output_streams='stdout',
-                        shell_id=self.id, open_content=open_content,
-                        base_options=options)
+        options.add_option("protocolversion", PROTOCOL_VERSION,
+                           {"MustComply": "true"})
+        self.shell.open(options, open_content)
         self.state = RunspacePoolState.NEGOTIATION_SENT
 
         while self.state == RunspacePoolState.NEGOTIATION_SENT:
@@ -313,10 +426,7 @@ class RunspacePool(object):
         open and if the key has already been exchanged then nothing will
         happen.
         """
-        if not HAS_CRYPTO:
-            raise ImportError("Failed to import cryptography, cannot generate "
-                              "RSA key: %s" % str(CRYPTO_IMP_ERR))
-        elif self._key_exchanged or self._exchange_key is not None:
+        if self._key_exchanged or self._exchange_key is not None:
             # key is already exchanged or we are still in the processes of
             # exchanging it, no need to run again
             return
@@ -343,7 +453,7 @@ class RunspacePool(object):
         msg = PublicKey(public_key=public_key.decode('utf-8'))
         fragments = self._fragmenter.fragment(msg, self.id)
         for fragment in fragments:
-            self.shell._send(fragment)
+            self.shell.send('stdin', fragment)
 
         # TODO: set timer on this
         while not self._key_exchanged:
@@ -363,6 +473,9 @@ class RunspacePool(object):
                 the message type
         """
         responses = self.shell.receive("stdout", command_id=id)[2]['stdout']
+        return self._parse_responses(responses, id)
+
+    def _parse_responses(self, responses, id=None):
         messages = self._fragmenter.defragment(responses)
         pipeline = self.pipelines.get(id)
 
@@ -373,7 +486,8 @@ class RunspacePool(object):
             MessageType.ENCRYPTED_SESSION_KEY:
                 self._process_encrypted_session_key,
             MessageType.PUBLIC_KEY_REQUEST: self.exchange_keys,
-            MessageType.RUNSPACEPOOL_INIT_DATA: None,
+            MessageType.RUNSPACEPOOL_INIT_DATA:
+                self._process_runspacepool_init_data,
             MessageType.RUNSPACE_AVAILABILITY:
                 self._process_runspacepool_availability,
             MessageType.RUNSPACEPOOL_STATE: self._process_runspacepool_state,
@@ -411,9 +525,13 @@ class RunspacePool(object):
 
         return return_values
 
+    def _process_runspacepool_init_data(self, message):
+        self._min_runspaces = message.data.min_runspaces
+        self._max_runspaces = message.data.max_runspaces
+
     def _process_runspacepool_availability(self, message):
-        ci = message.ci
-        response = message.response
+        ci = message.data.ci
+        response = message.data.response
         ci_handler = self.ci_table[ci]
         response = ci_handler(response)
         self.ci_table[ci] = response
@@ -626,14 +744,14 @@ class PowerShell(object):
         )
 
         first_frag = base64.b64encode(fragments.pop(0)).decode('utf-8')
-        self.runspace_pool.shell._command('',
-                                          arguments=[first_frag],
-                                          command_id=self.id)
+        self.runspace_pool.shell.command('', arguments=[first_frag],
+                                         command_id=self.id)
         self.state = PSInvocationState.RUNNING
 
         # now send the remaining fragments with the send message
         for fragment in fragments:
-            self.runspace_pool.shell._send(fragment, command_id=self.id)
+            self.runspace_pool.shell.send('stdin', fragment,
+                                          command_id=self.id)
 
         output = []
         while self.state == PSInvocationState.RUNNING:

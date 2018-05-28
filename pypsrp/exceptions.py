@@ -1,7 +1,7 @@
 # Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
-from pypsrp.complex_objects import RunspacePoolState
+from pypsrp.complex_objects import PSInvocationState, RunspacePoolState
 
 
 class WinRMError(Exception):
@@ -100,6 +100,8 @@ class WSManFaultError(WinRMError):
 
 # PSRP Exceptions below
 class _InvalidStateError(WinRMError):
+    _STATE_OBJ = None
+
     @property
     def current_state(self):
         return self.args[0]
@@ -114,11 +116,11 @@ class _InvalidStateError(WinRMError):
 
     @property
     def message(self):
-        current_state = str(RunspacePoolState(self.current_state))
+        current_state = str(self._STATE_OBJ(self.current_state))
         expected_state = self.expected_state
         if not isinstance(expected_state, list):
             expected_state = [expected_state]
-        exp_state = [str(RunspacePoolState(s)) for s in expected_state]
+        exp_state = [str(self._STATE_OBJ(s)) for s in expected_state]
         return "Cannot '%s' on the current state '%s', expecting state(s): " \
                "'%s'" % (self.action, current_state, ", ".join(exp_state))
 
@@ -129,13 +131,13 @@ class _InvalidStateError(WinRMError):
 class InvalidRunspacePoolStateError(_InvalidStateError):
     # Used in PSRP when the state of a RunspacePool does not meet the required
     # state for the operation to run
-    pass
+    _STATE_OBJ = RunspacePoolState
 
 
 class InvalidPipelineStateError(_InvalidStateError):
     # Used in PSRP when teh state of a PowerShell Pipeline does not meet the
     # required state for the operation to run
-    pass
+    _STATE_OBJ = PSInvocationState
 
 
 class InvalidPSRPOperation(WinRMError):

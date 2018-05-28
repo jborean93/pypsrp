@@ -42,7 +42,8 @@ NAMESPACES = {
     "wsp": "http://schemas.xmlsoap.org/ws/2004/09/policy",
     "wse": "http://schemas.xmlsoap.org/ws/2004/08/eventing",
     "i": "http://schemas.microsoft.com/wbem/wsman/1/cim/interactive.xsd",
-    "xml": "http://www.w3.org/XML/1998/namespace"
+    "xml": "http://www.w3.org/XML/1998/namespace",
+    "pwsh": "http://schemas.microsoft.com/powershell",
 }
 
 
@@ -58,11 +59,17 @@ class WSManAction(object):
     DELETE = "http://schemas.xmlsoap.org/ws/2004/09/transfer/Delete"
     DELETE_RESPONSE = "http://schemas.xmlsoap.org/ws/2004/09/transfer/" \
                       "DeleteResponse"
+    ENUMERATE = "http://schemas.xmlsoap.org/ws/2004/09/enumeration/Enumerate"
+    ENUMERATE_RESPONSE = "http://schemas.xmlsoap.org/ws/2004/09/enumeration/" \
+                         "EnumerateResponse"
 
     # MS-WSMV URIs
     COMMAND = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command"
     COMMAND_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/windows/" \
                        "shell/CommandResponse"
+    CONNECT = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Connect"
+    CONNECT_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/windows/" \
+                       "shell/ConnectResponse"
     DISCONNECT = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/" \
                  "Disconnect"
     DISCONNECT_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/" \
@@ -137,6 +144,12 @@ class WSMan(object):
                                      option_set, selector_set)
         return self._invoke(header, resource)
 
+    def connect(self, resource_uri, resource, option_set=None,
+                selector_set=None):
+        header = self._create_header(WSManAction.CONNECT, resource_uri,
+                                     option_set, selector_set)
+        return self._invoke(header, resource)
+
     def create(self, resource_uri, resource, option_set=None,
                selector_set=None):
         header = self._create_header(WSManAction.CREATE, resource_uri,
@@ -152,6 +165,12 @@ class WSMan(object):
     def delete(self, resource_uri, resource=None, option_set=None,
                selector_set=None):
         header = self._create_header(WSManAction.DELETE, resource_uri,
+                                     option_set, selector_set)
+        return self._invoke(header, resource)
+
+    def enumerate(self, resource_uri, resource=None, option_set=None,
+                  selector_set=None):
+        header = self._create_header(WSManAction.ENUMERATE, resource_uri,
                                      option_set, selector_set)
         return self._invoke(header, resource)
 
@@ -198,6 +217,7 @@ class WSMan(object):
 
         server_max_size = int(max_size_kb) * 1024
         max_envelope_size = self._calc_envelope_size(server_max_size)
+        self.max_envelope_size = server_max_size
         self._max_payload_size = max_envelope_size
 
     def _invoke(self, header, resource):
