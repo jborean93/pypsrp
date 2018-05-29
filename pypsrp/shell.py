@@ -155,7 +155,7 @@ class WinRS(object):
 
         return response
 
-    def receive(self, stream='stdout stderr', command_id=None):
+    def receive(self, stream='stdout stderr', command_id=None, timeout=None):
         rsp = NAMESPACES['rsp']
 
         receive = ET.Element("{%s}Receive" % rsp)
@@ -170,7 +170,7 @@ class WinRS(object):
 
         response = self._invoke(self.wsman.receive, receive,
                                 options=options,
-                                id=self.id)
+                                id=self.id, timeout=timeout)
 
         command_state = response.find("rsp:ReceiveResponse/"
                                       "rsp:CommandState",
@@ -222,13 +222,15 @@ class WinRS(object):
         ET.SubElement(signal, "{%s}Code" % rsp).text = code
         return self._invoke(self.wsman.signal, signal, id=self.id)
 
-    def _invoke(self, function, resource=None, options=None, id=None):
+    def _invoke(self, function, resource=None, options=None, id=None,
+                timeout=None):
         selector_set = None
         if id is not None:
             selector_set = SelectorSet()
             selector_set.add_option('ShellId', id)
 
-        return function(self.resource_uri, resource, options, selector_set)
+        return function(self.resource_uri, resource, options, selector_set,
+                        timeout)
 
     def _parse_shell_create(self, response):
         fields = {
@@ -276,15 +278,15 @@ class Process(object):
         self.begin_invoke()
         self.end_invoke()
 
-    def poll_invoke(self):
+    def poll_invoke(self, timeout=None):
         try:
             self.state, self.rc, buffer = self.shell.receive('stdout stderr',
-                                                             self.id)
+                                                             self.id,
+                                                             timeout=timeout)
         except WSManFaultError as exc:
             # if a command exceeds the OperationTimeout set, we will get
             # a WSManFaultError with the code 2150858793. We ignore this
-            # and resend the Receive request as the process is still
-            # running
+            # as it just meant no output during that operation.
             if exc.code == 2150858793:
                 pass
             else:

@@ -184,6 +184,7 @@ class TestWinRS(object):
         wsman = WSMan(winrm_transport)
         with WinRS(wsman) as shell:
             shell.open()
+        shell.close()
 
     @pytest.mark.parametrize('winrm_transport',
                              [[True, 'test_winrs_fail_poll_process']],

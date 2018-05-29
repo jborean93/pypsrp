@@ -5,6 +5,7 @@ import base64
 import logging
 import struct
 import sys
+import time
 import uuid
 
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
@@ -20,7 +21,7 @@ from pypsrp.messages import ConnectRunspacePool, CreatePipeline, Destination, \
     GetAvailableRunspaces, InitRunspacePool, Message, MessageType, PublicKey, \
     SessionCapability, SetMaxRunspaces, SetMinRunspaces
 from pypsrp.serializer import Serializer
-from pypsrp.shell import Process, SignalCode, WinRS
+from pypsrp.shell import SignalCode, WinRS
 from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet
 
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
@@ -231,18 +232,7 @@ class RunspacePool(object):
                                      NAMESPACES).text
         fragments = base64.b64decode(response_xml)
 
-        # The first reconnect messages on a connect contains the original
-        # session's fragmenter Object ID. We need to manually handle this
-        # when parsing these first messages
-        object_id = struct.unpack(">I", fragments[4:8])[0]
-        self._fragmenter.incoming_object_id = object_id
-        self._fragmenter.outgoing_object_id = object_id + 1
         self._parse_responses(fragments)
-
-        # Now we are connected we need to change the Object ID back to what it
-        # should be for this reconnected session
-        self._fragmenter.incoming_object_id = 3
-        self._fragmenter.outgoing_object_id = 4
         self.shell.id = self.id  # need to sync up the ShellID with the rs ID
         self._receive()
 
@@ -254,7 +244,8 @@ class RunspacePool(object):
 
         :return: List<PowerShell>: List of disconnected PowerShell objects
         """
-        raise NotImplementedError()
+        return [s for s in self.pipelines.values() if
+                s.state == PSInvocationState.DISCONNECTED]
 
     def disconnect(self):
         """
@@ -275,6 +266,8 @@ class RunspacePool(object):
         self.wsman.disconnect(self.shell.resource_uri, disconnect,
                               selector_set=selector_set)
         self.state = RunspacePoolState.DISCONNECTED
+        for pipeline in self.pipelines.values():
+            pipeline.state = PSInvocationState.DISCONNECTED
 
     def get_available_runspaces(self):
         """
@@ -337,6 +330,7 @@ class RunspacePool(object):
             pool = RunspacePool(wsman)
             pool.id = shell_id
             pool.shell.shell_id = shell_id
+            pool.shell.opened = True
             pool._new_client = True
 
             # Seems like the server sends all pools not just disconnected but
@@ -360,16 +354,16 @@ class RunspacePool(object):
             commands = response.findall("wsen:EnumerateResponse/"
                                         "wsman:Items/"
                                         "rsp:Command", NAMESPACES)
-            pipelines = []
+            pipelines = {}
             for command in commands:
                 command_id = command.find("rsp:CommandId", NAMESPACES).text
 
                 powershell = PowerShell(pool)
                 powershell.id = command_id
                 powershell.state = PSInvocationState.DISCONNECTED
-                pipelines.append(powershell)
+                pipelines[powershell.id] = powershell
 
-            pool.piplines = pipelines
+            pool.pipelines = pipelines
             runspace_pools.append(pool)
         return runspace_pools
 
@@ -455,11 +449,31 @@ class RunspacePool(object):
         for fragment in fragments:
             self.shell.send('stdin', fragment)
 
-        # TODO: set timer on this
+        start = time.time()
         while not self._key_exchanged:
+            elapsed = int((time.time() - start) * 1000)
+            if elapsed > self.session_key_timeout_ms:
+                raise InvalidPSRPOperation("Timeout while waiting for key "
+                                           "exchange")
             self._receive()
 
-    def _receive(self, id=None):
+    def serialize(self, obj, metadata=None):
+        """
+        Serialize a Python object to PSRP object. This can try to automatically
+        serialize based on the Python type to the closest PSRP object but
+        manual coercion can be done with the metadata parameter.
+
+        :param obj: The Python object to serialize
+        :param metadata: complex_objects.ObjectMeta that defines the type of
+            object to serialize to, if omitted the obj will be serialized based
+            on the Python type
+        :return: An XML element that can be used as part of the PSRP input
+            elements like cmdlet parameters
+        """
+        # TODO: should I clear before or after?
+        return self._serializer.serialize(obj, metadata=metadata)
+
+    def _receive(self, id=None, timeout=None):
         """
         Sends a Receive WSMV request to the host and processes the messages
         that are received from the host (if there are any).
@@ -467,13 +481,16 @@ class RunspacePool(object):
         :param id: If the receive is targeted to a Pipeline then this should be
             the ID of that pipeline, if None then the receive is targeted to
             the RunspacePool
+        :param timeout: An override that specifies the operation timeout for
+            the receive command
         :return: List of tuples where each tuple is a tuple of
             MessageType: The Message ID of the response
             Response: The return object of the response handler function for
                 the message type
         """
-        responses = self.shell.receive("stdout", command_id=id)[2]['stdout']
-        return self._parse_responses(responses, id)
+        response = self.shell.receive("stdout", command_id=id,
+                                      timeout=timeout)[2]['stdout']
+        return self._parse_responses(response, id)
 
     def _parse_responses(self, responses, id=None):
         messages = self._fragmenter.defragment(responses)
@@ -579,11 +596,13 @@ class PowerShell(object):
         self.state = PSInvocationState.NOT_STARTED
 
         self.commands = PSCommand()
-        self.had_errors = None
+        self.had_errors = False
         self.history_string = None
         self.id = str(uuid.uuid4()).upper()
         self.is_nested = False
         self.streams = PSDataStreams()
+        self.output = []
+        self._from_disconnect = False
 
         runspace_pool.pipelines[self.id] = self
 
@@ -679,10 +698,36 @@ class PowerShell(object):
 
     def connect(self):
         """
-        Connects to a running command on a remote server
+        Connects to a running command on a remote server, waits until the
+        command is finished and returns the output objects.
+
         :return: Command output as a PSDataCollection
         """
-        raise NotImplementedError()
+        self.connect_async()
+        return self.end_invoke()
+
+    def connect_async(self):
+        """
+        Connects to a running command on a remote server, this method will
+        connect to the host but will not wait until the command is finished.
+        Call end_invoke() to wait until the process is complete.
+        """
+        if self.state != PSInvocationState.DISCONNECTED:
+            raise InvalidPipelineStateError(
+                self.state, PSInvocationState.DISCONNECTED,
+                "connect to a disconnect async pipeline"
+            )
+        rsp = NAMESPACES['rsp']
+
+        connect = ET.Element("{%s}Connect" % rsp, CommandId=self.id)
+        selectors = SelectorSet()
+        selectors.add_option("ShellId", self.runspace_pool.id)
+
+        self.runspace_pool.wsman.connect(self.runspace_pool.shell.resource_uri,
+                                         connect,
+                                         selector_set=selectors)
+        self.state = PSInvocationState.RUNNING
+        self._from_disconnect = True
 
     def create_nested_power_shell(self):
         """
@@ -697,20 +742,38 @@ class PowerShell(object):
 
         :return: The new nested PowerShell object
         """
-        raise NotImplementedError()
+        if self.state != PSInvocationState.RUNNING:
+            raise InvalidPipelineStateError(
+                self.state, PSInvocationState.RUNNING,
+                "create a nested PowerShell pipeline"
+            )
+        elif self._from_disconnect:
+            raise InvalidPSRPOperation("Cannot created a nested PowerShell "
+                                       "pipeline from an existing pipeline "
+                                       "that was connected to remotely")
 
-    def invoke(self, input=None, add_to_history=False, apartment_state=None,
-               host=None,
-               remote_stream_options=RemoteStreamOptions.ADD_INVOCATION_INFO):
+        ps = PowerShell(self.runspace_pool)
+        ps.is_nested = True
+        return ps
+
+    def begin_invoke(
+            self, input=None, add_to_history=False, apartment_state=None,
+            host=None, redirect_shell_error_to_out=False,
+            remote_stream_options=RemoteStreamOptions.ADD_INVOCATION_INFO):
         """
-        Invoke the command and return the output collection of return objects.
+        Invoke the command asynchronously, use end_invoke to get the output
+        collection of return objects.
 
         :param input: List of inputs to the command
         :param add_to_history:
         :param apartment_state:
         :param host:
-        :param remote_stream_options:
-        :return: A list of output objects, the type is controlled by raw_output
+        :param redirect_shell_error_to_out: Whether to redirect the global
+            error output pipe to the commands error output pipe.
+        :param remote_stream_options: Whether to return the invocation info on
+            the various steams, see complex_objects.RemoteStreamOptions for the
+            values. Will default to returning the invocation info on all
+        :return:
         """
         if self.state != PSInvocationState.NOT_STARTED:
             raise InvalidPipelineStateError(
@@ -730,8 +793,7 @@ class PowerShell(object):
             is_nested=self.is_nested,
             cmds=self.commands.commands,
             history=self.history_string,
-            # TODO: calc this
-            redirect_err_to_out=False
+            redirect_err_to_out=redirect_shell_error_to_out
         )
         create_pipeline = CreatePipeline(
             no_input, ApartmentState(value=apartment_state),
@@ -753,14 +815,37 @@ class PowerShell(object):
             self.runspace_pool.shell.send('stdin', fragment,
                                           command_id=self.id)
 
-        output = []
+    def end_invoke(self):
+        """
+        Wait until the asynchronous command has finished executing and return
+        the output collection of return objects.
+
+        :return: A list of output objects
+        """
         while self.state == PSInvocationState.RUNNING:
             responses = self.runspace_pool._receive(self.id)
             for response in responses:
                 if response[0] == MessageType.PIPELINE_OUTPUT:
-                    output.append(response[1].data.data)
+                    self.output.append(response[1].data.data)
 
-        return output
+        return self.output
+
+    def invoke(self, input=None, add_to_history=False, apartment_state=None,
+               host=None, redirect_shell_error_to_out=False,
+               remote_stream_options=RemoteStreamOptions.ADD_INVOCATION_INFO):
+        """
+        Invoke the command and return the output collection of return objects.
+
+        :param input: List of inputs to the command
+        :param add_to_history:
+        :param apartment_state:
+        :param host:
+        :param remote_stream_options:
+        :return: A list of output objects
+        """
+        self.begin_invoke(input, add_to_history, apartment_state, host,
+                          redirect_shell_error_to_out, remote_stream_options)
+        return self.end_invoke()
 
     def stop(self):
         """
@@ -776,7 +861,7 @@ class PowerShell(object):
             )
 
         self.state = PSInvocationState.STOPPING
-        self.runspace_pool.shell.signal(SignalCode.TERMINATE,
+        self.runspace_pool.shell.signal(SignalCode.PS_CTRL_C,
                                         str(self.id).upper())
         self.state = PSInvocationState.STOPPED
         del self.runspace_pool.pipelines[self.id]
@@ -790,7 +875,7 @@ class PowerShell(object):
             self.streams.error.append(message.data.error_record)
 
         if self.state == PSInvocationState.FAILED:
-            self.has_errors = True
+            self.had_errors = True
 
     def _process_debug_record(self, message):
         self.streams.debug.append(message.data)
@@ -930,11 +1015,8 @@ class PSDataStreams(object):
 class Fragmenter(object):
 
     def __init__(self, max_size, serializer):
-        self.outgoing_object_id = 1
-        self.outgoing_buffer = b""
-        self.incoming_object_id = 1
-        self.incoming_fragment_id = 0
-        self.incoming_buffer = b""
+        self.incoming_buffer = {}
+        self.outgoing_counter = 1
         self.max_size = max_size
         self.serializer = serializer
 
@@ -947,46 +1029,42 @@ class Fragmenter(object):
         start = True
         max_size = self.max_size
         for msg_fragment, end in self._byte_iterator(msg_data, max_size):
-            fragment = Fragment(self.outgoing_object_id, fragment_id,
+            fragment = Fragment(self.outgoing_counter, fragment_id,
                                 msg_fragment, start, end)
             fragments.append(fragment.pack())
             fragment_id += 1
             start = False
 
-        self.outgoing_object_id += 1
+        self.outgoing_counter += 1
         return fragments
 
     def defragment(self, data):
         fragments = []
         while data != b"":
             frag, data = Fragment.unpack(data)
-            if frag.object_id != self.incoming_object_id:
-                raise FragmentError(
-                    "Fragment Object Id: %d != Expected Object Id: %d"
-                    % (frag.object_id, self.incoming_object_id)
-                )
+            incoming_buffer = self.incoming_buffer.get(frag.object_id)
+            if incoming_buffer is None:
+                incoming_buffer = {"data": b"", "id": 0}
+                self.incoming_buffer[frag.object_id] = incoming_buffer
 
-            if frag.fragment_id != self.incoming_fragment_id:
+            if frag.fragment_id != incoming_buffer['id']:
                 raise FragmentError(
                     "Fragment Fragment Id: %d != Expected Fragment Id: %d"
-                    % (frag.fragment_id, self.incoming_fragment_id)
+                    % (frag.fragment_id, incoming_buffer['id'])
                 )
 
             if frag.start and frag.end:
                 fragments.append(frag.data)
-                self.incoming_object_id += 1
-                self.incoming_fragment_id = 0
+                del self.incoming_buffer[frag.object_id]
             elif frag.start:
-                self.incoming_buffer = frag.data
-                self.incoming_fragment_id += 1
+                incoming_buffer['data'] = frag.data
+                incoming_buffer['id'] += 1
             elif frag.end:
-                fragments.append(self.incoming_buffer + frag.data)
-                self.incoming_buffer = b""
-                self.incoming_object_id += 1
-                self.incoming_fragment_id = 0
+                fragments.append(incoming_buffer['data'] + frag.data)
+                del self.incoming_buffer[frag.object_id]
             else:
-                self.incoming_buffer += frag.data
-                self.incoming_fragment_id += 1
+                incoming_buffer['data'] += frag.data
+                incoming_buffer['id'] += 1
 
         messages = [Message.unpack(fragment, self.serializer)
                     for fragment in fragments]

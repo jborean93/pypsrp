@@ -674,7 +674,7 @@ class VerboseRecord(InformationalRecord):
 
 
 class WarningRecord(InformationalRecord):
-    MESSAGE_TYPE = MessageType.VERBOSE_RECORD
+    MESSAGE_TYPE = MessageType.WARNING_RECORD
 
     def __init__(self, **kwargs):
         """

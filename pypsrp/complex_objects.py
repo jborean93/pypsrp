@@ -764,21 +764,6 @@ class ErrorRecord(ComplexObject):
         """
         [MS-PSRP] 2.2.3.15 ErrorRecord
         https://msdn.microsoft.com/en-us/library/dd340106.aspx
-
-        :param exception:
-        :param target_info:
-        :param invocation:
-        :param fq_error:
-        :param category:
-        :param activity:
-        :param reason:
-        :param target_name:
-        :param target_type:
-        :param message:
-        :param details_message:
-        :param action:
-        :param extended_info_present:
-        :param pipeline_iteration_info:
         """
         super(ErrorRecord, self).__init__()
         self._types = [
@@ -788,9 +773,10 @@ class ErrorRecord(ComplexObject):
         self._extended_properties = (
             ('exception', ObjectMeta(name="Exception", optional=True)),
             ('target_object', ObjectMeta(name="TargetObject", optional=True)),
-            ('invocation', ObjectMeta("ObjDynamic", name="InvocationInfo",
-                                      object=GenericComplexObject,
-                                      optional=True)),
+            ('invocation', ObjectMeta("B", name="SerializeExtendedInfo")),
+            ('invocation_info', ObjectMeta("ObjDynamic", name="InvocationInfo",
+                                           object=GenericComplexObject,
+                                           optional=True)),
             ('fq_error', ObjectMeta("S", name="FullyQualifiedErrorId")),
             ('category', ObjectMeta("I32", name="ErrorCategory_Category")),
             ('activity', ObjectMeta("S", name="ErrorCategory_Activity",
@@ -807,15 +793,133 @@ class ErrorRecord(ComplexObject):
                                            optional=True)),
             ('action', ObjectMeta("S", name="ErrorDetails_RecommendedAction",
                                   optional=True)),
+            ('script_stacktrace', ObjectMeta(
+                "S",
+                name="ErrorDetails_ScriptStackTrace",
+                optional=True
+            )),
             ('extended_info_present', ObjectMeta(
                 "B", name="SerializeExtendedInfo"
             )),
+            ('invocation_name', ObjectMeta(
+                "S",
+                optional=True,
+                name="InvocationInfo_InvocationName"
+            )),
+            ('invocation_bound_parameters', DictionaryMeta(
+                name="InvocationInfo_BoundParameters",
+                optional=True,
+                dict_key_meta=ObjectMeta("S"),
+                dict_types=[
+                    "System.Management.Automation.PSBoundParametersDictionary",
+                    "System.Collections.Generic.Dictionary`2[[System.String, "
+                    "mscorlib, Version=4.0.0.0, Culture=neutral, "
+                    "PublicKeyToken=b77a5c561934e089],"
+                    "[System.Object, mscorlib, Version=4.0.0.0, "
+                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                    "System.Object"
+                ]
+            )),
+            ('invocation_unbound_arguments', ListMeta(
+                name="InvocationInfo_UnboundArguments",
+                optional=True,
+                list_types=[
+                    "System.Collections.Generic.List`1[["
+                    "System.Object, mscorlib, Version=4.0.0.0, "
+                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                    "System.Object"
+                ]
+            )),
+            ('invocation_command_origin', ObjectMeta(
+                "Obj",
+                name="InvocationInfo_CommandOrigin",
+                optional=True,
+                object=CommandOrigin
+            )),
+            ('invocation_expecting_input', ObjectMeta(
+                "B",
+                name="InvocationInfo_ExpectingInput",
+                optional=True
+            )),
+            ('invocation_line', ObjectMeta(
+                "S",
+                name="InvocationInfo_Line",
+                optional=True
+            )),
+            ('invocation_offset_in_line', ObjectMeta(
+                "I32",
+                name="InvocationInfo_OffsetInLine",
+                optional=True
+            )),
+            ('invocation_position_message', ObjectMeta(
+                "S",
+                name="InvocationInfo_PositionMessage",
+                optional=True
+            )),
+            ('invocation_script_name', ObjectMeta(
+                "S",
+                name="InvocationInfo_ScriptName",
+                optional=True
+            )),
+            ('invocation_script_line_number', ObjectMeta(
+                "I32",
+                name="InvocationInfo_ScriptLineNumber",
+                optional=True
+            )),
+            ('invocation_history_id', ObjectMeta(
+                "I64",
+                name="InvocationInfo_HistoryId",
+                optional=True
+            )),
+            ('invocation_pipeline_length', ObjectMeta(
+                "I32",
+                name="InvocationInfo_PipelineLength",
+                optional=True
+            )),
+            ('invocation_pipeline_position', ObjectMeta(
+                "I32",
+                name="InvocationInfo_PipelinePosition",
+                optional=True
+            )),
+            ('invocation_pipeline_iteration_info', ListMeta(
+                name="InvocationInfo_PipelineIterationInfo",
+                optional=True,
+                list_value_meta=ObjectMeta("I32"),
+                list_types=["System.In32[]", "System.Array", "System.Object"]
+            )),
+            ('command_type', ObjectMeta(
+                "Obj",
+                name="CommandInfo_CommandType",
+                object=CommandType,
+                optional=True,
+            )),
+            ('command_definition', ObjectMeta(
+                "S",
+                name="CommandInfo_Definition",
+                optional=True,
+            )),
+            ('command_name', ObjectMeta(
+                "S",
+                name="CommandInfo_Name",
+                optional=True
+            )),
+            ('command_visibility', ObjectMeta(
+                "Obj",
+                name="CommandInfo_Visibility",
+                object=SessionStateEntryVisibility,
+                optional=True
+            )),
             ('pipeline_iteration_info', ListMeta(
                 name="PipelineIterationInfo", optional=True,
-                list_value_meta=ObjectMeta("I32")
+                list_value_meta=ObjectMeta("I32"),
+                list_types=[
+                    "System.Collections.ObjectModel.ReadOnlyCollection`1[["
+                    "System.Int32, mscorlib, Version=4.0.0.0, "
+                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                    "System.Object"
+                ]
             )),
         )
-        # TODO: InvocationInfo-specific Extended Properties
         self.exception = kwargs.get('exception')
         self.target_info = kwargs.get('target_info')
         self.invocation = kwargs.get('invocation')
@@ -829,6 +933,34 @@ class ErrorRecord(ComplexObject):
         self.details_message = kwargs.get('details_message')
         self.action = kwargs.get('action')
         self.pipeline_iteration_info = kwargs.get('pipeline_iteration_info')
+        self.invocation_name = kwargs.get('invocation_name')
+        self.invocation_bound_parameters = \
+            kwargs.get('invocation_bound_parameters')
+        self.invocation_unbound_arguments = \
+            kwargs.get('invocation_unbound_arguments')
+        self.invocation_command_origin = \
+            kwargs.get('invocation_command_origin')
+        self.invocation_expecting_input = \
+            kwargs.get('invocation_expecting_input')
+        self.invocation_line = kwargs.get('invocation_line')
+        self.invocation_offset_in_line = \
+            kwargs.get('invocation_offset_in_line')
+        self.invocation_position_message = \
+            kwargs.get('invocation_position_message')
+        self.invocation_script_name = kwargs.get('invocation_script_name')
+        self.invocation_script_line_number = \
+            kwargs.get('invocation_script_line_number')
+        self.invocation_history_id = kwargs.get('invocation_history_id')
+        self.invocation_pipeline_length = \
+            kwargs.get('invocation_pipeline_length')
+        self.invocation_pipeline_position = \
+            kwargs.get('invocation_pipeline_position')
+        self.invocation_pipeline_iteration_info = \
+            kwargs.get('invocation_pipeline_iteration_info')
+        self.command_type = kwargs.get('command_type')
+        self.command_definition = kwargs.get('command_definition')
+        self.command_name = kwargs.get('command_name')
+        self.command_visibility = kwargs.get('command_visibility')
         self.extended_info_present = self.invocation is not None
 
 
@@ -838,9 +970,6 @@ class InformationalRecord(ComplexObject):
         """
         [MS-PSRP] 2.2.3.16 InformationalRecord (Debug/Warning/Verbose)
         https://msdn.microsoft.com/en-us/library/dd305072.aspx
-
-        :param message:
-        :param pipeline_iteration_info:
         """
         super(InformationalRecord, self).__init__()
         self._types = [
@@ -852,14 +981,156 @@ class InformationalRecord(ComplexObject):
             ('invocation', ObjectMeta(
                 "B", name="InformationalRecord_SerializeInvocationInfo"
             )),
-            # TODO Add Invocation info props 2.2.3.15.1
+            ('invocation_name', ObjectMeta(
+                "S",
+                optional=True,
+                name="InvocationInfo_InvocationName"
+            )),
+            ('invocation_bound_parameters', DictionaryMeta(
+                name="InvocationInfo_BoundParameters",
+                optional=True,
+                dict_key_meta=ObjectMeta("S"),
+                dict_types=[
+                    "System.Management.Automation.PSBoundParametersDictionary",
+                    "System.Collections.Generic.Dictionary`2[[System.String, "
+                    "mscorlib, Version=4.0.0.0, Culture=neutral, "
+                    "PublicKeyToken=b77a5c561934e089],"
+                    "[System.Object, mscorlib, Version=4.0.0.0, "
+                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                    "System.Object"
+                ]
+            )),
+            ('invocation_unbound_arguments', ListMeta(
+                name="InvocationInfo_UnboundArguments",
+                optional=True,
+                list_types=[
+                    "System.Collections.Generic.List`1[["
+                    "System.Object, mscorlib, Version=4.0.0.0, "
+                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                    "System.Object"
+                ]
+            )),
+            ('invocation_command_origin', ObjectMeta(
+                "Obj",
+                name="InvocationInfo_CommandOrigin",
+                optional=True,
+                object=CommandOrigin
+            )),
+            ('invocation_expecting_input', ObjectMeta(
+                "B",
+                name="InvocationInfo_ExpectingInput",
+                optional=True
+            )),
+            ('invocation_line', ObjectMeta(
+                "S",
+                name="InvocationInfo_Line",
+                optional=True
+            )),
+            ('invocation_offset_in_line', ObjectMeta(
+                "I32",
+                name="InvocationInfo_OffsetInLine",
+                optional=True
+            )),
+            ('invocation_position_message', ObjectMeta(
+                "S",
+                name="InvocationInfo_PositionMessage",
+                optional=True
+            )),
+            ('invocation_script_name', ObjectMeta(
+                "S",
+                name="InvocationInfo_ScriptName",
+                optional=True
+            )),
+            ('invocation_script_line_number', ObjectMeta(
+                "I32",
+                name="InvocationInfo_ScriptLineNumber",
+                optional=True
+            )),
+            ('invocation_history_id', ObjectMeta(
+                "I64",
+                name="InvocationInfo_HistoryId",
+                optional=True
+            )),
+            ('invocation_pipeline_length', ObjectMeta(
+                "I32",
+                name="InvocationInfo_PipelineLength",
+                optional=True
+            )),
+            ('invocation_pipeline_position', ObjectMeta(
+                "I32",
+                name="InvocationInfo_PipelinePosition",
+                optional=True
+            )),
+            ('invocation_pipeline_iteration_info', ListMeta(
+                name="InvocationInfo_PipelineIterationInfo",
+                optional=True,
+                list_value_meta=ObjectMeta("I32"),
+                list_types=["System.In32[]", "System.Array", "System.Object"]
+            )),
+            ('command_type', ObjectMeta(
+                "Obj",
+                name="CommandInfo_CommandType",
+                object=CommandType,
+                optional=True,
+            )),
+            ('command_definition', ObjectMeta(
+                "S",
+                name="CommandInfo_Definition",
+                optional=True,
+            )),
+            ('command_name', ObjectMeta(
+                "S",
+                name="CommandInfo_Name",
+                optional=True
+            )),
+            ('command_visibility', ObjectMeta(
+                "Obj",
+                name="CommandInfo_Visibility",
+                object=SessionStateEntryVisibility,
+                optional=True
+            )),
             ('pipeline_iteration_info', ListMeta(
-                name="PipelineIterationInfo", optional=True,
-                list_value_meta=ObjectMeta("I32")
+                name="InformationalRecord_PipelineIterationInfo",
+                optional=True,
+                list_value_meta=ObjectMeta("I32"),
+                list_types=[
+                    "System.Collections.ObjectModel.ReadOnlyCollection`1[["
+                    "System.Int32, mscorlib, Version=4.0.0.0, "
+                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                    "System.Object"
+                ]
             ))
         )
         self.message = kwargs.get('message')
         self.pipeline_iteration_info = kwargs.get('pipeline_iteration_info')
+        self.invocation_name = kwargs.get('invocation_name')
+        self.invocation_bound_parameters = \
+            kwargs.get('invocation_bound_parameters')
+        self.invocation_unbound_arguments = \
+            kwargs.get('invocation_unbound_arguments')
+        self.invocation_command_origin = \
+            kwargs.get('invocation_command_origin')
+        self.invocation_expecting_input = \
+            kwargs.get('invocation_expecting_input')
+        self.invocation_line = kwargs.get('invocation_line')
+        self.invocation_offset_in_line = \
+            kwargs.get('invocation_offset_in_line')
+        self.invocation_position_message = \
+            kwargs.get('invocation_position_message')
+        self.invocation_script_name = kwargs.get('invocation_script_name')
+        self.invocation_script_line_number = \
+            kwargs.get('invocation_script_line_number')
+        self.invocation_history_id = kwargs.get('invocation_history_id')
+        self.invocation_pipeline_length = \
+            kwargs.get('invocation_pipeline_length')
+        self.invocation_pipeline_position = \
+            kwargs.get('invocation_pipeline_position')
+        self.invocation_pipeline_iteration_info = \
+            kwargs.get('invocation_pipeline_iteration_info')
+        self.command_type = kwargs.get('command_type')
+        self.command_definition = kwargs.get('command_definition')
+        self.command_name = kwargs.get('command_name')
+        self.command_visibility = kwargs.get('command_visibility')
         self.invocation = False
 
 
@@ -983,6 +1254,27 @@ class CommandType(Enum):
         return ", ".join(values)
 
 
+class CommandOrigin(Enum):
+    RUNSPACE = 0
+    INTERNAL = 1
+
+    def __init__(self, **kwargs):
+        """
+        [MS-PSRP] 2.2.2.30 CommandOrigin
+        https://msdn.microsoft.com/en-us/library/ee441964.aspx
+
+        :param value: The command origin flag to set
+        """
+        string_map = {
+            0: 'Runspace',
+            1: 'Internal',
+        }
+        super(CommandOrigin, self).__init__(
+            "System.Management.Automation.CommandOrigin",
+            string_map, **kwargs
+        )
+
+
 class PipelineResultTypes(Enum):
     NONE = 0x00
     OUTPUT = 0x01
@@ -1050,5 +1342,27 @@ class ProgressRecordType(Enum):
         }
         super(ProgressRecordType, self).__init__(
             "System.Management.Automation.ProgressRecordType",
+            string_map, **kwargs
+        )
+
+
+class SessionStateEntryVisibility(Enum):
+    PUBLIC = 0
+    PRIVATE = 1
+
+    def __init__(self, **kwargs):
+        """
+        System.Management.Automation.SessionStateEntryVisibility Enum
+        This isn't in MS-PSRP but is used in the InformationalRecord object so
+        we need to define it here
+
+        :param value: The initial SessionStateEntryVisibility value to set
+        """
+        string_map = {
+            0: 'Public',
+            1: 'Private'
+        }
+        super(SessionStateEntryVisibility, self).__init__(
+            "System.Management.Automation.SessionStateEntryVisibility",
             string_map, **kwargs
         )

@@ -11,11 +11,11 @@ import uuid
 from cryptography.hazmat.primitives.padding import PKCS7
 from six import string_types
 
-from pypsrp.complex_objects import ApartmentState, Color, Coordinates, \
-    ComplexObject, DictionaryMeta, GenericComplexObject, \
+from pypsrp.complex_objects import ApartmentState, Color, CommandOrigin, \
+    Coordinates, ComplexObject, DictionaryMeta, GenericComplexObject, \
     HostMethodIdentifier, InformationalRecord, ListMeta, ObjectMeta, \
     PipelineResultTypes, ProgressRecordType, PSThreadOptions, QueueMeta, \
-    RemoteStreamOptions, Size, StackMeta
+    RemoteStreamOptions, SessionStateEntryVisibility, Size, StackMeta
 from pypsrp.exceptions import SerializationError
 from pypsrp.messages import DebugRecord, ErrorRecord, InformationRecord, \
     VerboseRecord, WarningRecord
@@ -208,6 +208,8 @@ class Serializer(object):
         if metadata.object is None:
             structures = {
                 "System.Array": ListMeta(),
+                "System.Management.Automation.CommandOrigin":
+                    ObjectMeta("Obj", object=CommandOrigin),
                 "System.Management.Automation.DebugRecord":
                     ObjectMeta("Obj", object=DebugRecord),
                 "System.Management.Automation.ErrorRecord":
@@ -222,6 +224,8 @@ class Serializer(object):
                     ObjectMeta("Obj", object=InformationRecord),
                 "System.Management.Automation.ProgressRecordType":
                     ObjectMeta("Obj", object=ProgressRecordType),
+                "System.Management.Automation.PSBoundParametersDictionary":
+                    DictionaryMeta(),
                 "System.Management.Automation.PSPrimitiveDictionary":
                     DictionaryMeta(),
                 "System.Management.Automation.Remoting.RemoteHostMethodId":
@@ -234,6 +238,8 @@ class Serializer(object):
                     ObjectMeta("Obj", object=PSThreadOptions),
                 "System.Management.Automation.Runspaces.RemoteStreamOptions":
                     ObjectMeta("Obj", object=RemoteStreamOptions),
+                "System.Management.Automation.SessionStateEntryVisibility":
+                    ObjectMeta("Obj", object=SessionStateEntryVisibility),
                 "System.Management.Automation.VerboseRecord":
                     ObjectMeta("Obj", object=VerboseRecord),
                 "System.Management.Automation.WarningRecord":
@@ -265,7 +271,7 @@ class Serializer(object):
                 "System.Single": ObjectMeta("Sg"),
                 "System.Double": ObjectMeta("Db"),
                 "System.Decimal": ObjectMeta("D"),
-                # None: ObjectMeta("BA"), # Byte array base64e ncoded
+                # None: ObjectMeta("BA"), # Byte array base64 encoded
                 "System.Guid": ObjectMeta("G"),
                 "System.Uri": ObjectMeta("URI"),
                 "System.Version": ObjectMeta("Version"),
@@ -285,6 +291,22 @@ class Serializer(object):
                     obj_type = list_info.split(",")[0]
                     obj_type = obj_type
                     is_list = True
+                elif obj_type.startswith("System.Collections.ObjectModel."
+                                         "ReadOnlyCollection`1[["):
+                    list_info = obj_type[53:-1]
+                    obj_type = list_info.split(",")[0]
+                    obj_type = obj_type
+                    is_list = True
+                elif obj_type.startswith("System.Collections.Generic."
+                                         "Dictionary`2[["):
+                    dict_meta = obj_type[41:-2].split("],[")
+                    key_type = structures.get(dict_meta[0].split(",")[0],
+                                              ObjectMeta())
+                    value_type = structures.get(dict_meta[1].split(",")[0],
+                                                ObjectMeta())
+                    metadata = DictionaryMeta(dict_key_meta=key_type,
+                                              dict_value_meta=value_type)
+                    break
 
                 obj_meta = structures.get(obj_type)
                 if obj_meta is not None:
@@ -546,11 +568,18 @@ class Serializer(object):
                 if property_meta.name is not None:
                     property_filter = "[@N='%s']" % property_meta.name
 
-                tag = property_meta.tag
+                tags = [property_meta.tag]
                 # The below tags are actually seen as Obj in the parent element
-                if tag in ["DCT", "LST", "IE", "QUE", "STK", "ObjDynamic"]:
-                    tag = "Obj"
-                val = element.find("%s%s%s" % (prop_tag, tag, property_filter))
+                if property_meta.tag in ["DCT", "LST", "IE", "QUE", "STK",
+                                         "ObjDynamic"]:
+                    tags = ["Obj", "Ref"]
+
+                val = None
+                for tag in tags:
+                    val = element.find("%s%s%s" % (prop_tag, tag,
+                                                   property_filter))
+                    if val is not None:
+                        break
 
                 if val is None and not property_meta.optional:
                     val = element.find("%sNil%s" % (prop_tag, property_filter))
@@ -561,6 +590,7 @@ class Serializer(object):
                     val = None
                 elif val is not None:
                     val = self.deserialize(val, property_meta, clear=False)
+
                 setattr(obj, attr, val)
 
         deserialize_property("", obj._property_sets)
@@ -573,10 +603,12 @@ class Serializer(object):
         obj = metadata.object()
 
         for obj_property in element:
-            # TODO: what if TNRef is used instead
             if obj_property.tag == "TN":
                 for obj_type in obj_property:
                     obj.types.append(obj_type.text)
+                self.tn[obj_property.attrib['RefId']] = obj.types
+            elif obj_property.tag == "TNRef":
+                obj.types = self.tn[obj_property.attrib['RefId']]
             elif obj_property.tag == "Props":
                 for adapted_property in obj_property:
                     key = adapted_property.attrib['N']

@@ -13,3 +13,4 @@ messages:
     attributes:
       attribute1: attribute 1 value
     text: The text of the element to override with
+  timeout: 0  # the number of seconds to wait until sending the response

@@ -139,70 +139,59 @@ class WSMan(object):
         self._max_payload_size = self._calc_envelope_size(max_envelope_size)
 
     def command(self, resource_uri, resource, option_set=None,
-                selector_set=None):
-        header = self._create_header(WSManAction.COMMAND, resource_uri,
-                                     option_set, selector_set)
-        return self._invoke(header, resource)
+                selector_set=None, timeout=None):
+        return self._invoke(WSManAction.COMMAND, resource_uri, resource,
+                            option_set, selector_set, timeout)
 
     def connect(self, resource_uri, resource, option_set=None,
-                selector_set=None):
-        header = self._create_header(WSManAction.CONNECT, resource_uri,
-                                     option_set, selector_set)
-        return self._invoke(header, resource)
+                selector_set=None, timeout=None):
+        return self._invoke(WSManAction.CONNECT, resource_uri, resource,
+                            option_set, selector_set, timeout)
 
     def create(self, resource_uri, resource, option_set=None,
-               selector_set=None):
-        header = self._create_header(WSManAction.CREATE, resource_uri,
-                                     option_set, selector_set)
-        return self._invoke(header, resource)
+               selector_set=None, timeout=None):
+        return self._invoke(WSManAction.CREATE, resource_uri, resource,
+                            option_set, selector_set, timeout)
 
     def disconnect(self, resource_uri, resource, option_set=None,
-                   selector_set=None):
-        header = self._create_header(WSManAction.DISCONNECT, resource_uri,
-                                     option_set, selector_set)
-        return self._invoke(header, resource)
+                   selector_set=None, timeout=None):
+        return self._invoke(WSManAction.DISCONNECT, resource_uri, resource,
+                            option_set, selector_set, timeout)
 
     def delete(self, resource_uri, resource=None, option_set=None,
-               selector_set=None):
-        header = self._create_header(WSManAction.DELETE, resource_uri,
-                                     option_set, selector_set)
-        return self._invoke(header, resource)
+               selector_set=None, timeout=None):
+        return self._invoke(WSManAction.DELETE, resource_uri, resource,
+                            option_set, selector_set, timeout)
 
     def enumerate(self, resource_uri, resource=None, option_set=None,
-                  selector_set=None):
-        header = self._create_header(WSManAction.ENUMERATE, resource_uri,
-                                     option_set, selector_set)
-        return self._invoke(header, resource)
+                  selector_set=None, timeout=None):
+        return self._invoke(WSManAction.ENUMERATE, resource_uri, resource,
+                            option_set, selector_set, timeout)
 
     def get(self, resource_uri, resource=None, option_set=None,
-            selector_set=None):
-        header = self._create_header(WSManAction.GET, resource_uri,
-                                     option_set, selector_set)
-        return self._invoke(header, resource)
+            selector_set=None, timeout=None):
+        return self._invoke(WSManAction.GET, resource_uri, resource,
+                            option_set, selector_set, timeout)
 
     def receive(self, resource_uri, resource, option_set=None,
-                selector_set=None):
-        header = self._create_header(WSManAction.RECEIVE, resource_uri,
-                                     option_set, selector_set)
-        return self._invoke(header, resource)
+                selector_set=None, timeout=None):
+        return self._invoke(WSManAction.RECEIVE, resource_uri, resource,
+                            option_set, selector_set, timeout)
 
     def reconnect(self, resource_uri, resource=None, option_set=None,
-                  selector_set=None):
-        header = self._create_header(WSManAction.RECONNECT, resource_uri,
-                                     option_set, selector_set)
-        return self._invoke(header, resource)
+                  selector_set=None, timeout=None):
+        return self._invoke(WSManAction.RECONNECT, resource_uri, resource,
+                            option_set, selector_set, timeout)
 
     def send(self, resource_uri, resource, option_set=None,
-             selector_set=None):
-        header = self._create_header(WSManAction.SEND, resource_uri,
-                                     option_set, selector_set)
-        return self._invoke(header, resource)
+             selector_set=None, timeout=None):
+        return self._invoke(WSManAction.SEND, resource_uri, resource,
+                            option_set, selector_set, timeout)
 
     def signal(self, resource_uri, resource, option_set=None,
-               selector_set=None):
-        header = self._create_header(WSManAction.SIGNAL, resource_uri,
-                                     option_set, selector_set)
-        return self._invoke(header, resource)
+               selector_set=None, timeout=None):
+        return self._invoke(WSManAction.SIGNAL, resource_uri, resource,
+                            option_set, selector_set, timeout)
 
     def get_server_config(self, uri="config"):
         resource_uri = "http://schemas.microsoft.com/wbem/wsman/1/%s" % uri
@@ -220,9 +209,13 @@ class WSMan(object):
         self.max_envelope_size = server_max_size
         self._max_payload_size = max_envelope_size
 
-    def _invoke(self, header, resource):
+    def _invoke(self, action, resource_uri, resource, option_set=None,
+                selector_set=None, timeout=None):
         s = NAMESPACES['s']
         envelope = ET.Element("{%s}Envelope" % s)
+
+        header = self._create_header(action, resource_uri, option_set,
+                                     selector_set, timeout)
         envelope.append(header)
 
         body = ET.SubElement(envelope, "{%s}Body" % s)
@@ -294,7 +287,7 @@ class WSMan(object):
         return base64_size
 
     def _create_header(self, action, resource_uri, option_set=None,
-                       selector_set=None):
+                       selector_set=None, timeout=None):
         log.debug("Creating WSMan header (Action: %s, Resource URI: %s, "
                   "Option Set: %s, Selector Set: %s"
                   % (action, resource_uri, option_set, selector_set))
@@ -338,7 +331,7 @@ class WSMan(object):
         ET.SubElement(
             header,
             "{%s}OperationTimeout" % wsman
-        ).text = "PT%sS" % str(self.operation_timeout)
+        ).text = "PT%sS" % str(timeout or self.operation_timeout)
 
         reply_to = ET.SubElement(header, "{%s}ReplyTo" % wsa)
         ET.SubElement(

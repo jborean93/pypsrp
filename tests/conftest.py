@@ -3,6 +3,7 @@ import os
 import re
 import struct
 import sys
+import time
 import uuid
 import yaml
 
@@ -99,6 +100,9 @@ class TransportFake(object):
         elif current_msg.get('auth_error', False):
             raise AuthenticationError("Failed to authenticate the user %s "
                                       "with %s" % (self.username, self.auth))
+
+        if 'timeout' in current_msg.keys():
+            time.sleep(current_msg['timeout'])
 
         return response
 
