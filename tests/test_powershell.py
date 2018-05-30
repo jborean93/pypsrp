@@ -137,6 +137,25 @@ class TestRunspacePool(object):
                 pool.close()
                 assert pool.state == RunspacePoolState.CLOSED
 
+    @pytest.mark.parametrize('winrm_transport',
+                             [[True, 'test_psrp_application_args']],
+                             indirect=True)
+    def test_psrp_application_args(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+        app_arguments = {
+            "test_var": "abcdef12345"
+        }
+
+        pool = RunspacePool(wsman)
+        pool.open(app_arguments)
+        try:
+            ps = PowerShell(pool)
+            ps.add_script("$PSSenderInfo.ApplicationArguments")
+            actual = ps.invoke()
+            assert actual[0] == app_arguments
+        finally:
+            pool.close()
+
 
 class TestPSRPScenarios(object):
 
@@ -381,6 +400,57 @@ class TestPSRPScenarios(object):
             ps_hist.add_script("Get-History")
             actual = ps_hist.invoke()
         assert actual == []
+
+    @pytest.mark.parametrize('winrm_transport',
+                             [[True, 'test_psrp_with_input']],
+                             indirect=True)
+    def test_psrp_with_input(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+
+        with RunspacePool(wsman) as pool:
+            ps = PowerShell(pool)
+            ps.add_script('''begin {
+                $DebugPreference = 'Continue'
+                Write-Debug "Start Block"
+            }
+            process {
+                $input
+            }
+            end {
+                Write-Debug "End Block"
+            }''')
+            actual = ps.invoke(["1", 2, {"a": "b"}, ["a", "b"]])
+
+        assert actual == [
+            u"1",
+            2,
+            {u"a": u"b"},
+            [u"a", u"b"]
+        ]
+        assert str(ps.streams.debug[0]) == "Start Block"
+        assert str(ps.streams.debug[1]) == "End Block"
+
+    @pytest.mark.parametrize('winrm_transport',
+                             [[True, 'test_psrp_small_msg_size']],
+                             indirect=True)
+    @pytest.mark.skip()
+    def test_psrp_small_msg_size(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+        wsman.update_max_payload_size()
+        wsman._max_payload_size = 11257
+        large_msg = "a" * 30000
+
+        with RunspacePool(wsman) as pool:
+            ps = PowerShell(pool)
+            ps.add_script('''begin {
+                $a = "q"
+            } process {
+                $input
+            } end {
+                Write-Output $a
+            }''')
+            actual = ps.invoke(input=large_msg)
+        a = ""
 
     @pytest.mark.parametrize('winrm_transport',
                              [[False, 'test_psrp_disconnected_commands']],

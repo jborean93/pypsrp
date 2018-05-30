@@ -281,6 +281,9 @@ class Serializer(object):
             }
             metadata = None
             for obj_type in obj_types:
+                if obj_type.startswith("Deserialized.System."):
+                    obj_type = obj_type[13:]
+
                 is_list = False
                 if obj_type.endswith("[]"):
                     obj_type = obj_type[0:-2]
@@ -448,6 +451,9 @@ class Serializer(object):
 
     def _serialize_que(self, metadata, values):
         obj = ET.Element("Obj", RefId=self._get_obj_id())
+        if not isinstance(metadata, QueueMeta):
+            metadata = QueueMeta(name=metadata.name,
+                                 optional=metadata.optional)
         self._create_tn(obj, metadata.list_types)
 
         que = ET.SubElement(obj, "QUE")
@@ -463,6 +469,9 @@ class Serializer(object):
 
     def _serialize_stk(self, metadata, values):
         obj = ET.Element("Obj", RefId=self._get_obj_id())
+        if not isinstance(metadata, StackMeta):
+            metadata = StackMeta(name=metadata.name,
+                                 optional=metadata.optional)
         self._create_tn(obj, metadata.list_types)
 
         stk = ET.SubElement(obj, "STK")
@@ -495,6 +504,9 @@ class Serializer(object):
 
     def _serialize_dct(self, metadata, values):
         obj = ET.Element("Obj", RefId=self._get_obj_id())
+        if not isinstance(metadata, DictionaryMeta):
+            metadata = DictionaryMeta(name=metadata.name,
+                                      optional=metadata.optional)
         self._create_tn(obj, metadata.dict_types)
 
         dct = ET.SubElement(obj, "DCT")

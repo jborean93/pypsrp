@@ -18,8 +18,9 @@ from pypsrp.complex_objects import ApartmentState, Command, \
 from pypsrp.exceptions import FragmentError, InvalidPipelineStateError, \
     InvalidPSRPOperation, InvalidRunspacePoolStateError
 from pypsrp.messages import ConnectRunspacePool, CreatePipeline, Destination, \
-    GetAvailableRunspaces, InitRunspacePool, Message, MessageType, PublicKey, \
-    SessionCapability, SetMaxRunspaces, SetMinRunspaces
+    EndOfPipelineInput, GetAvailableRunspaces, InitRunspacePool, Message, \
+    MessageType, PipelineInput, PublicKey, SessionCapability, \
+    SetMaxRunspaces, SetMinRunspaces
 from pypsrp.serializer import Serializer
 from pypsrp.shell import SignalCode, WinRS
 from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet
@@ -367,7 +368,7 @@ class RunspacePool(object):
             runspace_pools.append(pool)
         return runspace_pools
 
-    def open(self):
+    def open(self, application_arguments=None):
         """
         Opens the runspace pool, this step must be called before it can be
         used.
@@ -385,15 +386,16 @@ class RunspacePool(object):
         init_runspace_pool = InitRunspacePool(
             self.min_runspaces, self.max_runspaces,
             PSThreadOptions(value=self.thread_options),
-            ApartmentState(value=self.apartment_state), self.host_info
+            ApartmentState(value=self.apartment_state), self.host_info,
+            application_arguments
         )
-        data = self._fragmenter.fragment(session_capability, self.id)[0]
-        data += self._fragmenter.fragment(init_runspace_pool, self.id)[0]
+        msgs = [session_capability, init_runspace_pool]
+        fragments = self._fragmenter.fragment_multiple(msgs, self.id)
 
         open_content = ET.Element(
             "creationXml", xmlns="http://schemas.microsoft.com/powershell"
         )
-        open_content.text = base64.b64encode(data).decode('utf-8')
+        open_content.text = base64.b64encode(fragments.pop(0)).decode('utf-8')
 
         options = OptionSet()
         options.add_option("protocolversion", PROTOCOL_VERSION,
@@ -401,8 +403,9 @@ class RunspacePool(object):
         self.shell.open(options, open_content)
         self.state = RunspacePoolState.NEGOTIATION_SENT
 
+        responses = []
         while self.state == RunspacePoolState.NEGOTIATION_SENT:
-            responses = self._receive()
+            responses.extend(self._receive())
 
         error_states = [RunspacePoolState.BROKEN, RunspacePoolState.CLOSED]
         if self.state in error_states:
@@ -470,7 +473,6 @@ class RunspacePool(object):
         :return: An XML element that can be used as part of the PSRP input
             elements like cmdlet parameters
         """
-        # TODO: should I clear before or after?
         return self._serializer.serialize(obj, metadata=metadata)
 
     def _receive(self, id=None, timeout=None):
@@ -764,10 +766,13 @@ class PowerShell(object):
         Invoke the command asynchronously, use end_invoke to get the output
         collection of return objects.
 
-        :param input: List of inputs to the command
-        :param add_to_history:
-        :param apartment_state:
-        :param host:
+        :param input: List of inputs to the command, this will be manually
+            serialized but can also be a result of runspace_pool.serialize()
+        :param add_to_history: Add the commands run to the pool history
+        :param apartment_state: Override the RunspacePool apartment state with
+            one just for this invocation
+        :param host: Override the RunspacePool local host settings with one
+            just for this invocation
         :param redirect_shell_error_to_out: Whether to redirect the global
             error output pipe to the commands error output pipe.
         :param remote_stream_options: Whether to return the invocation info on
@@ -804,13 +809,30 @@ class PowerShell(object):
         fragments = self.runspace_pool._fragmenter.fragment(
             create_pipeline, self.runspace_pool.id, self.id
         )
-
         first_frag = base64.b64encode(fragments.pop(0)).decode('utf-8')
         self.runspace_pool.shell.command('', arguments=[first_frag],
                                          command_id=self.id)
         self.state = PSInvocationState.RUNNING
 
-        # now send the remaining fragments with the send message
+        # send the remaining fragments (including the input) with the send
+        # message
+        remaining_size = self.runspace_pool._fragmenter.max_size
+        if len(fragments) > 0:
+            remaining_size -= len(fragments[-1])
+
+        if input is not None:
+            if not isinstance(input, list):
+                input = [input]
+
+            input_msgs = [PipelineInput(data=d) for d in input]
+            input_msgs.append(EndOfPipelineInput())
+            input_fragments = self.runspace_pool._fragmenter.fragment_multiple(
+                input_msgs, self.runspace_pool.id, self.id, remaining_size
+            )
+            if len(fragments) > 0:
+                fragments[-1] = fragments[-1] + input_fragments.pop(0)
+            fragments.extend(input_fragments)
+
         for fragment in fragments:
             self.runspace_pool.shell.send('stdin', fragment,
                                           command_id=self.id)
@@ -1017,17 +1039,28 @@ class Fragmenter(object):
     def __init__(self, max_size, serializer):
         self.incoming_buffer = {}
         self.outgoing_counter = 1
-        self.max_size = max_size
+        self.max_size = max_size - 21  # take away the fragment header size
         self.serializer = serializer
 
-    def fragment(self, data, rpid, pid=None):
+    def fragment(self, data, rpid, pid=None, remaining_size=None):
         msg = Message(Destination.SERVER, rpid, pid, data, self.serializer)
         msg_data = msg.pack()
+        max_size = self.max_size
+        start = True
+        fragment_id = 0
         fragments = []
 
-        fragment_id = 0
-        start = True
-        max_size = self.max_size
+        if remaining_size is not None:
+            msg_fragment = msg_data[:remaining_size]
+            msg_data = msg_data[len(msg_fragment):]
+
+            end = msg_data == b""
+            fragment = Fragment(self.outgoing_counter, fragment_id,
+                                msg_fragment, start, end)
+            fragments.append(fragment.pack())
+            fragment_id += 1
+            start = False
+
         for msg_fragment, end in self._byte_iterator(msg_data, max_size):
             fragment = Fragment(self.outgoing_counter, fragment_id,
                                 msg_fragment, start, end)
@@ -1036,6 +1069,29 @@ class Fragmenter(object):
             start = False
 
         self.outgoing_counter += 1
+        return fragments
+
+    def fragment_multiple(self, blocks, rpid, pid=None, remaining_size=None):
+        remaining_size = remaining_size or self.max_size
+        fragments = []
+
+        for block in blocks:
+            block_fragments = self.fragment(block, rpid, pid,
+                                            remaining_size=remaining_size)
+
+            # the first fragment can fit in with the previous block fragment
+            # append to the last fragment and remove from the list
+            if remaining_size != self.max_size and len(fragments) > 0:
+                fragments[-1] = fragments[-1] + block_fragments.pop(0)
+
+            for block_fragment in block_fragments:
+                fragments.append(block_fragment)
+
+            # calculate how much data can fit into the last fragment
+            remaining_size = self.max_size - len(fragments[-1])
+            if remaining_size == 0:
+                remaining_size = self.max_size
+
         return fragments
 
     def defragment(self, data):

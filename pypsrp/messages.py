@@ -6,6 +6,8 @@ import struct
 import sys
 import uuid
 
+from six import binary_type
+
 from pypsrp.complex_objects import ApartmentState, CommandType, \
     ComplexObject, DictionaryMeta, ErrorRecord, HostInfo, \
     HostMethodIdentifier, InformationalRecord, ListMeta, ObjectMeta, \
@@ -108,13 +110,16 @@ class Message(object):
         else:
             message_data = self._serializer.serialize(self.data)
 
-        log.info("Packing PSRP message: %s" % ET.tostring(message_data))
+        if not isinstance(message_data, binary_type):
+            log.info("Packing PSRP message: %s" % ET.tostring(message_data))
+            message_data = \
+                ET.tostring(message_data, encoding='utf-8', method='xml')
 
         data = struct.pack("<I", self.destination)
         data += struct.pack("<I", self.message_type)
         data += self.rpid.bytes
         data += self.pid.bytes
-        data += ET.tostring(message_data, encoding='utf-8', method='xml')
+        data += message_data
 
         return data
 
@@ -238,7 +243,14 @@ class InitRunspacePool(ComplexObject):
                                            object=ApartmentState)),
             ('host_info', ObjectMeta("Obj", name="HostInfo",
                                      object=HostInfo)),
-            ('application_arguments', ObjectMeta(name="ApplicationArguments"))
+            ('application_arguments', DictionaryMeta(
+                name="ApplicationArguments",
+                dict_types=[
+                    "System.Management.Automation.PSPrimitiveDictionary",
+                    "System.Collections.Hashtable",
+                    "System.Object"
+                ]
+            ))
         )
         self.min_runspaces = min_runspaces
         self.max_runspaces = max_runspaces
