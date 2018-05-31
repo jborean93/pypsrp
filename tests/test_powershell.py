@@ -9,8 +9,10 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from pypsrp.complex_objects import Command, GenericComplexObject, ObjectMeta, \
     PSInvocationState, RunspacePoolState
-from pypsrp.exceptions import InvalidPSRPOperation
+from pypsrp.exceptions import InvalidPipelineStateError, \
+    InvalidPSRPOperation, InvalidRunspacePoolStateError, WSManFaultError
 from pypsrp.powershell import RunspacePool, PowerShell
+from pypsrp.transport import TransportHTTP
 from pypsrp.wsman import WSMan
 
 
@@ -36,6 +38,11 @@ def gen_rsa_keypair(public_exponent, key_size, backend):
     key = default_backend().load_rsa_private_numbers(numbers)
 
     return key
+
+
+class RSPoolTest(object):
+    def __init__(self):
+        self.pipelines = {}
 
 
 class TestRunspacePool(object):
@@ -155,6 +162,60 @@ class TestRunspacePool(object):
             assert actual[0] == app_arguments
         finally:
             pool.close()
+
+    def test_psrp_connect_already_opened(self):
+        transport = TransportHTTP("", 5985, "", "")
+        wsman = WSMan(transport)
+        rs = RunspacePool(wsman)
+        rs.state = RunspacePoolState.OPENED
+        rs.connect()
+
+    def test_psrp_connect_invalid_state(self):
+        transport = TransportHTTP("", 5985, "", "")
+        wsman = WSMan(transport)
+        rs = RunspacePool(wsman)
+        with pytest.raises(InvalidRunspacePoolStateError) as err:
+            rs.connect()
+        assert err.value.action == "connect to a disconnected Runspace Pool"
+        assert err.value.current_state == RunspacePoolState.BEFORE_OPEN
+        assert err.value.expected_state == RunspacePoolState.DISCONNECTED
+        assert str(err.value) == \
+            "Cannot 'connect to a disconnected Runspace Pool' on the " \
+            "current state 'BeforeOpen', expecting state(s): 'Disconnected'"
+
+    def test_psrp_disconnect_already_disconnected(self):
+        transport = TransportHTTP("", 5985, "", "")
+        wsman = WSMan(transport)
+        rs = RunspacePool(wsman)
+        rs.state = RunspacePoolState.DISCONNECTED
+        rs.disconnect()
+
+    def test_psrp_disconnect_invalid_state(self):
+        transport = TransportHTTP("", 5985, "", "")
+        wsman = WSMan(transport)
+        rs = RunspacePool(wsman)
+        with pytest.raises(InvalidRunspacePoolStateError) as err:
+            rs.disconnect()
+        assert err.value.action == "disconnect a Runspace Pool"
+        assert err.value.current_state == RunspacePoolState.BEFORE_OPEN
+        assert err.value.expected_state == RunspacePoolState.OPENED
+        assert str(err.value) == \
+            "Cannot 'disconnect a Runspace Pool' on the " \
+            "current state 'BeforeOpen', expecting state(s): 'Opened'"
+
+    def test_psrp_open_invalid_state(self):
+        transport = TransportHTTP("", 5985, "", "")
+        wsman = WSMan(transport)
+        rs = RunspacePool(wsman)
+        rs.state = RunspacePoolState.DISCONNECTED
+        with pytest.raises(InvalidRunspacePoolStateError) as err:
+            rs.open()
+        assert err.value.action == "open a new Runspace Pool"
+        assert err.value.current_state == RunspacePoolState.DISCONNECTED
+        assert err.value.expected_state == RunspacePoolState.BEFORE_OPEN
+        assert str(err.value) == \
+            "Cannot 'open a new Runspace Pool' on the current state " \
+            "'Disconnected', expecting state(s): 'BeforeOpen'"
 
 
 class TestPSRPScenarios(object):
@@ -431,26 +492,84 @@ class TestPSRPScenarios(object):
         assert str(ps.streams.debug[1]) == "End Block"
 
     @pytest.mark.parametrize('winrm_transport',
-                             [[True, 'test_psrp_small_msg_size']],
+                             # the message size can differ from hosts, we will
+                             # just use existing responses to get the same
+                             # scenario each time
+                             [[False, 'test_psrp_small_msg_size']],
                              indirect=True)
-    @pytest.mark.skip()
     def test_psrp_small_msg_size(self, winrm_transport):
+        # we need to set the endpoint for the fake tests to the same length as
+        # the one that created the message. This is so the max payload size is
+        # the same
+        winrm_transport.endpoint = \
+            "http://server2012r2.domain.local:5985/wsman"
+
         wsman = WSMan(winrm_transport)
         wsman.update_max_payload_size()
-        wsman._max_payload_size = 11257
-        large_msg = "a" * 30000
 
         with RunspacePool(wsman) as pool:
             ps = PowerShell(pool)
+            # there seems to be a bug in the PSRP implementation, I cannot get
+            # it to response with a fragment larger than the max allowed so
+            # we will just test it receives our large fragments that are split
             ps.add_script('''begin {
-                $a = "q"
-            } process {
-                $input
-            } end {
-                Write-Output $a
-            }''')
-            actual = ps.invoke(input=large_msg)
-        a = ""
+    $big_var = '%s'
+} process {
+    $input
+} end {
+    $big_var[0..19999] -join ""
+    $big_var[20000..30000] -join ""
+}''' % ("a" * 30000))
+            actual = ps.invoke("input")
+        assert actual[0] == u"input"
+        assert actual[1] == u"a" * 20000
+        assert actual[2] == u"a" * 10000
+
+    @pytest.mark.parametrize('winrm_transport',
+                             # so we don't wait 10 seconds in a test we use
+                             # pre-built responses
+                             [[False, 'test_psrp_long_running_cmdlet']],
+                             indirect=True)
+    def test_psrp_long_running_cmdlet(self, winrm_transport):
+        wsman = WSMan(winrm_transport, operation_timeout=5)
+
+        with RunspacePool(wsman) as pool:
+            ps = PowerShell(pool)
+            ps.add_cmdlet("Start-Sleep").add_parameter("Seconds", 10)
+            ps.add_statement().add_script("echo hi")
+            actual = ps.invoke()
+        assert actual[0] == u"hi"
+
+    @pytest.mark.parametrize('winrm_transport',
+                             [[True, 'test_psrp_clear_commands']],
+                             indirect=True)
+    def test_psrp_clear_command(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+
+        with RunspacePool(wsman) as pool:
+            ps = PowerShell(pool)
+            ps.add_script("echo original")
+            ps.commands.clear()
+            ps.add_script("echo new")
+            actual = ps.invoke()
+        assert actual[0] == u"new"
+
+    @pytest.mark.parametrize('winrm_transport',
+                             [[True, 'test_psrp_receive_failure']],
+                             indirect=True)
+    def test_psrp_receive_failure(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+
+        with RunspacePool(wsman) as pool:
+            ps = PowerShell(pool)
+            ps.state = PSInvocationState.RUNNING
+            with pytest.raises(WSManFaultError) as err:
+                ps.end_invoke()
+            assert str(err.value.reason) == \
+                "The Windows Remote Shell received a request to perform an " \
+                "operation on a command identifier that does not exist. " \
+                "Either the command has completed execution or the client " \
+                "specified an invalid command identifier."
 
     @pytest.mark.parametrize('winrm_transport',
                              [[False, 'test_psrp_disconnected_commands']],
@@ -499,3 +618,99 @@ class TestPSRPScenarios(object):
             for pool in pools:
                 pool.connect()
                 pool.close()
+
+    def test_add_parameters(self):
+        ps = PowerShell(RSPoolTest())
+        ps.add_cmdlet("Test-Path")
+        ps.add_parameters({"Path": "path", "ItemType": "Leaf"})
+        assert len(ps.commands.commands) == 1
+        assert ps.commands.commands[0].cmd == "Test-Path"
+
+        # we can't guarantee the dict order so this is the next best thing
+        args = ps.commands.commands[0].args
+        assert args[0].name == 'Path' or args[0].name == 'ItemType'
+        assert args[1].name == 'Path' or args[1].name == 'ItemType'
+
+    def test_connect_async_invalid_state(self):
+        ps = PowerShell(RSPoolTest())
+        with pytest.raises(InvalidPipelineStateError) as err:
+            ps.connect()
+        assert err.value.action == "connect to a disconnected pipeline"
+        assert err.value.current_state == PSInvocationState.NOT_STARTED
+        assert err.value.expected_state == PSInvocationState.DISCONNECTED
+        assert str(err.value) == \
+            "Cannot 'connect to a disconnected pipeline' on the current " \
+            "state 'NotStarted', expecting state(s): 'Disconnected'"
+
+    def test_psrp_create_nested_invalid_state(self):
+        ps = PowerShell(RSPoolTest())
+        with pytest.raises(InvalidPipelineStateError) as err:
+            ps.create_nested_power_shell()
+        assert err.value.action == "create a nested PowerShell pipeline"
+        assert err.value.current_state == PSInvocationState.NOT_STARTED
+        assert err.value.expected_state == PSInvocationState.RUNNING
+        assert str(err.value) == \
+            "Cannot 'create a nested PowerShell pipeline' on the current " \
+            "state 'NotStarted', expecting state(s): 'Running'"
+
+    def test_psrp_create_nested_from_disconnect(self):
+        ps = PowerShell(RSPoolTest())
+        ps.state = PSInvocationState.RUNNING
+        ps._from_disconnect = True
+        with pytest.raises(InvalidPSRPOperation) as err:
+            ps.create_nested_power_shell()
+        assert str(err.value) == \
+            "Cannot created a nested PowerShell pipeline from an existing " \
+            "pipeline that was connected to remotely"
+
+    def test_psrp_begin_invoke_invalid_state(self):
+        ps = PowerShell(RSPoolTest())
+        ps.state = PSInvocationState.COMPLETED
+        with pytest.raises(InvalidPipelineStateError) as err:
+            ps.begin_invoke()
+        assert err.value.action == "start a PowerShell pipeline"
+        assert err.value.current_state == PSInvocationState.COMPLETED
+        assert err.value.expected_state == PSInvocationState.NOT_STARTED
+        assert str(err.value) == \
+            "Cannot 'start a PowerShell pipeline' on the current state " \
+            "'Completed', expecting state(s): 'NotStarted'"
+
+    def test_psrp_being_invoke_no_commands(self):
+        ps = PowerShell(RSPoolTest())
+        with pytest.raises(InvalidPSRPOperation) as err:
+            ps.begin_invoke()
+        assert str(err.value) == "Cannot invoke PowerShell without any " \
+                                 "commands being set"
+
+    def test_psrp_stop_already_stopped(self):
+        ps = PowerShell(RSPoolTest())
+        ps.state = PSInvocationState.STOPPED
+        ps.stop()
+        ps.state = PSInvocationState.STOPPING
+
+    def test_psrp_stop_non_running_pipeline(self):
+        ps = PowerShell(RSPoolTest())
+        states = [
+            PSInvocationState.NOT_STARTED,
+            PSInvocationState.COMPLETED,
+            PSInvocationState.DISCONNECTED,
+            PSInvocationState.FAILED
+        ]
+        state_msg = {
+            PSInvocationState.NOT_STARTED: "NotStarted",
+            PSInvocationState.COMPLETED: "Completed",
+            PSInvocationState.DISCONNECTED: "Disconnected",
+            PSInvocationState.FAILED: "Failed"
+        }
+
+        for state in states:
+            with pytest.raises(InvalidPipelineStateError) as err:
+                ps.state = state
+                ps.stop()
+
+            assert err.value.action == "stop a running pipeline"
+            assert err.value.current_state == state
+            assert err.value.expected_state == PSInvocationState.RUNNING
+            assert str(err.value) == \
+                "Cannot 'stop a running pipeline' on the current state '%s'," \
+                " expecting state(s): 'Running'" % state_msg[state]

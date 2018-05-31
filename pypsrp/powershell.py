@@ -16,7 +16,7 @@ from pypsrp.complex_objects import ApartmentState, Command, \
     CommandParameter, HostInfo, Pipeline, PSInvocationState, PSThreadOptions, \
     RemoteStreamOptions, RunspacePoolState
 from pypsrp.exceptions import FragmentError, InvalidPipelineStateError, \
-    InvalidPSRPOperation, InvalidRunspacePoolStateError
+    InvalidPSRPOperation, InvalidRunspacePoolStateError, WSManFaultError
 from pypsrp.messages import ConnectRunspacePool, CreatePipeline, Destination, \
     EndOfPipelineInput, GetAvailableRunspaces, InitRunspacePool, Message, \
     MessageType, PipelineInput, PublicKey, SessionCapability, \
@@ -45,6 +45,26 @@ class RunspacePool(object):
                  thread_options=PSThreadOptions.DEFAULT, host_info=None,
                  min_runspaces=1, max_runspaces=1,
                  session_key_timeout_ms=60000):
+        """
+        Represents a Runspace pool on a remote host. This pool can contain
+        one or more running PowerShell instances.
+
+        This is meant to be a near representation of the
+        System.Management.Automation.Runspaces.RunspacePool .NET class
+
+        :param wsman: The WSMan instance to send commands over
+        :param apartment_state: The ApartmentState enum int values that specify
+            the apartment state of the remote thread
+        :param thread_options: The ThreadOptions enum int values that specify
+            what type of thread of create
+        :param host_info:
+        :param min_runspaces: The minimum number of runspaces that a pool can
+            hold
+        :param max_runspaces: The maximum number of runspaces that a pool can
+            hold
+        :param session_key_timeout_ms: The maximum time to wait for a session
+            key transfer from the server
+        """
         # The below are defined in some way at
         # https://msdn.microsoft.com/en-us/library/ee176015.aspx
         self.id = str(uuid.uuid4()).upper()
@@ -372,6 +392,10 @@ class RunspacePool(object):
         """
         Opens the runspace pool, this step must be called before it can be
         used.
+
+        :param application_arguments: A dictionary of variables to set for the
+            runspace host. These can then be accessed in a PowerShell instance
+            of the runspace with $PSSenderInfo.ApplicationArguments
         """
         if self.state == RunspacePoolState.OPENED:
             return
@@ -717,7 +741,7 @@ class PowerShell(object):
         if self.state != PSInvocationState.DISCONNECTED:
             raise InvalidPipelineStateError(
                 self.state, PSInvocationState.DISCONNECTED,
-                "connect to a disconnect async pipeline"
+                "connect to a disconnected pipeline"
             )
         rsp = NAMESPACES['rsp']
 
@@ -778,7 +802,6 @@ class PowerShell(object):
         :param remote_stream_options: Whether to return the invocation info on
             the various steams, see complex_objects.RemoteStreamOptions for the
             values. Will default to returning the invocation info on all
-        :return:
         """
         if self.state != PSInvocationState.NOT_STARTED:
             raise InvalidPipelineStateError(
@@ -814,28 +837,25 @@ class PowerShell(object):
                                          command_id=self.id)
         self.state = PSInvocationState.RUNNING
 
-        # send the remaining fragments (including the input) with the send
-        # message
-        remaining_size = self.runspace_pool._fragmenter.max_size
-        if len(fragments) > 0:
-            remaining_size -= len(fragments[-1])
+        # send the remaining create pipeline fragments with the send message
+        for fragment in fragments:
+            self.runspace_pool.shell.send('stdin', fragment,
+                                          command_id=self.id)
 
+        # finally send the input if any was specified
         if input is not None:
             if not isinstance(input, list):
                 input = [input]
 
             input_msgs = [PipelineInput(data=d) for d in input]
             input_msgs.append(EndOfPipelineInput())
-            input_fragments = self.runspace_pool._fragmenter.fragment_multiple(
-                input_msgs, self.runspace_pool.id, self.id, remaining_size
+            fragments = self.runspace_pool._fragmenter.fragment_multiple(
+                input_msgs, self.runspace_pool.id, self.id
             )
-            if len(fragments) > 0:
-                fragments[-1] = fragments[-1] + input_fragments.pop(0)
-            fragments.extend(input_fragments)
 
-        for fragment in fragments:
-            self.runspace_pool.shell.send('stdin', fragment,
-                                          command_id=self.id)
+            for fragment in fragments:
+                self.runspace_pool.shell.send('stdin', fragment,
+                                              command_id=self.id)
 
     def end_invoke(self):
         """
@@ -845,7 +865,15 @@ class PowerShell(object):
         :return: A list of output objects
         """
         while self.state == PSInvocationState.RUNNING:
-            responses = self.runspace_pool._receive(self.id)
+            try:
+                responses = self.runspace_pool._receive(self.id)
+            except WSManFaultError as err:
+                # operation timeout needs to be ignored and silently tried
+                # again
+                if err.code == 2150858793:
+                    continue
+                else:
+                    raise err
             for response in responses:
                 if response[0] == MessageType.PIPELINE_OUTPUT:
                     self.output.append(response[1].data.data)
@@ -858,11 +886,18 @@ class PowerShell(object):
         """
         Invoke the command and return the output collection of return objects.
 
-        :param input: List of inputs to the command
-        :param add_to_history:
-        :param apartment_state:
-        :param host:
-        :param remote_stream_options:
+        :param input: List of inputs to the command, this will be manually
+            serialized but can also be a result of runspace_pool.serialize()
+        :param add_to_history: Add the commands run to the pool history
+        :param apartment_state: Override the RunspacePool apartment state with
+            one just for this invocation
+        :param host: Override the RunspacePool local host settings with one
+            just for this invocation
+        :param redirect_shell_error_to_out: Whether to redirect the global
+            error output pipe to the commands error output pipe.
+        :param remote_stream_options: Whether to return the invocation info on
+            the various steams, see complex_objects.RemoteStreamOptions for the
+            values. Will default to returning the invocation info on all
         :return: A list of output objects
         """
         self.begin_invoke(input, add_to_history, apartment_state, host,
@@ -1071,8 +1106,8 @@ class Fragmenter(object):
         self.outgoing_counter += 1
         return fragments
 
-    def fragment_multiple(self, blocks, rpid, pid=None, remaining_size=None):
-        remaining_size = remaining_size or self.max_size
+    def fragment_multiple(self, blocks, rpid, pid=None):
+        remaining_size = self.max_size
         fragments = []
 
         for block in blocks:

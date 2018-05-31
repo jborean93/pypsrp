@@ -173,7 +173,7 @@ class Serializer(object):
             # Primitive types
             'S': lambda d: self._deserialize_string(d.text),
             'ToString': lambda d: self._deserialize_string(d.text),
-            'C': lambda d: chr(d.text),
+            'C': lambda d: chr(int(d.text)),
             'B': lambda d: d.text.lower() == "true",
             'DT': lambda d: None,
             'TS': lambda d: d.text,
