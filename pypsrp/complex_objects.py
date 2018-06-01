@@ -132,7 +132,11 @@ class Enum(ComplexObject):
 
     @property
     def _to_string(self):
-        return self._string_map[self.value]
+        try:
+            return self._string_map[self.value]
+        except KeyError as err:
+            raise KeyError("%s is not a valid enum value for %s, valid values "
+                           "are %s" % (err, self._types[0], self._string_map))
 
     @_to_string.setter
     def _to_string(self, value):

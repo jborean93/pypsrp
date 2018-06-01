@@ -431,15 +431,6 @@ class RunspacePool(object):
         while self.state == RunspacePoolState.NEGOTIATION_SENT:
             responses.extend(self._receive())
 
-        error_states = [RunspacePoolState.BROKEN, RunspacePoolState.CLOSED]
-        if self.state in error_states:
-            # TODO: get error_record from RunspacePoolState message
-            state_response = None
-
-            raise InvalidRunspacePoolStateError(
-                self.state, error_states, "open new Runspace Pool"
-            )
-
     def exchange_keys(self):
         """
         Initiate a key exchange with the server that is required when dealing
@@ -582,6 +573,11 @@ class RunspacePool(object):
 
     def _process_runspacepool_state(self, message):
         self.state = message.data.state
+        if self.state == RunspacePoolState.BROKEN:
+            raise InvalidPSRPOperation(
+                "Received a broken RunspacePoolState message: %s"
+                % str(message.data.error_record)
+            )
         return message.data
 
     def _process_application_private_data(self, message):
@@ -1119,12 +1115,11 @@ class Fragmenter(object):
             if remaining_size != self.max_size and len(fragments) > 0:
                 fragments[-1] = fragments[-1] + block_fragments.pop(0)
 
-            for block_fragment in block_fragments:
-                fragments.append(block_fragment)
+            fragments.extend(block_fragments)
 
             # calculate how much data can fit into the last fragment
             remaining_size = self.max_size - len(fragments[-1])
-            if remaining_size == 0:
+            if remaining_size <= 0:
                 remaining_size = self.max_size
 
         return fragments

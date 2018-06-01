@@ -129,8 +129,12 @@ class Message(object):
         message_type = struct.unpack("<I", data[4:8])[0]
         rpid = str(uuid.UUID(bytes=data[8:24]))
         pid = str(uuid.UUID(bytes=data[24:40]))
-        # 40-43 is the UTF-8 BOM which we don't care about
-        message_data = to_string(data[43:])
+
+        if data[40:43] == b"\xEF\xBB\xBF":
+            # 40-43 is the UTF-8 BOM which we don't care about
+            message_data = to_string(data[43:])
+        else:
+            message_data = to_string(data[40:])
 
         log.info("Unpacking PSRP message of type %d: %s"
                  % (message_type, message_data))
@@ -175,6 +179,10 @@ class Message(object):
         if message_type == MessageType.PIPELINE_OUTPUT:
             message_data = serializer.deserialize(message_data)
             message = PipelineOutput()
+            message.data = message_data
+        elif message_type == MessageType.PIPELINE_INPUT:
+            message_data = serializer.deserialize(message_data)
+            message = PipelineInput()
             message.data = message_data
         elif message_type == MessageType.PUBLIC_KEY_REQUEST:
             message = PublicKeyRequest()
@@ -382,7 +390,8 @@ class RunspacePoolStateMessage(ComplexObject):
         super(RunspacePoolStateMessage, self).__init__()
         self._extended_properties = (
             ('state', ObjectMeta("I32", name="RunspaceState")),
-            ('error_record', ObjectMeta("Obj", optional=True)),
+            ('error_record', ObjectMeta("Obj", optional=True,
+                                        object=ErrorRecord)),
         )
         self.state = state
         self.error_record = error_record

@@ -7,11 +7,15 @@ import pytest
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from pypsrp.complex_objects import Command, GenericComplexObject, ObjectMeta, \
-    PSInvocationState, RunspacePoolState
+from pypsrp.complex_objects import Command, ErrorRecord, \
+    GenericComplexObject, ObjectMeta, PSInvocationState, RunspacePoolState
 from pypsrp.exceptions import InvalidPipelineStateError, \
-    InvalidPSRPOperation, InvalidRunspacePoolStateError, WSManFaultError
-from pypsrp.powershell import RunspacePool, PowerShell
+    InvalidPSRPOperation, InvalidRunspacePoolStateError, FragmentError, \
+    WSManFaultError
+from pypsrp.messages import Message, MessageType, PipelineInput, \
+    RunspacePoolStateMessage
+from pypsrp.powershell import Fragmenter, RunspacePool, PowerShell
+from pypsrp.serializer import Serializer
 from pypsrp.transport import TransportHTTP
 from pypsrp.wsman import WSMan
 
@@ -70,6 +74,17 @@ class TestRunspacePool(object):
         assert runspace_pool.min_runspaces == 1
         assert runspace_pool.max_runspaces == 1
 
+        # test changing before open works
+        runspace_pool.min_runspaces = 2
+        runspace_pool.max_runspaces = 2
+        assert runspace_pool.min_runspaces == 2
+        assert runspace_pool.max_runspaces == 2
+
+        # reset back to one for msg testing
+        runspace_pool.min_runspaces = 1
+        runspace_pool.max_runspaces = 1
+
+        # open the pool and test changing after open
         try:
             runspace_pool.open()
             actual = runspace_pool.get_available_runspaces()
@@ -80,6 +95,12 @@ class TestRunspacePool(object):
             assert runspace_pool.min_runspaces == 1
             assert runspace_pool.max_runspaces == 5
             assert actual == 5
+
+            runspace_pool.min_runspaces = 2
+            assert runspace_pool.min_runspaces == 2
+
+            runspace_pool.max_runspaces = 5
+            assert runspace_pool.max_runspaces == 5
 
             with pytest.raises(InvalidPSRPOperation) as exc:
                 runspace_pool.min_runspaces = -1
@@ -216,6 +237,26 @@ class TestRunspacePool(object):
         assert str(err.value) == \
             "Cannot 'open a new Runspace Pool' on the current state " \
             "'Disconnected', expecting state(s): 'BeforeOpen'"
+
+    def test_psrp_parse_state_failure(self):
+        transport = TransportHTTP("", 5985, "", "")
+        wsman = WSMan(transport)
+        rs = RunspacePool(wsman)
+        empty_uuid = "00000000-0000-0000-0000-000000000000"
+
+        state_msg = RunspacePoolStateMessage(RunspacePoolState.OPENED)
+        message = Message(0x2, empty_uuid, empty_uuid, state_msg, None)
+        rs._process_runspacepool_state(message)
+        assert rs.state == RunspacePoolState.OPENED
+
+        excp = ErrorRecord()
+        excp._to_string = "error msg"
+        state_msg = RunspacePoolStateMessage(RunspacePoolState.BROKEN, excp)
+        message = Message(0x2, empty_uuid, empty_uuid, state_msg, None)
+        with pytest.raises(InvalidPSRPOperation) as err:
+            rs._process_runspacepool_state(message)
+        assert str(err.value) == "Received a broken RunspacePoolState " \
+                                 "message: error msg"
 
 
 class TestPSRPScenarios(object):
@@ -599,18 +640,22 @@ class TestPSRPScenarios(object):
             assert len(pools) == 2
             assert len(pools[0].pipelines.keys()) == 1
             assert len(pools[1].pipelines.keys()) == 1
-            for pool in pools:
+            for idx, pool in enumerate(pools):
                 pool.connect()
                 pipelines = pool.create_disconnected_power_shells()
                 for pipeline in pipelines:
-                    pipeline.connect_async()
+                    if idx == 0:
+                        pipeline.connect_async()
 
-                    with pytest.raises(InvalidPSRPOperation) as exc:
-                        pipeline.create_nested_power_shell()
-                    assert str(exc.value) == \
-                        "Cannot created a nested PowerShell pipeline from " \
-                        "an existing pipeline that was connected to remotely"
-                    actual = pipeline.end_invoke()
+                        with pytest.raises(InvalidPSRPOperation) as exc:
+                            pipeline.create_nested_power_shell()
+                        assert str(exc.value) == \
+                            "Cannot created a nested PowerShell pipeline " \
+                            "from an existing pipeline that was connected to" \
+                            " remotely"
+                        actual = pipeline.end_invoke()
+                    else:
+                        actual = pipeline.connect()
                     assert actual == ["a", "b"]
         finally:
             if pools is None:
@@ -714,3 +759,340 @@ class TestPSRPScenarios(object):
             assert str(err.value) == \
                 "Cannot 'stop a running pipeline' on the current state '%s'," \
                 " expecting state(s): 'Running'" % state_msg[state]
+
+
+class TestFragmenter(object):
+
+    def test_fragment_one_one_fragment(self):
+        serial = Serializer()
+        fragmenter = Fragmenter(70, serial)
+        empty_uuid = "00000000-0000-0000-0000-000000000000"
+        pipeline_input = PipelineInput("12")
+
+        actual = fragmenter.fragment(pipeline_input, empty_uuid)
+        assert actual == [
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x03"
+            b"\x00\x00\x00\x31"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>12</S>"
+        ]
+
+    def test_fragment_one_multiple_fragments(self):
+        serial = Serializer()
+        fragmenter = Fragmenter(70, serial)
+        empty_uuid = "00000000-0000-0000-0000-000000000000"
+        pipeline_input = PipelineInput("1234")
+
+        actual = fragmenter.fragment(pipeline_input, empty_uuid)
+        assert actual == [
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x01"
+            b"\x00\x00\x00\x31"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>1234</",
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x02"
+            b"\x00\x00\x00\x02"
+            b"S>"
+        ]
+
+    def test_fragment_really_large(self):
+        serial = Serializer()
+        fragmenter = Fragmenter(70, serial)
+        empty_uuid = "00000000-0000-0000-0000-000000000000"
+        pipeline_input = PipelineInput("a" * 60)
+
+        actual = fragmenter.fragment(pipeline_input, empty_uuid)
+        assert actual == [
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x01"
+            b"\x00\x00\x00\x31"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>aaaaaa",
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00"
+            b"\x00\x00\x00\x31"
+            b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x02"
+            b"\x02"
+            b"\x00\x00\x00\x09"
+            b"aaaaa</S>",
+        ]
+
+    def test_fragment_multiple(self):
+        serial = Serializer()
+        fragmenter = Fragmenter(140, serial)
+        empty_uuid = "00000000-0000-0000-0000-000000000000"
+        msg1 = PipelineInput("12")
+        msg2 = PipelineInput("34")
+        msg3 = PipelineInput("567")
+        msg4 = PipelineInput("890")
+
+        actual = fragmenter.fragment_multiple([msg1, msg2, msg3, msg4],
+                                              empty_uuid)
+        assert actual == [
+            # actual 1 should fit both msg 1 and 2 exactly
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x03"
+            b"\x00\x00\x00\x31"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>12</S>"
+            b"\x00\x00\x00\x00\x00\x00\x00\x02"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x03"
+            b"\x00\x00\x00\x31"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>34</S>",
+            # actual 2 should fit msg 3 and the start of msg 4
+            b"\x00\x00\x00\x00\x00\x00\x00\x03"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x03"
+            b"\x00\x00\x00\x32"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>567</S>"
+            b"\x00\x00\x00\x00\x00\x00\x00\x04"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x01"
+            b"\x00\x00\x00\x30"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>890</",
+            # actual 3 should contain the rest of msg 4
+            b"\x00\x00\x00\x00\x00\x00\x00\x04"
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x02"
+            b"\x00\x00\x00\x02"
+            b"S>"
+        ]
+
+    def test_defragment_one_fragment(self):
+        serial = Serializer()
+        fragmenter = Fragmenter(70, serial)
+        fragments = [
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x03"
+            b"\x00\x00\x00\x31"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>12</S>"
+        ]
+        actual = []
+        for fragment in fragments:
+            actual.extend(fragmenter.defragment(fragment))
+
+        assert len(actual) == 1
+        assert actual[0].message_type == MessageType.PIPELINE_INPUT
+        assert actual[0].data.data == "12"
+
+    def test_defragment_two_fragments_one_message(self):
+        serial = Serializer()
+        fragmenter = Fragmenter(70, serial)
+        fragments = [
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x01"
+            b"\x00\x00\x00\x31"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>1234</",
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x02"
+            b"\x00\x00\x00\x02"
+            b"S>"
+        ]
+        actual = []
+        for fragment in fragments:
+            actual.extend(fragmenter.defragment(fragment))
+
+        assert len(actual) == 1
+        assert actual[0].message_type == MessageType.PIPELINE_INPUT
+        assert actual[0].data.data == "1234"
+
+    def test_defragment_large_message(self):
+        serial = Serializer()
+        fragmenter = Fragmenter(70, serial)
+        fragments = [
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x01"
+            b"\x00\x00\x00\x31"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>aaaaaa",
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00"
+            b"\x00\x00\x00\x31"
+            b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x02"
+            b"\x02"
+            b"\x00\x00\x00\x09"
+            b"aaaaa</S>",
+        ]
+        actual = []
+        for fragment in fragments:
+            actual.extend(fragmenter.defragment(fragment))
+
+        assert len(actual) == 1
+        assert actual[0].message_type == MessageType.PIPELINE_INPUT
+        assert actual[0].data.data == "a" * 60
+
+    def test_defragment_multiple_fragments_multiple_messages(self):
+        serial = Serializer()
+        fragmenter = Fragmenter(140, serial)
+        fragments = [
+            # actual 1 should fit both msg 1 and 2 exactly
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x03"
+            b"\x00\x00\x00\x31"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>12</S>"
+            b"\x00\x00\x00\x00\x00\x00\x00\x02"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x03"
+            b"\x00\x00\x00\x31"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>34</S>",
+            # actual 2 should fit msg 3 and the start of msg 4
+            b"\x00\x00\x00\x00\x00\x00\x00\x03"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x03"
+            b"\x00\x00\x00\x32"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>567</S>"
+            b"\x00\x00\x00\x00\x00\x00\x00\x04"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x01"
+            b"\x00\x00\x00\x30"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>890</",
+            # actual 3 should contain the rest of msg 4
+            b"\x00\x00\x00\x00\x00\x00\x00\x04"
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x02"
+            b"\x00\x00\x00\x02"
+            b"S>"
+        ]
+        actual = []
+        for fragment in fragments:
+            actual.extend(fragmenter.defragment(fragment))
+
+        assert len(actual) == 4
+        assert actual[0].message_type == MessageType.PIPELINE_INPUT
+        assert actual[0].data.data == "12"
+        assert actual[1].message_type == MessageType.PIPELINE_INPUT
+        assert actual[1].data.data == "34"
+        assert actual[2].message_type == MessageType.PIPELINE_INPUT
+        assert actual[2].data.data == "567"
+        assert actual[3].message_type == MessageType.PIPELINE_INPUT
+        assert actual[3].data.data == "890"
+
+    def test_defragment_invalid_frag_id(self):
+        serial = Serializer()
+        fragmenter = Fragmenter(70, serial)
+        fragments = [
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x01"
+            b"\x00\x00\x00\x31"
+            b"\x02\x00\x00\x00"
+            b"\x02\x10\x04\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S>aaaaaa",
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x02"
+            b"\x02"
+            b"\x00\x00\x00\x09"
+            b"aaaaa</S>",
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00\x00\x00\x00\x00\x00\x00\x01"
+            b"\x00"
+            b"\x00\x00\x00\x31"
+            b"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ]
+        fragmenter.defragment(fragments[0])
+        with pytest.raises(FragmentError) as err:
+            fragmenter.defragment(fragments[1])
+        assert str(err.value) == \
+            "Fragment Fragment Id: 2 != Expected Fragment Id: 1"
