@@ -11,9 +11,10 @@ import uuid
 from cryptography.hazmat.primitives.padding import PKCS7
 from six import string_types
 
-from pypsrp.complex_objects import ApartmentState, Color, CommandOrigin, \
-    Coordinates, ComplexObject, DictionaryMeta, GenericComplexObject, \
-    HostMethodIdentifier, InformationalRecord, ListMeta, ObjectMeta, \
+from pypsrp.complex_objects import ApartmentState, Color, \
+    CommandMetadataCount, CommandOrigin, Coordinates, ComplexObject, \
+    DictionaryMeta, GenericComplexObject, HostMethodIdentifier, \
+    InformationalRecord, ListMeta, ObjectMeta, ParameterMetadata, \
     PipelineResultTypes, ProgressRecordType, PSThreadOptions, QueueMeta, \
     RemoteStreamOptions, SessionStateEntryVisibility, Size, StackMeta
 from pypsrp.exceptions import SerializationError
@@ -21,9 +22,9 @@ from pypsrp.messages import DebugRecord, ErrorRecord, InformationRecord, \
     VerboseRecord, WarningRecord
 from pypsrp._utils import to_bytes, to_string, to_unicode
 
-try:
+try:  # pragma: no cover
     from queue import Queue, Empty
-except ImportError:
+except ImportError:  # pragma: no cover
     from Queue import Queue, Empty
 
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
@@ -49,14 +50,14 @@ class Serializer(object):
         self.cipher = None
         # Finds C0, C1 and surrogate pairs in a unicode string for us to
         # encode according to the PSRP rules
-        if sys.maxunicode == 65535:
+        if sys.maxunicode == 65535:  # pragma: no cover
             # using a narrow Python build or Python 2.x, the regex we need to
             # use to find surrogate pairs is different than a wide build or on
             # Python 3
             self._serial_str = re.compile(u"[\u0000-\u001F]|"
                                           u"[\u007F-\u009F]|"
                                           u"[\uD800-\uDBFF][\uDC00-\uDFFF]")
-        else:
+        else:  # pragma: no cover
             self._serial_str = re.compile(u'[\u0000-\u001F'
                                           u'\u007F-\u009F'
                                           u'\U00010000-\U0010FFFF]')
@@ -175,7 +176,7 @@ class Serializer(object):
             'ToString': lambda d: self._deserialize_string(d.text),
             'C': lambda d: chr(int(d.text)),
             'B': lambda d: d.text.lower() == "true",
-            'DT': lambda d: None,
+            'DT': lambda d: d.text,
             'TS': lambda d: d.text,
             'By': lambda d: int(d.text),
             'SB': lambda d: int(d.text),
@@ -187,7 +188,7 @@ class Serializer(object):
             'I64': lambda d: int(d.text),
             'Sg': lambda d: float(d.text),
             'Db': lambda d: float(d.text),
-            'D': lambda d: None,
+            'D': lambda d: d.text,  # TODO: deserialize this
             'BA': lambda d: base64.b64decode(d.text),
             'G': lambda d: uuid.UUID(d.text),
             'URI': lambda d: self._deserialize_string(d.text),
@@ -205,9 +206,17 @@ class Serializer(object):
             return unpack_function(element)
 
         # not a primitive object, so try and decode the complex object
-        if metadata.object is None:
+        if type(metadata) == ObjectMeta and metadata.object is None:
             structures = {
+                "Selected.Microsoft.PowerShell.Commands.GenericMeasureInfo":
+                    ObjectMeta("Obj", object=CommandMetadataCount),
                 "System.Array": ListMeta(),
+                "System.Collections.ArrayList": ListMeta(),
+                "System.Collections.Hashtable": DictionaryMeta(),
+                "System.Collections.Generic.List": ListMeta(),
+                "System.Collections.Queue": QueueMeta(),
+                "System.Collections.Stack": StackMeta(),
+                "System.ConsoleColor": ObjectMeta("Obj", object=Color),
                 "System.Management.Automation.CommandOrigin":
                     ObjectMeta("Obj", object=CommandOrigin),
                 "System.Management.Automation.DebugRecord":
@@ -222,12 +231,17 @@ class Serializer(object):
                     ObjectMeta("Obj", object=InformationalRecord),
                 "System.Management.Automation.InformationRecord":
                     ObjectMeta("Obj", object=InformationRecord),
+                "System.Management.Automation.ParameterMetadata":
+                    ObjectMeta("Obj", object=ParameterMetadata),
                 "System.Management.Automation.ProgressRecordType":
                     ObjectMeta("Obj", object=ProgressRecordType),
                 "System.Management.Automation.PSBoundParametersDictionary":
                     DictionaryMeta(),
+                "System.Management.Automation.PSObject":
+                    ObjectMeta("ObjDynamic", object=GenericComplexObject),
                 "System.Management.Automation.PSPrimitiveDictionary":
                     DictionaryMeta(),
+                "System.Management.Automation.PSTypeName": ObjectMeta("S"),
                 "System.Management.Automation.Remoting.RemoteHostMethodId":
                     ObjectMeta("Obj", object=HostMethodIdentifier),
                 "System.Management.Automation.Runspaces.ApartmentState":
@@ -244,11 +258,6 @@ class Serializer(object):
                     ObjectMeta("Obj", object=VerboseRecord),
                 "System.Management.Automation.WarningRecord":
                     ObjectMeta("Obj", object=WarningRecord),
-                "System.Collections.Hashtable": DictionaryMeta(),
-                "System.Collections.Generic.List": ListMeta(),
-                "System.Collections.Queue": QueueMeta(),
-                "System.Collections.Stack": StackMeta(),
-                "System.ConsoleColor": ObjectMeta("Obj", object=Color),
 
                 # Fallback to the GenericComplexObject
                 "System.Object":
@@ -279,6 +288,11 @@ class Serializer(object):
                 "System.Management.Automation.ScriptBlock": ObjectMeta("SBK"),
                 "System.Security.SecureString": ObjectMeta("SS"),
             }
+
+            # fallback to GenericComplexObject if no types were defined
+            if metadata.tag == "Obj" and len(obj_types) == 0:
+                obj_types = ["System.Object"]
+
             metadata = None
             for obj_type in obj_types:
                 if obj_type.startswith("Deserialized.System."):
@@ -292,13 +306,16 @@ class Serializer(object):
                                          "Generic.List`1[["):
                     list_info = obj_type[35:-1]
                     obj_type = list_info.split(",")[0]
-                    obj_type = obj_type
+                    is_list = True
+                elif obj_type.startswith("System.Collections.ObjectModel."
+                                         "Collection`1[["):
+                    list_info = obj_type[45:-1]
+                    obj_type = list_info.split(",")[0]
                     is_list = True
                 elif obj_type.startswith("System.Collections.ObjectModel."
                                          "ReadOnlyCollection`1[["):
                     list_info = obj_type[53:-1]
                     obj_type = list_info.split(",")[0]
-                    obj_type = obj_type
                     is_list = True
                 elif obj_type.startswith("System.Collections.Generic."
                                          "Dictionary`2[["):
@@ -327,7 +344,7 @@ class Serializer(object):
         elif metadata.tag == "ObjDynamic":
             obj = self._deserialize_dynamic_obj(element, metadata)
         elif metadata.tag == "LST":
-            obj = self._deserialize_lst(element)
+            obj = self._deserialize_lst(element, metadata)
         elif metadata.tag == "QUE":
             obj = self._deserialize_que(element)
         elif metadata.tag == "STK":
@@ -338,10 +355,6 @@ class Serializer(object):
             # was a primitive type in an object so need to get the value
             # extended property in that object
             element = element.find("MS/%s[@N='V']" % metadata.tag)
-
-            # couldn't find the value, just return the XML string
-            if element is None:
-                return element_string
 
             # TODO: Add to Obj RefId
             return self.deserialize(element, metadata, clear=False)
@@ -372,12 +385,14 @@ class Serializer(object):
             # a str. If users on that platform want a BA then they need to
             # explicitly set the metadata themselves
             return "BA"
-        elif value_type == uuid:
+        elif value_type == uuid.UUID:
             return "G"
         elif value_type == list:
             return "LST"
         elif value_type == dict:
             return "DCT"
+        elif isinstance(value, Queue):
+            return "QUE"
         elif isinstance(value, GenericComplexObject):
             return "ObjDynamic"
         elif isinstance(value, ComplexObject):
@@ -402,19 +417,16 @@ class Serializer(object):
             attr_value = getattr(value, attr)
             self.serialize(attr_value, property_meta, parent=obj, clear=False)
 
-        if len(value._extended_properties) > 0:
-            ms = ET.SubElement(obj, "MS")
-            for attr, property_meta in value._extended_properties:
+        def serialize_prop(parent, properties):
+            if len(properties) == 0:
+                return
+            parent = ET.SubElement(obj, parent)
+            for attr, property_meta in properties:
                 attr_value = getattr(value, attr)
-                self.serialize(attr_value, property_meta, parent=ms,
+                self.serialize(attr_value, property_meta, parent=parent,
                                clear=False)
-
-        if len(value._adapted_properties) > 0:
-            props = ET.SubElement(obj, "Props")
-            for attr, property_meta in value._adapted_properties:
-                attr_value = getattr(value, attr)
-                self.serialize(attr_value, property_meta, parent=props,
-                               clear=False)
+        serialize_prop("MS", value._extended_properties)
+        serialize_prop("Props", value._adapted_properties)
 
         return obj
 
@@ -428,24 +440,25 @@ class Serializer(object):
             ET.SubElement(obj, "ToString").text = \
                 self._serialize_string(value.to_string)
 
-        for key, prop in value.property_sets.items():
-            metadata = ObjectMeta(name=key)
+        for prop in value.property_sets:
+            metadata = ObjectMeta()
             self.serialize(prop, metadata=metadata, parent=obj,
                            clear=False)
 
-        if len(value.extended_properties.keys()) > 0:
-            ms = ET.SubElement(obj, "MS")
-            for key, prop in value.extended_properties.items():
-                metadata = ObjectMeta(name=key)
-                self.serialize(prop, metadata=metadata, parent=ms,
-                               clear=False)
+        def set_properties(element, prop_name):
+            prop_keys = list(getattr(value, prop_name).keys())
+            if len(prop_keys) == 0:
+                return
 
-        if len(value.adapted_properties.keys()) > 0:
-            props = ET.SubElement(obj, "Props")
-            for key, prop in value.adapted_properties.items():
+            parent = ET.SubElement(obj, element)
+            prop_keys.sort()
+            for key in prop_keys:
+                prop = getattr(value, prop_name)[key]
                 metadata = ObjectMeta(name=key)
-                self.serialize(prop, metadata=metadata, parent=props,
+                self.serialize(prop, metadata=metadata, parent=parent,
                                clear=False)
+        set_properties("MS", "extended_properties")
+        set_properties("Props", "adapted_properties")
 
         return obj
 
@@ -469,9 +482,6 @@ class Serializer(object):
 
     def _serialize_stk(self, metadata, values):
         obj = ET.Element("Obj", RefId=self._get_obj_id())
-        if not isinstance(metadata, StackMeta):
-            metadata = StackMeta(name=metadata.name,
-                                 optional=metadata.optional)
         self._create_tn(obj, metadata.list_types)
 
         stk = ET.SubElement(obj, "STK")
@@ -576,8 +586,10 @@ class Serializer(object):
 
         def deserialize_property(prop_tag, properties):
             for attr, property_meta in properties:
+                property_name = "Unknown"
                 property_filter = ""
                 if property_meta.name is not None:
+                    property_name = property_meta.name
                     property_filter = "[@N='%s']" % property_meta.name
 
                 tags = [property_meta.tag]
@@ -596,9 +608,12 @@ class Serializer(object):
                 if val is None and not property_meta.optional:
                     val = element.find("%sNil%s" % (prop_tag, property_filter))
                     if val is None:
-                        raise SerializationError(
-                            "Mandatory return value was not found"
-                        )
+                        obj_name = str(obj) if obj._to_string is not None \
+                            else "Unknown"
+                        err_msg = "Mandatory return value for '%s' was not " \
+                                  "found on object %s"\
+                                  % (property_name, obj_name)
+                        raise SerializationError(err_msg)
                     val = None
                 elif val is not None:
                     val = self.deserialize(val, property_meta, clear=False)
@@ -640,12 +655,13 @@ class Serializer(object):
 
         return obj
 
-    def _deserialize_lst(self, element):
+    def _deserialize_lst(self, element, metadata=None):
         list_value = []
+        value_meta = getattr(metadata, "list_value_meta", None)
 
         entries = element.find("LST")
         for entry in entries:
-            entry_value = self.deserialize(entry, clear=False)
+            entry_value = self.deserialize(entry, value_meta, clear=False)
             list_value.append(entry_value)
 
         return list_value

@@ -1,6 +1,8 @@
+import pytest
+
 from six import PY3
 
-from pypsrp._utils import to_bytes, to_string, to_unicode
+from pypsrp._utils import to_bytes, to_string, to_unicode, version_newer
 
 
 def test_unicode_to_bytes_default():
@@ -65,3 +67,21 @@ def test_to_str():
         assert str(to_string).startswith("<function to_unicode")
     else:
         assert to_string.func_name == "to_bytes"
+
+
+@pytest.mark.parametrize('version, reference_version, expected',
+                         [
+                             ["2.2", "2.3", False],
+                             ["2.3", "2.3", True],
+                             ["2.4", "2.3", True],
+                             ["3", "2.3", True],
+                             ["3.0", "2.3", True],
+                             ["1", "2.3", False],
+                             ["1.0", "2.3", False],
+                             ["2.3.0", "2.3", True],
+                             ["2.3.1", "2.3", True],
+                             ["2.3", "2.3.0", True],
+                             ["2.3", "2.3.1", False],
+                         ])
+def test_version_newer(version, reference_version, expected):
+    assert version_newer(version, reference_version) == expected

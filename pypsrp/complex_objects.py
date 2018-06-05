@@ -385,14 +385,14 @@ class RemoteStreamOptions(Enum):
         if self.value == 15:
             return "AddInvocationInfo"
 
-        string_map = {
-            "AddInvocationInfoToErrorRecord": 1,
-            "AddInvocationInfoToWarningRecord": 2,
-            "AddInvocationInfoToDebugRecord": 4,
-            "AddInvocationInfoToVerboseRecord": 8,
-        }
+        string_map = (
+            ("AddInvocationInfoToErrorRecord", 1),
+            ("AddInvocationInfoToWarningRecord", 2),
+            ("AddInvocationInfoToDebugRecord", 4),
+            ("AddInvocationInfoToVerboseRecord", 8),
+        )
         values = []
-        for name, flag in string_map.items():
+        for name, flag in string_map:
             if self.value & flag == flag:
                 values.append(name)
         return ", ".join(values)
@@ -405,17 +405,23 @@ class RemoteStreamOptions(Enum):
 class Pipeline(ComplexObject):
 
     class _ExtraCmds(ComplexObject):
-        def __init__(self, cmd_types, cmds):
+        def __init__(self, **kwargs):
             # Used to encapsulate ExtraCmds in the structure required
             super(Pipeline._ExtraCmds, self).__init__()
             self._extended_properties = (
                 ('cmds', ListMeta(
                     name="Cmds",
                     list_value_meta=ObjectMeta("Obj", object=Command),
-                    list_types=cmd_types
+                    list_types=[
+                        "System.Collections.Generic.List`1[["
+                        "System.Management.Automation.PSObject, "
+                        "System.Management.Automation, Version=1.0.0.0, "
+                        "Culture=neutral, PublicKeyToken=31bf3856ad364e35]]",
+                        "System.Object",
+                    ]
                 )),
             )
-            self.cmds = cmds
+            self.cmds = kwargs.get('cmds')
 
     def __init__(self, **kwargs):
         """
@@ -428,7 +434,7 @@ class Pipeline(ComplexObject):
         :param redirect_err_to_out:
         """
         super(Pipeline, self).__init__()
-        self._cmd_types = [
+        cmd_types = [
             "System.Collections.Generic.List`1[["
             "System.Management.Automation.PSObject, "
             "System.Management.Automation, "
@@ -444,11 +450,11 @@ class Pipeline(ComplexObject):
             ('_extra_cmds', ListMeta(
                 name="ExtraCmds",
                 list_value_meta=ObjectMeta("Obj", object=self._ExtraCmds),
-                list_types=self._cmd_types
+                list_types=cmd_types
             )),
             ('_cmds', ListMeta(
                 name="Cmds", list_value_meta=ObjectMeta("Obj", object=Command),
-                list_types=self._cmd_types
+                list_types=cmd_types
             )),
             ('history', ObjectMeta("S", name="History")),
             ('redirect_err_to_out',
@@ -468,11 +474,11 @@ class Pipeline(ComplexObject):
     def _cmds(self, value):
         # if commands is already set then that means ExtraCmds was present and
         # has already been set
-        if len(self.commands) > 0:
+        if self.commands and len(self.commands) > 0:
             return
 
         # ExtraCmds wasn't present so we need to unpack it
-        return
+        self.commands = value
 
     @property
     def _extra_cmds(self):
@@ -483,12 +489,21 @@ class Pipeline(ComplexObject):
         if len(statements) < 2:
             return None
         else:
-            extra = [self._ExtraCmds(self._cmd_types, c) for c in statements]
+            extra = [self._ExtraCmds(cmds=c) for c in statements]
             return extra
 
     @_extra_cmds.setter
     def _extra_cmds(self, value):
-        pass
+        # check if extra_cmds was actually set and return if it wasn't
+        if value is None:
+            return
+
+        commands = []
+        for statement in value:
+            for command in statement.cmds:
+                commands.append(command)
+            commands[-1].end_of_statement = True
+        self.commands = commands
 
     def _get_statements(self):
         statements = []
@@ -1236,26 +1251,146 @@ class CommandType(Enum):
             "System.Management.Automation.CommandTypes", {}, **kwargs
         )
 
+    @property
     def _to_string(self):
         if self.value == 0x01FF:
             return "All"
 
-        string_map = {
-            "Alias": 0x0001,
-            "Function": 0x0002,
-            "Filter": 0x0004,
-            "Cmdlet": 0x0008,
-            "ExternalScript": 0x0010,
-            "Application": 0x0020,
-            "Script": 0x0040,
-            "Workflow": 0x0080,
-            "Configuration": 0x0100,
-        }
+        string_map = (
+            ("Alias", 0x0001),
+            ("Function", 0x0002),
+            ("Filter", 0x0004),
+            ("Cmdlet", 0x0008),
+            ("ExternalScript", 0x0010),
+            ("Application", 0x0020),
+            ("Script", 0x0040),
+            ("Workflow", 0x0080),
+            ("Configuration", 0x0100),
+        )
         values = []
-        for name, flag in string_map.items():
+        for name, flag in string_map:
             if self.value & flag == flag:
                 values.append(name)
         return ", ".join(values)
+
+    @_to_string.setter
+    def _to_string(self, value):
+        pass
+
+
+class CommandMetadataCount(ComplexObject):
+
+    def __init__(self, **kwargs):
+        """
+        [MS-PSRP] 2.2.3.21 CommandMetadataCount
+        https://msdn.microsoft.com/en-us/library/ee175881.aspx
+
+        :param count: The number of CommandMetadata messages in the pipeline
+            output
+        """
+        super(CommandMetadataCount, self).__init__()
+        self.types = [
+            "Selected.Microsoft.PowerShell.Commands.GenericMeasureInfo",
+            "System.Management.Automation.PSCustomObject",
+            "System.Object"
+        ]
+        self._extended_properties = (
+            ('count', ObjectMeta("I32", name="Count")),
+        )
+        self.count = kwargs.get('count')
+
+
+class CommandMetadata(ComplexObject):
+
+    def __init__(self, **kwargs):
+        """
+        [MS-PSRP] 2.2.3.22 CommandMetadata
+        https://msdn.microsoft.com/en-us/library/ee175993.aspx
+
+        :param name: The name of a command
+        :param namespace: The namespace of the command
+        :param help_uri: The URI to the documentation of the command
+        :param command_type: The CommandType of the command
+        :param output_type: The types of objects that a command can send as
+            output
+        :param parameters: Metadata of parameters that the command can accept
+            as Command Parameters
+        """
+        super(CommandMetadata, self).__init__()
+        self.types = [
+            "System.Management.Automation.PSCustomObject",
+            "System.Object"
+        ]
+        self._extended_properties = (
+            ('name', ObjectMeta("S", name="Name")),
+            ('namespace', ObjectMeta("S", name="Namespace")),
+            ('help_uri', ObjectMeta("S", name="HelpUri")),
+            ('command_type', ObjectMeta("Obj", name="CommandType",
+                                        object=CommandType)),
+            ('output_type', ListMeta(
+                name="OutputType",
+                list_value_meta=ObjectMeta("S"),
+                list_types=[
+                    "System.Collections.ObjectModel.ReadOnlyCollection`1[["
+                    "System.Management.Automation.PSTypeName, "
+                    "System.Management.Automation, Version=3.0.0.0, "
+                    "Culture=neutral, PublicKeyToken=31bf3856ad364e35]]",
+                ]
+            )),
+            ('parameters', DictionaryMeta(
+                name="Parameters",
+                dict_key_meta=ObjectMeta("S"),
+                dict_value_meta=ObjectMeta("Obj", object=ParameterMetadata))
+             ),
+        )
+        self.name = kwargs.get('name')
+        self.namespace = kwargs.get('namespace')
+        self.help_uri = kwargs.get('help_uri')
+        self.command_type = kwargs.get('command_type')
+        self.output_type = kwargs.get('output_type')
+        self.parameters = kwargs.get('parameters')
+
+
+class ParameterMetadata(ComplexObject):
+
+    def __init__(self, **kwargs):
+        """
+        [MS-PSRP] 2.2.3.23 ParameterMetadata
+        https://msdn.microsoft.com/en-us/library/ee175918.aspx
+
+        :param name: The name of a parameter
+        :param parameter_type: The type of the parameter
+        :param alises: List of alternative names of the parameter
+        :param switch_parameter: True if param is a switch parameter
+        :param dynamic: True if param is included as a consequence of the data
+            specified in the ArgumentList property
+        """
+        super(ParameterMetadata, self).__init__()
+        self.types = [
+            "System.Management.Automation.ParameterMetadata",
+            "System.Object"
+        ]
+        self._adapted_properties = (
+            ('name', ObjectMeta("S", name="Name")),
+            ('parameter_type', ObjectMeta("S", name="ParameterType")),
+            ('aliases', ListMeta(
+                name="Aliases",
+                list_value_meta=ObjectMeta("S"),
+                list_types=[
+                    "System.Collections.ObjectModel.Collection`1"
+                    "[[System.String, mscorlib, Version=4.0.0.0, "
+                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                    "System.Object"
+                ])
+             ),
+            ('switch_parameter', ObjectMeta("B", name="SwitchParameter")),
+            ('dynamic', ObjectMeta("B", name="IsDynamic")),
+        )
+        self.name = kwargs.get('name')
+        self.parameter_type = kwargs.get('parameter_type')
+        self.aliases = kwargs.get('aliases')
+        self.switch_parameter = kwargs.get('switch_parameter')
+        self.dynamic = kwargs.get('dynamic')
 
 
 class CommandOrigin(Enum):
@@ -1310,15 +1445,15 @@ class PipelineResultTypes(Enum):
         elif self.value == 0x40:
             return "Null"
 
-        string_map = {
-            "None": 0x01,
-            "Error": 0x02,
-            "Warning": 0x04,
-            "Verbose": 0x08,
-            "Debug": 0x10,
-        }
+        string_map = (
+            ("Output", 0x01),
+            ("Error", 0x02),
+            ("Warning", 0x04),
+            ("Verbose", 0x08),
+            ("Debug", 0x10),
+        )
         values = []
-        for name, flag in string_map.items():
+        for name, flag in string_map:
             if self.value & flag == flag:
                 values.append(name)
         return ", ".join(values)

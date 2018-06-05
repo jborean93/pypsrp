@@ -520,30 +520,33 @@ class ApplicationPrivateData(ComplexObject):
 class GetCommandMetadata(ComplexObject):
     MESSAGE_TYPE = MessageType.GET_COMMAND_METADATA
 
-    def __init__(self, name=None, command_type=None, namespace=None,
+    def __init__(self, names=None, command_type=None, namespace=None,
                  argument_list=None):
         """
         [MS-PSRP] 2.2.2.14 GET_COMMAND_METADATA Message
         https://msdn.microsoft.com/en-us/library/ee175985.aspx
 
-        :param name:
+        :param names:
         :param command_type:
         :param namespace:
         :param argument_list:
         """
         super(GetCommandMetadata, self).__init__()
         self._extended_properties = (
-            ('name', ListMeta(name="Name", list_value_meta=ObjectMeta("S"),
-                              list_types=["System.String[]",
-                                          "System.Array",
-                                          "System.Object"
-                                          ])),
+            ('names', ListMeta(
+                name="Name", list_value_meta=ObjectMeta("S"),
+                list_types=[
+                    "System.String[]",
+                    "System.Array",
+                    "System.Object"
+                ])
+             ),
             ('command_type', ObjectMeta(name="CommandType",
                                         object=CommandType)),
             ('namespace', ObjectMeta(name="Namespace")),
-            ('argument_list', ListMeta())
+            ('argument_list', ListMeta(name="ArgumentList"))
         )
-        self.name = name
+        self.names = names
         self.command_type = command_type
         self.namespace = namespace
         self.argument_list = argument_list

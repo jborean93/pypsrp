@@ -6,9 +6,11 @@ import pytest
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import rsa
+from six import text_type
 
-from pypsrp.complex_objects import Command, ErrorRecord, \
-    GenericComplexObject, ObjectMeta, PSInvocationState, RunspacePoolState
+from pypsrp.complex_objects import Command, CommandType, ErrorRecord, \
+    GenericComplexObject, ObjectMeta, ParameterMetadata, PSInvocationState, \
+    RunspacePoolState
 from pypsrp.exceptions import InvalidPipelineStateError, \
     InvalidPSRPOperation, InvalidRunspacePoolStateError, FragmentError, \
     WSManFaultError
@@ -184,6 +186,81 @@ class TestRunspacePool(object):
         finally:
             pool.close()
 
+    @pytest.mark.parametrize('winrm_transport',
+                             # the commands on the server could differ based on
+                             # each version, used existing responses instead
+                             [[False, 'test_psrp_get_command_metadata']],
+                             indirect=True)
+    def test_psrp_get_command_metadata(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+
+        with RunspacePool(wsman) as pool:
+            actual_full = pool.get_command_metadata("new-pssession*")
+            actual_types = pool.get_command_metadata(["new-*"], command_types=CommandType.FUNCTION)
+            actual_namespaced = pool.get_command_metadata("Get-*", namespace=["Microsoft.WSMan.Management"])
+
+        assert len(actual_full) == 3
+        assert actual_full[0].name == "New-PSSession"
+        assert actual_full[1].name == "New-PSSessionConfigurationFile"
+        assert actual_full[2].name == "New-PSSessionOption"
+
+        assert len(actual_types) == 2
+        assert actual_types[0].name == "New-Guid"
+        assert actual_types[1].name == "New-TemporaryFile"
+
+        assert len(actual_namespaced) == 2
+        assert actual_namespaced[0].name == "Get-WSManCredSSP"
+        assert actual_namespaced[1].name == "Get-WSManInstance"
+        actual = actual_full
+        actual.extend(actual_types)
+        actual.extend(actual_namespaced)
+
+        for command in actual:
+            assert isinstance(command.command_type, CommandType)
+            assert isinstance(command.parameters, dict)
+            for key, value in command.parameters.items():
+                assert isinstance(key, text_type)
+                assert isinstance(value, ParameterMetadata)
+
+    @pytest.mark.parametrize('winrm_transport',
+                             # reset was only added in v2.3, use existing
+                             # responses for test
+                             [[False, 'test_psrp_reset_runspace_state']],
+                             indirect=True)
+    def test_psrp_reset_runspace_state(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+
+        with RunspacePool(wsman) as pool:
+            ps = PowerShell(pool)
+            ps.add_script("echo hi")
+            ps.invoke(add_to_history=True)
+
+            pool.reset_runspace_state()
+
+            ps = PowerShell(pool)
+            ps.add_cmdlet("Get-History")
+            actual = ps.invoke()
+
+        # should be empty after clearing history
+        assert actual == []
+
+    @pytest.mark.parametrize('winrm_transport',
+                             # reset was only added in v2.3, use existing
+                             # responses for test
+                             [[False, 'test_psrp_reset_runspace_state_fail']],
+                             indirect=True)
+    def test_psrp_reset_runspace_state_fail(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+        pool = RunspacePool(wsman)
+        pool.open()
+
+        try:
+            with pytest.raises(InvalidPSRPOperation) as err:
+                pool.reset_runspace_state()
+            assert str(err.value) == "Failed to reset runspace state"
+        finally:
+            pool.close()
+
     def test_psrp_connect_already_opened(self):
         transport = TransportHTTP("", 5985, "", "")
         wsman = WSMan(transport)
@@ -224,6 +301,19 @@ class TestRunspacePool(object):
             "Cannot 'disconnect a Runspace Pool' on the " \
             "current state 'BeforeOpen', expecting state(s): 'Opened'"
 
+    def test_psrp_get_command_meta_invalid_state(self):
+        transport = TransportHTTP("", 5985, "", "")
+        wsman = WSMan(transport)
+        rs = RunspacePool(wsman)
+        with pytest.raises(InvalidRunspacePoolStateError) as err:
+            rs.get_command_metadata("")
+        assert err.value.action == "get command metadata"
+        assert err.value.current_state == RunspacePoolState.BEFORE_OPEN
+        assert err.value.expected_state == RunspacePoolState.OPENED
+        assert str(err.value) == \
+            "Cannot 'get command metadata' on the current state " \
+            "'BeforeOpen', expecting state(s): 'Opened'"
+
     def test_psrp_open_invalid_state(self):
         transport = TransportHTTP("", 5985, "", "")
         wsman = WSMan(transport)
@@ -257,6 +347,34 @@ class TestRunspacePool(object):
             rs._process_runspacepool_state(message)
         assert str(err.value) == "Received a broken RunspacePoolState " \
                                  "message: error msg"
+
+    def test_psrp_reset_state_failure(self):
+        transport = TransportHTTP("", 5985, "", "")
+        wsman = WSMan(transport)
+        rs = RunspacePool(wsman)
+
+        # before connecting this should just return None
+        rs.reset_runspace_state()
+
+        # when state is not BeforeOpen or Opened then it should fail
+        rs.state = RunspacePoolState.BROKEN
+        with pytest.raises(InvalidRunspacePoolStateError) as err:
+            rs.reset_runspace_state()
+        assert err.value.action == "reset RunspacePool state"
+        assert err.value.current_state == RunspacePoolState.BROKEN
+        assert err.value.expected_state == [RunspacePoolState.BEFORE_OPEN,
+                                            RunspacePoolState.OPENED]
+        assert str(err.value) == \
+            "Cannot 'reset RunspacePool state' on the current state " \
+            "'Broken', expecting state(s): 'BeforeOpen, Opened'"
+
+        rs.state = RunspacePoolState.OPENED
+        rs.protocol_version = "2.2"
+        with pytest.raises(InvalidPSRPOperation) as err:
+            rs.reset_runspace_state()
+        assert str(err.value) == \
+            "Cannot reset runspace state on protocol versions older than " \
+            "2.3, actual: 2.2"
 
 
 class TestPSRPScenarios(object):

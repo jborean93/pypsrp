@@ -12,18 +12,20 @@ from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
-from pypsrp.complex_objects import ApartmentState, Command, \
-    CommandParameter, HostInfo, Pipeline, PSInvocationState, PSThreadOptions, \
-    RemoteStreamOptions, RunspacePoolState
+from pypsrp.complex_objects import ApartmentState, Command, CommandMetadata, \
+    CommandParameter, CommandType, HostInfo, ObjectMeta, Pipeline,\
+    PSInvocationState, PSThreadOptions, RemoteStreamOptions, RunspacePoolState
 from pypsrp.exceptions import FragmentError, InvalidPipelineStateError, \
     InvalidPSRPOperation, InvalidRunspacePoolStateError, WSManFaultError
 from pypsrp.messages import ConnectRunspacePool, CreatePipeline, Destination, \
-    EndOfPipelineInput, GetAvailableRunspaces, InitRunspacePool, Message, \
-    MessageType, PipelineInput, PublicKey, SessionCapability, \
-    SetMaxRunspaces, SetMinRunspaces
+    EndOfPipelineInput, GetAvailableRunspaces, GetCommandMetadata, \
+    InitRunspacePool, Message, MessageType, ResetRunspaceState, \
+    PipelineInput, PublicKey, SessionCapability, SetMaxRunspaces, \
+    SetMinRunspaces
 from pypsrp.serializer import Serializer
 from pypsrp.shell import SignalCode, WinRS
 from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet
+from pypsrp._utils import version_newer
 
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
     # ElementTree in Python 2.6 does not support namespaces so we need to use
@@ -82,6 +84,9 @@ class RunspacePool(object):
         self.apartment_state = apartment_state
         self.thread_options = thread_options
         self.host_info = host_info if host_info is not None else HostInfo()
+        self.protocol_version = None
+        self.ps_version = None
+        self.serialization_version = None
 
         self._application_private_data = None
         self._min_runspaces = min_runspaces
@@ -318,6 +323,53 @@ class RunspacePool(object):
         del self.ci_table[ci]
         return avail_runspaces
 
+    def get_command_metadata(self, names, command_types=CommandType.ALL,
+                             namespace=None, arguments=None):
+        """
+        Get's metadata of the higher layer command's. This is very similar to
+        running the Get-Help cmdlet's but just done on the protocol layer
+        instead of through a manual PowerShell pipeline.
+
+        Any wildcard of escaping of strings must conform to the MS-PSRP
+        standard which is defined here
+        https://msdn.microsoft.com/en-us/library/ee175957.aspx
+
+        :param names: A string or list of strings that specify the commands to
+            get the metadata for. Each string can be a wildcard instead of the
+            full name.
+        :param command_types: The complex_objects.CommandType to filter by, by
+            default this will be CommandType.ALL
+        :param namespace: A list of wildcard patterns describing the command
+            namespaces containing the commands that the server should return
+        :param arguments: A list of extra arguments passed to the higher-layer
+            above the PowerShell Remoting Protocol
+        :return: List of CommandMetadata objects returned by the server
+        """
+        if self.state != RunspacePoolState.OPENED:
+            raise InvalidRunspacePoolStateError(
+                self.state, RunspacePoolState.OPENED,
+                "get command metadata"
+            )
+
+        if not isinstance(names, list):
+            names = [names]
+
+        get_msg = GetCommandMetadata(names, command_types, namespace,
+                                     arguments)
+        ps = PowerShell(self)
+        ps._invoke(get_msg)
+        output = ps.end_invoke()
+
+        # first output obj is the MetadataCount obj that tells us how many
+        # CommandMetadata objects there are
+        _ = output.pop(0)
+
+        # because the main type is generic the serializer will output a
+        # GenericComplexObject, we will just manually serialize them to the
+        # CommandMetadata object
+        meta = ObjectMeta("Obj", object=CommandMetadata)
+        return [self._serializer.deserialize(o._xml, meta) for o in output]
+
     @staticmethod
     def get_runspace_pools(wsman):
         """
@@ -475,6 +527,44 @@ class RunspacePool(object):
                                            "exchange")
             self._receive()
 
+    def reset_runspace_state(self):
+        """
+        Resets the variable table for the runspace to the default state.
+
+        This is only supported for the protocol version 2.3 and above (Server
+        2016/Windows 10+)
+        """
+        if self.state == RunspacePoolState.BEFORE_OPEN:
+            # no need to reset if the runspace has not been opened
+            return
+        elif self.state != RunspacePoolState.OPENED:
+            raise InvalidRunspacePoolStateError(
+                self.state,
+                [RunspacePoolState.BEFORE_OPEN, RunspacePoolState.OPENED],
+                "reset RunspacePool state"
+            )
+        elif not version_newer(self.protocol_version, "2.3"):
+            raise InvalidPSRPOperation("Cannot reset runspace state on "
+                                       "protocol versions older than 2.3, "
+                                       "actual: %s" % self.protocol_version)
+
+        def response_handler(response):
+            if not response:
+                raise InvalidPSRPOperation("Failed to reset runspace state")
+            return response
+
+        ci = self._ci_counter
+        self._ci_counter += 1
+        self.ci_table[ci] = response_handler
+
+        reset_state = ResetRunspaceState(ci=ci)
+        data = self._fragmenter.fragment(reset_state, self.id)[0]
+        self.shell.send('stdin', data)
+
+        while not isinstance(self.ci_table[ci], bool):
+            self._receive()
+        del self.ci_table[ci]
+
     def serialize(self, obj, metadata=None):
         """
         Serialize a Python object to PSRP object. This can try to automatically
@@ -516,7 +606,7 @@ class RunspacePool(object):
         response_functions = {
             # While the docs say we should verify, they are out of date with
             # the possible responses and so we will just ignore for now
-            MessageType.SESSION_CAPABILITY: None,
+            MessageType.SESSION_CAPABILITY: self._process_session_capability,
             MessageType.ENCRYPTED_SESSION_KEY:
                 self._process_encrypted_session_key,
             MessageType.PUBLIC_KEY_REQUEST: self.exchange_keys,
@@ -558,6 +648,11 @@ class RunspacePool(object):
                 return_values.append((message.message_type, message))
 
         return return_values
+
+    def _process_session_capability(self, message):
+        self.protocol_version = message.data.protocol_version
+        self.ps_version = message.data.ps_version
+        self.serialization_version = message.data.serialization_version
 
     def _process_runspacepool_init_data(self, message):
         self._min_runspaces = message.data.min_runspaces
@@ -824,19 +919,7 @@ class PowerShell(object):
             RemoteStreamOptions(value=remote_stream_options), add_to_history,
             host_info, pipeline, self.is_nested
         )
-
-        fragments = self.runspace_pool._fragmenter.fragment(
-            create_pipeline, self.runspace_pool.id, self.id
-        )
-        first_frag = base64.b64encode(fragments.pop(0)).decode('utf-8')
-        self.runspace_pool.shell.command('', arguments=[first_frag],
-                                         command_id=self.id)
-        self.state = PSInvocationState.RUNNING
-
-        # send the remaining create pipeline fragments with the send message
-        for fragment in fragments:
-            self.runspace_pool.shell.send('stdin', fragment,
-                                          command_id=self.id)
+        self._invoke(create_pipeline)
 
         # finally send the input if any was specified
         if input is not None:
@@ -918,6 +1001,22 @@ class PowerShell(object):
                                         str(self.id).upper())
         self.state = PSInvocationState.STOPPED
         del self.runspace_pool.pipelines[self.id]
+
+    def _invoke(self, msg):
+        fragments = self.runspace_pool._fragmenter.fragment(
+            msg, self.runspace_pool.id, self.id
+        )
+
+        # send first fragment as Command message
+        first_frag = base64.b64encode(fragments.pop(0)).decode('utf-8')
+        self.runspace_pool.shell.command('', arguments=[first_frag],
+                                         command_id=self.id)
+        self.state = PSInvocationState.RUNNING
+
+        # send the remaining fragments with the Send message
+        for fragment in fragments:
+            self.runspace_pool.shell.send('stdin', fragment,
+                                          command_id=self.id)
 
     def _process_error_record(self, message):
         self.streams.error.append(message.data)

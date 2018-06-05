@@ -37,3 +37,39 @@ if PY3:  # pragma: no cover
     to_string = to_unicode
 else:  # pragma: no cover
     to_string = to_bytes
+
+
+def version_newer(version, reference_version):
+    """
+    Compares the 2 version strings and returns a bool that states whether
+    version is newer than or equal to the reference version.
+
+    This is quite strict and splits the string by . and compares the int
+    values in them
+
+    :param version: The version string to compare
+    :param reference_version: The version string to check version against
+    :return: True if version is newer than reference_version
+    """
+    version_parts = version.split(".")
+    reference_version_parts = reference_version.split(".")
+
+    # pad the version parts by 0 so the comparisons after won't fail with an
+    # index error
+    if len(version_parts) < len(reference_version_parts):
+        diff = len(reference_version_parts) - len(version_parts)
+        version_parts.extend(["0"] * diff)
+    if len(reference_version_parts) < len(version_parts):
+        diff = len(version_parts) - len(reference_version_parts)
+        reference_version_parts.extend(["0"] * diff)
+
+    newer = True
+    for idx, version in enumerate(version_parts):
+        reference_version = int(reference_version_parts[idx])
+        if int(version) < reference_version:
+            newer = False
+            break
+        elif int(version) > reference_version:
+            break
+
+    return newer

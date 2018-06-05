@@ -1,8 +1,181 @@
-import pytest
+import sys
+import uuid
 
-from pypsrp.complex_objects import ObjectMeta
-from pypsrp.messages import ErrorRecordMessage, WarningRecord
+from pypsrp.complex_objects import HostMethodIdentifier, ObjectMeta
+from pypsrp.messages import ErrorRecordMessage, Message, MessageType, \
+    PublicKeyRequest, ResetRunspaceState, RunspacePoolHostCall, \
+    RunspacePoolHostResponse, UserEvent, WarningRecord
 from pypsrp.serializer import Serializer
+
+
+class TestPublicKeyRequest(object):
+
+    def test_create_public_key_request(self):
+        pub_key_req = PublicKeyRequest()
+        empty_uuid = "00000000-0000-0000-0000-000000000000"
+        serializer = Serializer()
+        if sys.version_info[0] == 2 and sys.version_info[1] < 7:
+            expected = b"<S/>"
+        else:
+            expected = b"<S />"
+
+        msg = Message(0x2, empty_uuid, empty_uuid, pub_key_req, serializer)
+        actual = msg.pack()
+        assert actual == b"\x02\x00\x00\x00" \
+                         b"\x07\x00\x01\x00" \
+                         b"\x00\x00\x00\x00\x00\x00\x00\x00" \
+                         b"\x00\x00\x00\x00\x00\x00\x00\x00" \
+                         b"\x00\x00\x00\x00\x00\x00\x00\x00" \
+                         b"\x00\x00\x00\x00\x00\x00\x00\x00" + \
+                         expected
+
+    def test_parse_public_key_request(self):
+        data = b"\x02\x00\x00\x00" \
+               b"\x07\x00\x01\x00" \
+               b"\x00\x00\x00\x00\x00\x00\x00\x00" \
+               b"\x00\x00\x00\x00\x00\x00\x00\x00" \
+               b"\x00\x00\x00\x00\x00\x00\x00\x00" \
+               b"\x00\x00\x00\x00\x00\x00\x00\x00" \
+               b"<S />"
+        actual = Message.unpack(data, Serializer())
+        assert actual.message_type == MessageType.PUBLIC_KEY_REQUEST
+        assert isinstance(actual.data, PublicKeyRequest)
+
+
+class TestUserEvent(object):
+
+    def test_parse_msg(self):
+        xml = '''<Obj RefId="0">
+            <MS>
+                <I32 N="PSEventArgs.EventIdentifier">1</I32>
+                <S N="PSEventArgs.SourceIdentifier">ae6245f2-c179-4a9a-a039-47b60fc44500</S>
+                <DT N="PSEventArgs.TimeGenerated">2009-06-17T10:57:23.1578277-07:00</DT>
+                <Obj N="PSEventArgs.Sender" RefId="1">
+                    <TN RefId="0">
+                        <T>System.Timers.Timer</T>
+                        <T>System.ComponentModel.Component</T>
+                        <T>System.MarshalByRefObject</T>
+                        <T>System.Object</T>
+                    </TN>
+                    <ToString>System.Timers.Timer</ToString>
+                    <Props>
+                        <B N="AutoReset">true</B>
+                        <B N="Enabled">true</B>
+                        <Db N="Interval">5000</Db>
+                        <Nil N="Site"/>
+                        <Nil N="SynchronizingObject"/>
+                        <Nil N="Container"/>
+                    </Props>
+                </Obj>
+                <Obj N="PSEventArgs.SourceArgs" RefId="2">
+                    <TN RefId="1">
+                        <T>System.Object[]</T>
+                        <T>System.Array</T>
+                        <T>System.Object</T>
+                    </TN>
+                    <LST>
+                        <Ref RefId="1"/>
+                        <Obj RefId="3">
+                            <TN RefId="2">
+                                <T>System.Timers.ElapsedEventArgs</T>
+                                <T>System.EventArgs</T>
+                                <T>System.Object</T>
+                            </TN>
+                            <ToString>System.Timers.ElapsedEventArgs</ToString>
+                            <Props>
+                                <DT N="SignalTime">2009-06-17T10:57:23.1568275-07:00</DT>
+                            </Props>
+                        </Obj>
+                    </LST>
+                </Obj>
+                <Nil N="PSEventArgs.MessageData"/>
+                <Nil N="PSEventArgs.ComputerName"/>
+                <G N="PSEventArgs.RunspaceId">fb9c87e8-1190-40a7-a681-6fc9b9f84a17</G>
+            </MS>
+        </Obj>'''
+        serializer = Serializer()
+        meta = ObjectMeta("Obj", object=UserEvent)
+        actual = serializer.deserialize(xml, meta)
+
+        assert str(actual.args[0]) == "System.Timers.Timer"
+        assert actual.args[0].adapted_properties['Interval'] == 5000.0
+        assert str(actual.args[1]) == "System.Timers.ElapsedEventArgs"
+        assert actual.args[1].adapted_properties['SignalTime'] == \
+            "2009-06-17T10:57:23.1568275-07:00"
+        assert actual.computer is None
+        assert actual.data is None
+        assert actual.event_id == 1
+        assert actual.runspace_id == \
+            uuid.UUID("fb9c87e8-1190-40a7-a681-6fc9b9f84a17")
+        assert str(actual.sender) == "System.Timers.Timer"
+        assert actual.sender.adapted_properties['Interval'] == 5000.0
+        assert actual.source_id == "ae6245f2-c179-4a9a-a039-47b60fc44500"
+        assert actual.time == "2009-06-17T10:57:23.1578277-07:00"
+
+
+class TestRunspacePoolHostCall(object):
+
+    def test_parse_message(self):
+        xml = '''<Obj RefId="0">
+            <MS>
+                <I64 N="ci">1</I64>
+                <Obj N="mi" RefId="1">
+                    <TN RefId="0">
+                        <T>System.Management.Automation.Remoting.RemoteHostMethodId</T>
+                        <T>System.Enum</T>
+                        <T>System.ValueType</T>
+                        <T>System.Object</T>
+                    </TN>
+                    <ToString>ReadLine</ToString>
+                    <I32>11</I32>
+                </Obj>
+                <Obj N="mp" RefId="2">
+                    <TN RefId="1">
+                        <T>System.Collections.ArrayList</T>
+                        <T>System.Object</T>
+                    </TN>
+                    <LST/>
+                </Obj>
+            </MS>
+        </Obj>'''
+        serializer = Serializer()
+        meta = ObjectMeta("Obj", object=RunspacePoolHostCall)
+        actual = serializer.deserialize(xml, meta)
+        assert actual.ci == 1
+        assert str(actual.mi) == "ReadLine"
+        assert isinstance(actual.mi, HostMethodIdentifier)
+        assert actual.mi.value == 11
+        assert actual.mp == []
+
+
+class TestRunspacePoolHostResponse(object):
+
+    def test_parse_message(self):
+        xml = '''<Obj RefId="11">
+            <MS>
+                <S N="mr">Line read from the host</S>
+                <I64 N="ci">1</I64>
+                <Obj N="mi" RefId="12">
+                    <TN RefId="4">
+                        <T>System.Management.Automation.Remoting.RemoteHostMethodId</T>
+                        <T>System.Enum</T>
+                        <T>System.ValueType</T>
+                        <T>System.Object</T>
+                    </TN>
+                    <ToString>ReadLine</ToString>
+                    <I32>11</I32>
+                </Obj>
+            </MS>
+        </Obj>'''
+        serializer = Serializer()
+        meta = ObjectMeta("Obj", object=RunspacePoolHostResponse)
+        actual = serializer.deserialize(xml, meta)
+        assert actual.ci == 1
+        assert actual.me is None
+        assert str(actual.mi) == "ReadLine"
+        assert isinstance(actual.mi, HostMethodIdentifier)
+        assert actual.mi.value == 11
+        assert actual.mr == "Line read from the host"
 
 
 class TestErrorRecord(object):
