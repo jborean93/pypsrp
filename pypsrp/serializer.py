@@ -22,7 +22,7 @@ from pypsrp.messages import DebugRecord, ErrorRecord, InformationRecord, \
     VerboseRecord, WarningRecord
 from pypsrp._utils import to_bytes, to_string, to_unicode
 
-try:  # pragma: no cover
+try:
     from queue import Queue, Empty
 except ImportError:  # pragma: no cover
     from Queue import Queue, Empty

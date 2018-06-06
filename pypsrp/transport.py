@@ -6,6 +6,7 @@ import requests
 import warnings
 
 from pypsrp.exceptions import AuthenticationError, WinRMTransportError
+from pypsrp.negotiate import HTTPNegotiateAuth
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class TransportHTTP(object):
         self.session = None
 
         # used when building tests, keep commented out
-        self._test_messages = []
+        # self._test_messages = []
 
     def send(self, message):
         if self.session is None:
@@ -38,8 +39,9 @@ class TransportHTTP(object):
         log.debug("Sending message: %s" % message)
 
         # for testing, keep commented out
-        self._test_messages.append({"request": message.decode('utf-8'),
-                                    "response": None})
+        # self._test_messages.append({"request": message.decode('utf-8'),
+        #                             "response": None})
+
         request = requests.Request('POST', self.endpoint, data=message)
         prep_request = self.session.prepare_request(request)
 
@@ -47,7 +49,8 @@ class TransportHTTP(object):
         response_text = response.text if response.content else ''
 
         # for testing, keep commented out
-        self._test_messages[-1]['response'] = response_text
+        # self._test_messages[-1]['response'] = response_text
+
         log.debug("Received message: %s" % response_text)
         try:
             response.raise_for_status()
@@ -68,8 +71,9 @@ class TransportHTTP(object):
         self._suppress_library_warnings()
         session = requests.Session()
         session.verify = False
-        session.auth = requests.auth.HTTPBasicAuth(username=self.username,
-                                                   password=self.password)
+        #session.auth = requests.auth.HTTPBasicAuth(username=self.username,
+        #                                           password=self.password)
+        session.auth = HTTPNegotiateAuth(username=self.username, password=self.password)
 
         session.headers['Content-Type'] = "application/soap+xml;charset=UTF-8"
         session.headers['User-Agent'] = "Python PSRP Client"
