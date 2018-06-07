@@ -236,14 +236,14 @@ def winrm_transport(request, monkeypatch):
     server = os.environ.get('PYPSRP_SERVER', None)
 
     # these are optional vars that can further control the transport setup
-    auth = os.environ.get('PYPSRP_AUTH', 'basic')
+    auth = os.environ.get('PYPSRP_AUTH', 'negotiate')
     port = int(os.environ.get('PYPSRP_PORT', '5986'))
     ssl = port != 5985
 
     if allow_real and username is not None and password is not None and \
             server is not None:
         transport = TransportHTTP(server, port, username, password, ssl,
-                                  auth=auth)
+                                  auth=auth, cert_validation=False)
     else:
         # Mock out UUID's so they are not a problem when comparing messages
         def mockuuid():

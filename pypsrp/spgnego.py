@@ -20,6 +20,12 @@ try:  # pragma: no cover
 except ImportError:
     HAS_GSSAPI = False
 
+HAS_GSSAPI_ENCRYPTION = True
+try:
+    from gssapi.raw import wrap_iov, unwrap_iov
+except ImportError:
+    HAS_GSSAPI_ENCRYPTION = False
+
 HAS_SSPI = True
 try:  # pragma: no cover
     import sspi
@@ -32,7 +38,7 @@ log = logging.getLogger(__name__)
 
 
 def get_auth_context(username, password, auth_provider, cbt_app_data,
-                     hostname, service, delegate):
+                     hostname, service, delegate, wrap_required):
     """
     Returns an AuthContext used in the Negotiate process which provides methods
     to generate the auth token as well as wrap/unwrap data sent to and from the
@@ -55,42 +61,46 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
     :param cbt_app_data:
     :param hostname:
     :param service:
+    :param delegate:
+    :param wrap_required:
     :return:
     """
     if auth_provider not in ["auto", "kerberos", "ntlm"]:
         raise ValueError("Invalid auth_provider specified %s, must be "
                          "auto, kerberos, or ntlm" % auth_provider)
 
-    context_init = False
     context_gen = None
     out_token = None
 
-    if HAS_SSPI:
-        # always use SSPI when it is available
+    if HAS_SSPI and not (auth_provider == "ntlm" and username is not None):
+        # always use SSPI when available, unless auth provider is ntlm and the
+        # username is specified (explicit creds)
         log.info("SSPI is available and will be used as the auth backend")
         context = SSPIContext(username, password, auth_provider, cbt_app_data,
                               hostname, service, delegate)
-    elif HAS_GSSAPI:
-        mechs_available = ["kerberos"]
+    elif HAS_GSSAPI and not (auth_provider == "ntlm" and username is not None):
+        log.info("GSSAPI is available, determine if it can handle the auth "
+                 "provider specified or whether the NTLM fallback is used")
+        mechs_available = GSSAPIContext.get_available_mechs(wrap_required)
 
-        if auth_provider != "kerberos":
-            log.info("GSSAPI is available, determine what mechanism to use as "
-                     "the auth backend")
-            mechs_available = GSSAPIContext.get_available_mechs()
-
-        log.debug("GSSAPI mechs available: %s" % ", ".join(mechs_available))
-        if auth_provider in mechs_available or auth_provider == "kerberos":
+        if auth_provider in mechs_available:
             log.info("GSSAPI with mech %s is being used as the auth backend"
                      % auth_provider)
             context = GSSAPIContext(username, password, auth_provider,
                                     cbt_app_data, hostname, service, delegate)
-        elif auth_provider == "ntlm":
-            log.info("GSSAPI is available but does not support NTLM, using "
-                     "ntlm-auth as the auth backend instead")
-            context = NTLMContext(username, password, cbt_app_data)
-        else:
-            # make sure we can actually initialise a GSSAPI context in auto,
-            # otherwise fallback to NTLMContext if that fails
+        elif auth_provider == "kerberos":
+            raise ValueError("The auth_provider specified 'kerberos' is not "
+                             "available as message encryption is required but "
+                             "is not available on the current system. Either "
+                             "disable encryption, use https or specify "
+                             "auto/ntlm")
+        elif auth_provider == "auto" and "kerberos" in mechs_available:
+            log.info("GSSAPI is available but SPNEGO/NTLM is not natively "
+                     "supported, try to use Kerberos explicitly and fallback "
+                     "to NTLM with ntlm-auth if that fails")
+            # we can't rely on SPNEGO in GSSAPI as NTLM is not available, try
+            # and initialise a kerb context and get the first token. If that
+            # fails, fallback to NTLM with ntlm-auth
             try:
                 log.debug("Attempting to use GSSAPI Kerberos as auth backend")
                 context = GSSAPIContext(username, password, "kerberos",
@@ -99,25 +109,27 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
                 context.init_context()
                 context_gen = context.step()
                 out_token = next(context_gen)
-                context_init = True
                 log.info("GSSAPI with mech kerberos is being used as the auth "
                          "backend")
             except gssapi.exceptions.GSSError as err:
                 log.warning("Failed to initialise a GSSAPI context, failling "
                             "back to NTLM: %s" % str(err))
                 context = NTLMContext(username, password, cbt_app_data)
+        else:
+            log.info("GSSAPI is available but does not support NTLM or "
+                     "Kerberos with encryption, fallback to ntlm-auth")
+            context = NTLMContext(username, password, cbt_app_data)
     else:
         if auth_provider not in ["auto", "ntlm"]:
             raise ValueError("The auth_provider specified '%s' cannot be used "
                              "without GSSAPI or SSPI being installed, select "
                              "auto or install GSSAPI or SSPI"
                              % auth_provider)
-
         log.info("SSPI or GSSAPI is not available, using ntlm-auth as the "
                  "auth backend")
         context = NTLMContext(username, password, cbt_app_data)
 
-    if not context_init:
+    if context_gen is None:
         context.init_context()
         context_gen = context.step()
         out_token = next(context_gen)
@@ -253,14 +265,20 @@ class SSPIContext(AuthContext):
             sspicon.SEC_I_CONTINUE_NEEDED
         ]
 
+        # TODO: support cbt for pywin32
+        sec_tokens = []
         if token is not None:
-            sec_buffer = win32security.PySecBufferDescType()
             sec_token = win32security.PySecBufferType(
                 self._context.pkg_info['MaxToken'],
                 sspicon.SECBUFFER_TOKEN
             )
             sec_token.Buffer = token
-            sec_buffer.append(sec_token)
+            sec_tokens.append(sec_token)
+
+        if len(sec_tokens) > 0:
+            sec_buffer = win32security.PySecBufferDescType()
+            for sec_token in sec_tokens:
+                sec_buffer.append(sec_token)
         else:
             sec_buffer = None
 
@@ -278,7 +296,6 @@ class SSPIContext(AuthContext):
                                               format(rc, 'x')))
 
         return out_buffer[0].Buffer
-
 
 
 class GSSAPIContext(AuthContext):
@@ -352,7 +369,7 @@ class GSSAPIContext(AuthContext):
         # then get a new ticket with the password (if specified). The cache
         # can only be used for Kerberos, NTLM/SPNEGO must have acquire the
         # cred with a pass
-        acquire_with_pass = True
+        cred = None
         kerb_oid = GSSAPIContext._AUTH_PROVIDERS['kerberos']
         kerb_mech = gssapi.OID.from_int_seq(kerb_oid)
         if mech == kerb_mech:
@@ -368,7 +385,7 @@ class GSSAPIContext(AuthContext):
                     raise err
                 pass
 
-        if acquire_with_pass:
+        if cred is None:
             # error when trying to access the existing cache, get our own
             # credentials with the password specified
             b_password = to_bytes(password)
@@ -392,7 +409,14 @@ class GSSAPIContext(AuthContext):
         return context
 
     @staticmethod
-    def get_available_mechs():
+    def get_available_mechs(encryption_required=False):
+        available_mechs = ["kerberos"]
+
+        # while kerb auth might be available, if we require wrapping and the
+        # extension is not available then we can't use it
+        if encryption_required and not HAS_GSSAPI_ENCRYPTION:
+            available_mechs.pop(0)
+
         ntlm_oid = GSSAPIContext._AUTH_PROVIDERS['ntlm']
         ntlm_mech = gssapi.OID.from_int_seq(ntlm_oid)
         # GSS_NTLMSSP_RESET_CRYPTO_OID_LENGTH
@@ -413,6 +437,10 @@ class GSSAPIContext(AuthContext):
             ntlm_context.step()
             set_sec_context_option(reset_mech, context=ntlm_context,
                                    value=b"\x00" * 4)
+
+            # gss-ntlmssp is available which in turn means we can use native
+            # SPNEGO or NTLM with the GSSAPI
+            available_mechs.extend(["auto", "ntlm"])
         except gssapi.exceptions.GSSError as exc:
             # failed to init NTLM and verify gss-ntlmssp is available, this
             # means NTLM is either not available or won't work
@@ -420,9 +448,7 @@ class GSSAPIContext(AuthContext):
             # mechanism for the GSSAPI Context
             log.debug("Failed to init test NTLM context with GSSAPI: %s"
                       % str(exc))
-            return ['kerberos']
-        else:
-            return ['auto', 'kerberos', 'ntlm']
+        return available_mechs
 
 
 class NTLMContext(AuthContext):

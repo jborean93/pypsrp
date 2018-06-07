@@ -15,11 +15,7 @@ from requests.auth import AuthBase
 from requests.packages.urllib3.response import HTTPResponse
 
 from pypsrp.spgnego import get_auth_context
-
-try:
-    from urlparse import urlparse
-except ImportError:
-    from urllib.parse import urlparse
+from pypsrp._utils import get_hostname
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +32,7 @@ class HTTPNegotiateAuth(AuthBase):
 
     def __init__(self, username=None, password=None, auth_provider='auto',
                  send_cbt=True, service='HTTP', delegate=False,
-                 hostname_override=None):
+                 hostname_override=None, wrap_required=False):
         """
         Creates a HTTP auth context that uses Microsoft's Negotiate protocol
         to complete the auth process. This currently only supports the NTLM
@@ -62,6 +58,8 @@ class HTTPNegotiateAuth(AuthBase):
             defaults to False
         :param hostname_override: Override the hostname used as part of the
             SPN, by default the hostname is based on the URL of the request
+        :param wrap_required: Whether message encryption (wrapping) is
+            required (controls what auth context is used)
         """
         self.username = username
         self.password = password
@@ -70,6 +68,7 @@ class HTTPNegotiateAuth(AuthBase):
         self.service = service
         self.delegate = delegate
         self.hostname_override = hostname_override
+        self.wrap_required = wrap_required
         self.contexts = {}
 
         self._regex = re.compile('Negotiate\s*([^,]*),?', re.I)
@@ -88,13 +87,13 @@ class HTTPNegotiateAuth(AuthBase):
         return response
 
     def handle_401(self, response, **kwargs):
-        host = urlparse(response.url).hostname
+        host = get_hostname(response.url)
         cbt_app_data = HTTPNegotiateAuth._get_cbt_data(response)
 
         auth_hostname = self.hostname_override or host
         context, token_gen, out_token = get_auth_context(
             self.username, self.password, self.auth_provider, cbt_app_data,
-            auth_hostname, self.service, self.delegate
+            auth_hostname, self.service, self.delegate, self.wrap_required
         )
         self.contexts[host] = context
 
@@ -112,7 +111,7 @@ class HTTPNegotiateAuth(AuthBase):
             response = response.connection.send(request, **kwargs)
 
             # attempt to retrieve the auth token response
-            in_token = self._get_auth_token(response, self._regex, "")
+            in_token = self._get_auth_token(response, self._regex)
 
             # break if there was no token received from the host and return the
             # last response
@@ -139,7 +138,7 @@ class HTTPNegotiateAuth(AuthBase):
         request.headers['Authorization'] = auth_header
 
     @staticmethod
-    def _get_auth_token(response, pattern, step_name):
+    def _get_auth_token(response, pattern):
         auth_header = response.headers.get('www-authenticate', '')
         token_match = pattern.search(auth_header)
 
