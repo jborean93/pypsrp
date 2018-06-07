@@ -247,7 +247,6 @@ class TransportHTTP(object):
     def _build_auth_kerberos(self, session):
         self._build_auth_negotiate(session, "kerberos")
 
-
     def _build_auth_negotiate(self, session, auth_provider="auto"):
         kwargs = self._get_auth_kwargs('negotiate')
 

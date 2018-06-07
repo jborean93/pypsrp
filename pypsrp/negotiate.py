@@ -14,6 +14,7 @@ from cryptography.exceptions import UnsupportedAlgorithm
 from requests.auth import AuthBase
 from requests.packages.urllib3.response import HTTPResponse
 
+from pypsrp.exceptions import AuthenticationError
 from pypsrp.spgnego import get_auth_context
 from pypsrp._utils import get_hostname
 
@@ -129,7 +130,7 @@ class HTTPNegotiateAuth(AuthBase):
             error_msg = "The server did not response with the " \
                         "authentication method of %s - actual: '%s'" \
                         % (auth_provider, auth_supported)
-            raise Exception(error_msg)
+            raise AuthenticationError(error_msg)
 
     @staticmethod
     def _set_auth_token(request, token, auth_provider):

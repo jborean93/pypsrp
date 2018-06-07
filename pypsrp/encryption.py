@@ -87,10 +87,9 @@ class WinRMEncryption(object):
 
     def _wrap_spnego(self, data, hostname):
         context = self.auth.contexts[hostname]
-        wrapped_data = context.wrap(data)
-        signature_length = 16
+        header, wrapped_data = context.wrap(data)
 
-        return struct.pack("<i", signature_length) + wrapped_data
+        return struct.pack("<i", len(header)) + header + wrapped_data
 
     def _wrap_credssp(self, data, hostname):
         context = self.auth.contexts[hostname]
@@ -102,8 +101,10 @@ class WinRMEncryption(object):
 
     def _unwrap_spnego(self, data, hostname):
         context = self.auth.contexts[hostname]
-        wrapped_data = data[4:]
-        data = context.unwrap(wrapped_data)
+        header_length = struct.unpack("<i", data[:4])[0]
+        header = data[4:4 + header_length]
+        wrapped_data = data[4 + header_length:]
+        data = context.unwrap(header, wrapped_data)
 
         return data
 

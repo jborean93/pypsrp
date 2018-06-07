@@ -3,12 +3,14 @@
 
 import binascii
 import logging
+import struct
 
 from abc import ABCMeta, abstractmethod
 from ntlm_auth.gss_channel_bindings import GssChannelBindingsStruct
 from ntlm_auth.ntlm import NtlmContext
 from six import with_metaclass
 
+from pypsrp.exceptions import AuthenticationError
 from pypsrp._utils import to_bytes
 
 HAS_GSSAPI = True
@@ -22,7 +24,7 @@ except ImportError:
 
 HAS_GSSAPI_ENCRYPTION = True
 try:
-    from gssapi.raw import wrap_iov, unwrap_iov
+    from gssapi.raw import wrap_iov
 except ImportError:
     HAS_GSSAPI_ENCRYPTION = False
 
@@ -72,9 +74,8 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
     context_gen = None
     out_token = None
 
-    if HAS_SSPI and not (auth_provider == "ntlm" and username is not None):
-        # always use SSPI when available, unless auth provider is ntlm and the
-        # username is specified (explicit creds)
+    if HAS_SSPI:
+        # always use SSPI when available
         log.info("SSPI is available and will be used as the auth backend")
         context = SSPIContext(username, password, auth_provider, cbt_app_data,
                               hostname, service, delegate)
@@ -174,7 +175,7 @@ class AuthContext(with_metaclass(ABCMeta, object)):
         pass  # pragma: no cover
 
     @abstractmethod
-    def unwrap(self,data):
+    def unwrap(self, header, data):
         pass  # pragma: no cover
 
     @staticmethod
@@ -188,6 +189,9 @@ class AuthContext(with_metaclass(ABCMeta, object)):
         :param username: The username to parse
         :return: domain, username
         """
+        if username is None:
+            return None, None
+
         try:
             domain, username = username.split("\\", 1)
         except ValueError:
@@ -210,8 +214,16 @@ class SSPIContext(AuthContext):
         self._domain, self._username = self._get_domain_username(username)
         self._target_spn = "%s/%s" % (service.upper(), hostname)
         self._delegate = delegate
-        self._trailer_size = None
         self._call_counter = 0
+
+        if self.cbt_app_data is not None:
+            # need to hand craft the SEC_CHANNEL_BINDINGS structure for SSPI
+            # https://msdn.microsoft.com/en-us/library/windows/desktop/dd919963(v=vs.85).aspx
+            cbt_struct = b"\x00" * 24
+            cbt_struct += struct.pack("<I", len(self.cbt_app_data))
+            cbt_struct += struct.pack("<I", len(cbt_struct) + 4)
+            cbt_struct += self.cbt_app_data
+            self.cbt_app_data = cbt_struct
 
     @property
     def domain(self):
@@ -246,15 +258,11 @@ class SSPIContext(AuthContext):
             in_token = yield out_token if out_token != b"" else None
 
     def wrap(self, data):
-        enc_data, trailer = self._context.encrypt(data)
-        if self._trailer_size is None:
-            self._trailer_size = len(trailer)
-        return trailer + enc_data
+        enc_data, header = self._context.encrypt(data)
+        return header, enc_data
 
-    def unwrap(self, data):
-        enc_data = data[self._trailer_size:]
-        trailer = data[:self._trailer_size]
-        dec_data = self._context.decrypt(enc_data, trailer)
+    def unwrap(self, header, data):
+        dec_data = self._context.decrypt(data, header)
         return dec_data
 
     def _step(self, token):
@@ -265,7 +273,6 @@ class SSPIContext(AuthContext):
             sspicon.SEC_I_CONTINUE_NEEDED
         ]
 
-        # TODO: support cbt for pywin32
         sec_tokens = []
         if token is not None:
             sec_token = win32security.PySecBufferType(
@@ -273,6 +280,13 @@ class SSPIContext(AuthContext):
                 sspicon.SECBUFFER_TOKEN
             )
             sec_token.Buffer = token
+            sec_tokens.append(sec_token)
+        if self.cbt_app_data is not None:
+            sec_token = win32security.PySecBufferType(
+                len(self.cbt_app_data),
+                sspicon.SECBUFFER_CHANNEL_BINDINGS
+            )
+            sec_token.Buffer = self.cbt_app_data
             sec_tokens.append(sec_token)
 
         if len(sec_tokens) > 0:
@@ -291,9 +305,10 @@ class SSPIContext(AuthContext):
                         value == rc:
                     rc_name = name
                     break
-            raise Exception("InitializeSecurityContext failed on call %d: "
-                            "(%d) %s 0x%s" % (self._call_counter, rc, rc_name,
-                                              format(rc, 'x')))
+            raise AuthenticationError(
+                "InitializeSecurityContext failed on call %d: (%d) %s 0x%s"
+                % (self._call_counter, rc, rc_name, format(rc, 'x'))
+            )
 
         return out_buffer[0].Buffer
 
@@ -351,10 +366,16 @@ class GSSAPIContext(AuthContext):
             in_token = yield out_token
 
     def wrap(self, data):
-        return self._context.wrap(data, True)[0]
+        iov = gssapi.raw.IOV(gssapi.raw.IOVBufferType.header, data,
+                             gssapi.raw.IOVBufferType.padding,
+                             std_layout=False)
+        wrap_iov(self._context, iov, confidential=True)
+        header = iov[0].value
+        wrapped_data = iov[1].value + (iov[2].value or b"")
+        return header, wrapped_data
 
-    def unwrap(self, data):
-        return self._context.unwrap(data)[0]
+    def unwrap(self, header, data):
+        return self._context.unwrap(header + data)[0]
 
     @staticmethod
     def _get_security_context(name_type, mech, spn, username, password,
@@ -458,9 +479,9 @@ class NTLMContext(AuthContext):
 
     def __init__(self, username, password, cbt_app_data):
         if username is None:
-            raise Exception("Cannot use ntlm-auth with no username set")
+            raise ValueError("Cannot use ntlm-auth with no username set")
         if password is None:
-            raise Exception("Cannot use ntlm-auth with no password set")
+            raise ValueError("Cannot use ntlm-auth with no password set")
         super(NTLMContext, self).__init__(password, "ntlm", cbt_app_data)
         self._domain, self._username = self._get_domain_username(username)
 
@@ -496,7 +517,8 @@ class NTLMContext(AuthContext):
         yield msg3
 
     def wrap(self, data):
-        return self._context.wrap(data)
+        wrapped_data = self._context.wrap(data)
+        return wrapped_data[:16], wrapped_data[16:]
 
-    def unwrap(self, data):
-        return self._context.unwrap(data)
+    def unwrap(self, header, data):
+        return self._context.unwrap(header + data)
