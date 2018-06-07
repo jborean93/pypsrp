@@ -63,7 +63,7 @@ class TestWSMan(object):
         actual = WSMan(_TransportTest())
         assert actual.max_envelope_size == 153600
         assert actual._max_payload_size < actual.max_envelope_size
-        assert actual.operation_timeout == 60
+        assert actual.operation_timeout == 20
         assert isinstance(actual.session_id, str)
 
         # verify we get a unique session id each time this is initialised

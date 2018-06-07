@@ -1,4 +1,12 @@
+# Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
+# MIT License (see LICENSE or https://opensource.org/licenses/MIT)
+
 from six import PY3, text_type, binary_type
+
+try:
+    from urlparse import urlparse
+except ImportError:  # pragma: no cover
+    from urllib.parse import urlparse
 
 
 def to_bytes(obj, encoding='utf-8'):
@@ -73,3 +81,7 @@ def version_newer(version, reference_version):
             break
 
     return newer
+
+
+def get_hostname(url):
+    return urlparse(url).hostname

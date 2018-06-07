@@ -18,13 +18,23 @@ setup(
     packages=['pypsrp'],
     install_requires=[
         'cryptography',
-        'requests',
+        'ntlm-auth>=1.2.0',
+        'requests>=2.9.1',
         'six',
     ],
     extras_require={
         ':python_version<"2.7"': [
             'lxml',
         ],
+        'credssp': [
+            'requests-credssp>=1.0.0'
+        ],
+        'kerberos:sys_platform=="win32"': [
+            'pywin32'
+        ],
+        'kerberos:sys_platform!="win32"': [
+            'gssapi>=1.5.0'
+        ]
     },
     author='Jordan Borean',
     author_email='jborean93@gmail.com',

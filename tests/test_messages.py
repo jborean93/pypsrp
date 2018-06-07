@@ -3,8 +3,8 @@ import uuid
 
 from pypsrp.complex_objects import HostMethodIdentifier, ObjectMeta
 from pypsrp.messages import ErrorRecordMessage, Message, MessageType, \
-    PublicKeyRequest, ResetRunspaceState, RunspacePoolHostCall, \
-    RunspacePoolHostResponse, UserEvent, WarningRecord
+    PublicKeyRequest, RunspacePoolHostCall, RunspacePoolHostResponse, \
+    UserEvent, WarningRecord
 from pypsrp.serializer import Serializer
 
 

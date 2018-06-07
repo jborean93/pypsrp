@@ -92,7 +92,7 @@ class WSManAction(object):
 class WSMan(object):
 
     def __init__(self, transport, max_envelope_size=153600,
-                 operation_timeout=60):
+                 operation_timeout=20):
         """
         Class that handles the WS-Man actions that are required. This is a
         fairly thin wrapper that exposes a method per action that takes in a
@@ -104,10 +104,8 @@ class WSMan(object):
         :param max_envelope_size: The maximum size of the envelope that can be
             sent to the server. Use update_max_envelope_size() to query the
             server for the true value
-        :param locale: Specifies the language in which the client wants the
-            response text to be translated.
-        :param data_locale: Language in which the response text should be
-            formatted.
+        :param max_envelope_size: The maximum size of a WSMan envelope that
+            can be sent to the server
         :param operation_timeout: Indicates that the client expects a response
             or a fault within the specified time.
         """
