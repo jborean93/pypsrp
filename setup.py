@@ -18,7 +18,7 @@ setup(
     packages=['pypsrp'],
     install_requires=[
         'cryptography',
-        'ntlm-auth>=1.1.0',
+        'ntlm-auth>=1.2.0',
         'requests>=2.9.1',
         'six',
     ],

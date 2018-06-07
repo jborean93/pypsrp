@@ -16,3 +16,4 @@ TBD
 * Poll invoke for PSRP
 * Live interactive console for PSRP
 * Inspection of args for higher layer apps using pypsrp
+* Add retry logic for connection failures

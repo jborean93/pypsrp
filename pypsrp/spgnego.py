@@ -115,6 +115,8 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
             except gssapi.exceptions.GSSError as err:
                 log.warning("Failed to initialise a GSSAPI context, failling "
                             "back to NTLM: %s" % str(err))
+                context_gen = None
+                out_token = None
                 context = NTLMContext(username, password, cbt_app_data)
         else:
             log.info("GSSAPI is available but does not support NTLM or "

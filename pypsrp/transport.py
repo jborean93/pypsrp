@@ -221,8 +221,9 @@ class TransportHTTP(object):
                              "certificate_pem")
 
         session.cert = (self.certificate_pem, self.certificate_key_pem)
-        session.headers['Authorization'] = \
-            "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual"
+        session.headers['Authorization'] = "http://schemas.dmtf.org/wbem/" \
+                                           "wsman/1/wsman/secprofile/" \
+                                           "https/mutual"
 
     def _build_auth_credssp(self, session):
         if not HAVE_CREDSSP:

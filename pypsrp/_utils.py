@@ -5,7 +5,7 @@ from six import PY3, text_type, binary_type
 
 try:
     from urlparse import urlparse
-except ImportError:
+except ImportError:  # pragma: no cover
     from urllib.parse import urlparse
 
 

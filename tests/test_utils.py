@@ -2,7 +2,8 @@ import pytest
 
 from six import PY3
 
-from pypsrp._utils import to_bytes, to_string, to_unicode, version_newer
+from pypsrp._utils import to_bytes, to_string, to_unicode, version_newer, \
+    get_hostname
 
 
 def test_unicode_to_bytes_default():
@@ -85,3 +86,39 @@ def test_to_str():
                          ])
 def test_version_newer(version, reference_version, expected):
     assert version_newer(version, reference_version) == expected
+
+
+@pytest.mark.parametrize('url, expected',
+                         [
+                             # hostname
+                             ['http://hostname', 'hostname'],
+                             ['https://hostname', 'hostname'],
+                             ['http://hostname:1234', 'hostname'],
+                             ['https://hostname:1234', 'hostname'],
+                             ['http://hostname/path', 'hostname'],
+                             ['https://hostname/path', 'hostname'],
+                             ['http://hostname:1234/path', 'hostname'],
+                             ['https://hostname:1234/path', 'hostname'],
+
+                             # fqdn
+                             ['http://hostname.domain.com', 'hostname.domain.com'],
+                             ['https://hostname.domain.com', 'hostname.domain.com'],
+                             ['http://hostname.domain.com:1234', 'hostname.domain.com'],
+                             ['https://hostname.domain.com:1234', 'hostname.domain.com'],
+                             ['http://hostname.domain.com/path', 'hostname.domain.com'],
+                             ['https://hostname.domain.com/path', 'hostname.domain.com'],
+                             ['http://hostname.domain.com:1234/path', 'hostname.domain.com'],
+                             ['https://hostname.domain.com:1234/path', 'hostname.domain.com'],
+
+                             # ip address
+                             ['http://1.2.3.4', '1.2.3.4'],
+                             ['https://1.2.3.4', '1.2.3.4'],
+                             ['http://1.2.3.4:1234', '1.2.3.4'],
+                             ['https://1.2.3.4:1234', '1.2.3.4'],
+                             ['http://1.2.3.4/path', '1.2.3.4'],
+                             ['https://1.2.3.4/path', '1.2.3.4'],
+                             ['http://1.2.3.4:1234/path', '1.2.3.4'],
+                             ['https://1.2.3.4:1234/path', '1.2.3.4'],
+                         ])
+def test_get_hostname(url, expected):
+    assert expected == get_hostname(url)
