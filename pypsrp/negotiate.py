@@ -188,7 +188,8 @@ class HTTPNegotiateAuth(AuthBase):
                     app_data = b"tls-server-end-point:" + cert_hash
         else:
             warning = "Requests is running with a non urllib3 backend, " \
-                      "cannot retrieve server cert for CBT"
+                      "cannot retrieve server cert for CBT. Raw type: %s" \
+                      % type(response).__name__
             warnings.warn(warning, NoCertificateRetrievedWarning)
 
         return app_data

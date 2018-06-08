@@ -1,5 +1,7 @@
 language: python
 
+sudo: yes
+
 python:
 - "2.6"
 - "2.7"
@@ -7,9 +9,20 @@ python:
 - "3.5"
 - "3.6"
 
-services:
-- docker
-
+before_install:
+# install gss-ntlmssp required for tests
+# change to sudo apt-get install -y gss-ntlmssp when moving to Xenial
+- sudo apt-get update
+- sudo apt-get install -y autoconf automake m4 libtool winbind libwbclient-dev gettext xsltproc libxml2-utils docbook-xml docbook-xsl make libkrb5-dev krb5-user libsasl2-modules-gssapi-mit libunistring-dev libssl-dev doxygen-gui findutils libxml2-dev libxslt1-dev pkg-config
+- git clone https://github.com/simo5/gss-ntlmssp.git
+- cd gss-ntlmssp
+- autoreconf -f -i
+- ./configure
+- sudo make
+- sudo make install
+- cd ..
+- sudo mkdir -p /usr/etc/gss
+- sudo sh -c 'echo "ntlmssp_v1       1.3.6.1.4.1.311.2.2.10          /usr/local/lib/gssntlmssp/gssntlmssp.so" > /usr/etc/gss/mech'
 install:
 - pip install -U pip setuptools
 - pip install .

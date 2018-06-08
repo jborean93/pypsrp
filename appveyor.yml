@@ -28,6 +28,7 @@ init:
     python -c "import platform; print('Python', platform.python_version(), platform.architecture()[0])"
     winrm quickconfig -quiet
     Enable-WSManCredSSP -Role Server -Force
+    Set-Item -Path WSMan:\localhost\Service\Auth\CbtHardeningLevel -Value Strict
     $env:PYPSRP_USERNAME = $($env:USERNAME)
     $env:PYPSRP_PASSWORD = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon", "DefaultPassword", '')
 
@@ -46,7 +47,7 @@ install:
 build: off  # Do not run MSBuild, build stuff at install step
 
 test_script:
-# TODO: don't run full suite again for different integration tests
+# TODO: don't run full suite again for different integration tests, also run against HTTPS host
 - ps: py.test -v --instafail --pep8 --cov pypsrp --cov-report term-missing
 # now run integration tests with credssp
 - ps: $env:PYPSRP_AUTH = "credssp"; py.test -v --instafail
