@@ -7,6 +7,9 @@ environment:
     # /E:ON and /V:ON options are not enabled in the batch script intepreter
     # See: http://stackoverflow.com/a/13751649/163740
     WITH_COMPILER: "cmd /E:ON /V:ON /C .\\build-scripts\\run_with_compiler.cmd"
+    PYPSRP_SERVER: 127.0.0.1
+    PYPSRP_AUTH: negotiate
+    PYPSRP_PORT: 5985
   matrix:
   # https://www.appveyor.com/docs/installed-software/#python
   - PYTHON: Python27
@@ -23,14 +26,26 @@ init:
     # Override default Python version/architecture
     $env:Path="C:\$env:PYTHON;C:\$env:PYTHON\Scripts;$env:PATH"
     python -c "import platform; print('Python', platform.python_version(), platform.architecture()[0])"
+    winrm quickconfig -quiet
+    Enable-WSManCredSSP -Role Server -Force
+    $env:PYPSRP_USERNAME = $($env:USERNAME)
+    $env:PYPSRP_PASSWORD = [Microsoft.Win32.Registry]::GetValue("HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion\Winlogon", "DefaultPassword", '')
 
 install:
 - ps: |
     pip install -U pip setuptools
     pip install .
     pip install -r requirements-test.txt
+    pip install .[credssp]
+
+    # test out pywin32 on some matrixes
+    if ($env:PYTHON -in @("Python27", "Python27-x64", "Python36", "Python36-x64")) {
+        pip install .[kerberos]
+    }
 
 build: off  # Do not run MSBuild, build stuff at install step
 
 test_script:
 - ps: py.test -v --instafail --pep8 --cov pypsrp --cov-report term-missing
+# now run integration tests with credssp
+- ps: $env:PYPSRP_AUTH = "credssp"; py.test -v --instafail

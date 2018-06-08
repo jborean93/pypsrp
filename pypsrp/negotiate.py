@@ -16,7 +16,7 @@ from requests.packages.urllib3.response import HTTPResponse
 
 from pypsrp.exceptions import AuthenticationError
 from pypsrp.spgnego import get_auth_context
-from pypsrp._utils import get_hostname
+from pypsrp._utils import to_bytes, get_hostname
 
 log = logging.getLogger(__name__)
 
@@ -135,7 +135,7 @@ class HTTPNegotiateAuth(AuthBase):
     @staticmethod
     def _set_auth_token(request, token, auth_provider):
         encoded_token = base64.b64encode(token)
-        auth_header = b"%s %s" % (auth_provider.encode('utf-8'), encoded_token)
+        auth_header = to_bytes("%s " % auth_provider) + encoded_token
         request.headers['Authorization'] = auth_header
 
     @staticmethod

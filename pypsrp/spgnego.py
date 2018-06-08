@@ -57,14 +57,21 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
         auto or kerberos is secified as the provider
     * In all other cases use the fallback ntlm-auth library
 
-    :param username:
-    :param password:
-    :param auth_provider:
-    :param cbt_app_data:
-    :param hostname:
-    :param service:
-    :param delegate:
-    :param wrap_required:
+    :param username: The username to authenticate with, can be None if on
+        Windows and SSPI is being used or GSSAPI is available and kerberos is
+        used.
+    :param password: The password, same rules apply as username
+    :param auth_provider: The auth provider to use
+        auto: Try Kerberos if available and fallback to NTLM if that fails
+        kerberos: Only allow Kerberos with no fallback to NTLM
+        ntlm: Only use NTLM, do not try Kerberos
+    :param cbt_app_data: The CBT application data field to bind to the auth
+    :param hostname: The hostname to build the SPN with
+    :param service: The service to build the SPN with
+    :param delegate: Whether to add the delegate flag to the kerb ticket
+    :param wrap_required: Whether we need encryption/wrapping in the auth
+        provider, if we need wrapping and GSSAPI does not offer it then we
+        will fallback to ntlm-auth
     :return:
     """
     if auth_provider not in ["auto", "kerberos", "ntlm"]:
@@ -88,7 +95,8 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
             log.info("GSSAPI with mech %s is being used as the auth backend"
                      % auth_provider)
             context = GSSAPIContext(username, password, auth_provider,
-                                    cbt_app_data, hostname, service, delegate)
+                                    cbt_app_data, hostname, service, delegate,
+                                    wrap_required)
         elif auth_provider == "kerberos":
             raise ValueError("The auth_provider specified 'kerberos' is not "
                              "available as message encryption is required but "
@@ -106,7 +114,7 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
                 log.debug("Attempting to use GSSAPI Kerberos as auth backend")
                 context = GSSAPIContext(username, password, "kerberos",
                                         cbt_app_data, hostname, service,
-                                        delegate)
+                                        delegate, wrap_required)
                 context.init_context()
                 context_gen = context.step()
                 out_token = next(context_gen)
@@ -323,12 +331,13 @@ class GSSAPIContext(AuthContext):
     }
 
     def __init__(self, username, password, auth_provider, cbt_app_data,
-                 hostname, service, delegate):
+                 hostname, service, delegate, wrap_required):
         super(GSSAPIContext, self).__init__(password, auth_provider,
                                             cbt_app_data)
         self._username = username
         self._target_spn = "%s@%s" % (service.lower(), hostname)
         self._delegate = delegate
+        self.wrap_required = wrap_required
 
     @property
     def domain(self):
@@ -357,7 +366,7 @@ class GSSAPIContext(AuthContext):
                   "%s" % (self.username, self.auth_provider))
         self._context = GSSAPIContext._get_security_context(
             name_type, mech, self._target_spn, self.username, self.password,
-            self._delegate, cbt_app_data
+            self._delegate, self.wrap_required, cbt_app_data
         )
 
     def step(self):
@@ -381,7 +390,7 @@ class GSSAPIContext(AuthContext):
 
     @staticmethod
     def _get_security_context(name_type, mech, spn, username, password,
-                              delegate, channel_bindings=None):
+                              delegate, wrap_required, channel_bindings=None):
         if username is not None:
             username = gssapi.Name(base=username, name_type=name_type)
 
@@ -421,6 +430,8 @@ class GSSAPIContext(AuthContext):
             gssapi.RequirementFlag.out_of_sequence_detection
         if delegate:
             flags |= gssapi.RequirementFlag.delegate_to_peer
+        if wrap_required:
+            flags |= gssapi.RequirementFlag.confidentiality
 
         context = gssapi.SecurityContext(name=server_name,
                                          creds=cred,
@@ -455,7 +466,8 @@ class GSSAPIContext(AuthContext):
                 "http@server",
                 "username",
                 "password",
-                False
+                False,
+                encryption_required
             )
             ntlm_context.step()
             set_sec_context_option(reset_mech, context=ntlm_context,
