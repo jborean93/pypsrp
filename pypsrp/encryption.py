@@ -9,12 +9,14 @@ class WinRMEncryption(object):
 
     SIXTEEN_KB = 16384
     MIME_BOUNDARY = "--Encrypted Boundary"
+    CREDSSP = "application/HTTP-CredSSP-session-encrypted"
+    SPNEGO = "application/HTTP-SPNEGO-session-encrypted"
 
     def __init__(self, auth, protocol):
         self.auth = auth
         self.protocol = protocol
 
-        if "SPNEGO" in protocol:
+        if protocol == self.SPNEGO:
             self._wrap = self._wrap_spnego
             self._unwrap = self._unwrap_spnego
         else:
@@ -22,7 +24,7 @@ class WinRMEncryption(object):
             self._unwrap = self._unwrap_credssp
 
     def wrap_message(self, message, hostname):
-        if "CredSSP" in self.protocol and len(message) > self.SIXTEEN_KB:
+        if self.protocol == self.CREDSSP and len(message) > self.SIXTEEN_KB:
             content_type = "multipart/x-multi-encrypted"
             encrypted_msg = b""
             chunks = [message[i:i + self.SIXTEEN_KB] for i in

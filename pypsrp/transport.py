@@ -10,12 +10,12 @@ from pypsrp.exceptions import AuthenticationError, WinRMTransportError
 from pypsrp.negotiate import HTTPNegotiateAuth
 from pypsrp._utils import to_string, get_hostname
 
-HAVE_CREDSSP = False
+HAVE_CREDSSP = True
 CREDSSP_IMP_ERR = None
 try:
     from requests_credssp import HttpCredSSPAuth
-    HAVE_CREDSSP = True
-except ImportError as err:
+except ImportError as err:  # pragma: no cover
+    HAVE_CREDSSP = False
     CREDSSP_IMP_ERR = err
 
 log = logging.getLogger(__name__)
@@ -242,7 +242,7 @@ class TransportHTTP(object):
                                        password=self.password,
                                        **kwargs)
         self.encryption = WinRMEncryption(
-            session.auth, "application/HTTP-CredSSP-session-encrypted"
+            session.auth, WinRMEncryption.CREDSSP
         )
 
     def _build_auth_kerberos(self, session):
@@ -257,7 +257,7 @@ class TransportHTTP(object):
                                          wrap_required=self.wrap_required,
                                          **kwargs)
         self.encryption = WinRMEncryption(
-            session.auth, "application/HTTP-SPNEGO-session-encrypted"
+            session.auth, WinRMEncryption.SPNEGO
         )
 
     def _build_auth_ntlm(self, session):
@@ -278,13 +278,13 @@ class TransportHTTP(object):
             from requests.packages.urllib3.exceptions import \
                 InsecurePlatformWarning
             warnings.simplefilter('ignore', category=InsecurePlatformWarning)
-        except:
+        except:  # pragma: no cover
             pass
 
         try:
             from requests.packages.urllib3.exceptions import SNIMissingWarning
             warnings.simplefilter('ignore', category=SNIMissingWarning)
-        except:
+        except:  # pragma: no cover
             pass
 
         # if we're explicitly ignoring validation, try to suppress
@@ -295,5 +295,5 @@ class TransportHTTP(object):
                     InsecureRequestWarning
                 warnings.simplefilter('ignore',
                                       category=InsecureRequestWarning)
-            except:
+            except:  # pragma: no cover
                 pass

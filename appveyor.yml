@@ -46,6 +46,7 @@ install:
 build: off  # Do not run MSBuild, build stuff at install step
 
 test_script:
+# TODO: don't run full suite again for different integration tests
 - ps: py.test -v --instafail --pep8 --cov pypsrp --cov-report term-missing
 # now run integration tests with credssp
 - ps: $env:PYPSRP_AUTH = "credssp"; py.test -v --instafail

@@ -1,6 +1,9 @@
+gssapi>=1.5.0; sys_platform != 'win32'
+mock; python_version<"3.0"
 ordereddict
 pytest<=3.2.5
 pytest-cov
 pytest-pep8
 pytest-instafail
+pywin32; sys_platform == 'win32'
 pyyaml

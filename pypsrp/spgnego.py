@@ -19,13 +19,13 @@ try:  # pragma: no cover
     from gssapi.raw import acquire_cred_with_password
     from gssapi.raw import set_sec_context_option
     from gssapi.raw import ChannelBindings
-except ImportError:
+except ImportError:  # pragma: no cover
     HAS_GSSAPI = False
 
 HAS_GSSAPI_ENCRYPTION = True
-try:
-    from gssapi.raw import wrap_iov
-except ImportError:
+try:  # pragma: no cover
+    from gssapi.raw import wrap_iov, IOV, IOVBufferType
+except ImportError:  # pragma: no cover
     HAS_GSSAPI_ENCRYPTION = False
 
 HAS_SSPI = True
@@ -33,7 +33,7 @@ try:  # pragma: no cover
     import sspi
     import sspicon
     import win32security
-except ImportError:
+except ImportError:  # pragma: no cover
     HAS_SSPI = False
 
 log = logging.getLogger(__name__)
@@ -52,9 +52,9 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
 
     * If SSPI is available use that (Windows only)
     * If GSSAPI is available with NTLM/SPNEGO support, use that when auto or
-        ntlm is specified as the provider
+        kerberos is specified as the provider
     * If GSSAPI is available with only Kerberos support, try and use that when
-        auto or kerberos is secified as the provider
+        auto or kerberos is specified as the provider
     * In all other cases use the fallback ntlm-auth library
 
     :param username: The username to authenticate with, can be None if on
@@ -86,7 +86,7 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
         log.info("SSPI is available and will be used as the auth backend")
         context = SSPIContext(username, password, auth_provider, cbt_app_data,
                               hostname, service, delegate)
-    elif HAS_GSSAPI and not (auth_provider == "ntlm" and username is not None):
+    elif HAS_GSSAPI and auth_provider != "ntlm":
         log.info("GSSAPI is available, determine if it can handle the auth "
                  "provider specified or whether the NTLM fallback is used")
         mechs_available = GSSAPIContext.get_available_mechs(wrap_required)
@@ -377,13 +377,10 @@ class GSSAPIContext(AuthContext):
             in_token = yield out_token
 
     def wrap(self, data):
-        iov = gssapi.raw.IOV(gssapi.raw.IOVBufferType.header, data,
-                             gssapi.raw.IOVBufferType.padding,
-                             std_layout=False)
+        iov = IOV(IOVBufferType.header, data, IOVBufferType.padding,
+                  std_layout=False)
         wrap_iov(self._context, iov, confidential=True)
-        header = iov[0].value
-        wrapped_data = iov[1].value + (iov[2].value or b"")
-        return header, wrapped_data
+        return iov[0].value, iov[1].value + (iov[2].value or b"")
 
     def unwrap(self, header, data):
         return self._context.unwrap(header + data)[0]
@@ -408,22 +405,22 @@ class GSSAPIContext(AuthContext):
             try:
                 cred = gssapi.Credentials(name=username, usage='initiate',
                                           mechs=[mech])
-                # we successfully got the Kerberos credential from the cache
-                # and don't need to acquire with the password
-                acquire_with_pass = False
             except gssapi.exceptions.GSSError as err:
                 # we can't acquire the cred if no password was supplied
                 if password is None:
                     raise err
                 pass
+        elif username is None or password is None:
+            raise ValueError("Can only use implicit credentials with kerberos "
+                             "authentication")
 
         if cred is None:
             # error when trying to access the existing cache, get our own
             # credentials with the password specified
             b_password = to_bytes(password)
-            cred = acquire_cred_with_password(username, b_password,
-                                              usage='initiate',
-                                              mechs=[mech])
+            cred = gssapi.raw.acquire_cred_with_password(username, b_password,
+                                                         usage='initiate',
+                                                         mechs=[mech])
             cred = cred.creds
 
         flags = gssapi.RequirementFlag.mutual_authentication | \
@@ -470,8 +467,8 @@ class GSSAPIContext(AuthContext):
                 encryption_required
             )
             ntlm_context.step()
-            set_sec_context_option(reset_mech, context=ntlm_context,
-                                   value=b"\x00" * 4)
+            gssapi.raw.set_sec_context_option(reset_mech, context=ntlm_context,
+                                              value=b"\x00" * 4)
 
             # gss-ntlmssp is available which in turn means we can use native
             # SPNEGO or NTLM with the GSSAPI
