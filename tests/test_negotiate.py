@@ -4,6 +4,8 @@ import warnings
 
 import pytest
 
+from urllib3.response import HTTPResponse
+
 from pypsrp.exceptions import AuthenticationError
 from pypsrp.negotiate import HTTPNegotiateAuth
 
@@ -340,3 +342,70 @@ class TestCertificateHash(object):
             assert str(w[-1].message) == \
                 "Requests is running with a non urllib3 backend, cannot " \
                 "retrieve server cert for CBT. Raw type: MagicMock"
+
+    def test_get_cbt_fail_invalid_raw_socket(self):
+        response = MagicMock()
+        response.raw = HTTPResponse()
+
+        expected_warning = "Failed to get raw socket for CBT from urllib3 resp"
+
+        with warnings.catch_warnings(record=True) as w:
+            actual = HTTPNegotiateAuth._get_cbt_data(response)
+            assert actual is None
+            assert expected_warning in str(w[-1].message)
+
+    def test_get_cbt_no_peer_cert(self):
+        mock_socket = MagicMock()
+        mock_socket.getpeercert.side_effect = AttributeError
+
+        raw_response = HTTPResponse()
+        raw_response._fp = MagicMock()
+        raw_response._fp.fp.raw._sock = mock_socket
+        raw_response._fp.fp._sock = mock_socket
+
+        response = MagicMock()
+        response.raw = raw_response
+
+        actual = HTTPNegotiateAuth._get_cbt_data(response)
+        assert actual is None
+
+    def test_get_cbt_with_peer_cert(self):
+        cert_der = b'MIIDGzCCAgOgAwIBAgIQWkeAtqoFg6pNWF7xC4YXhTANBgkqhkiG9w0' \
+                   b'BAQsFADAVMRMwEQYDVQQDDApTRVJWRVIyMDE2MB4XDTE3MDUyNzA5MD' \
+                   b'I0NFoXDTE4MDUyNzA5MjI0NFowFTETMBEGA1UEAwwKU0VSVkVSMjAxN' \
+                   b'jCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBALIPKM5uykFy' \
+                   b'NmVoLyvPSXGk15ZDqjYi3AbUxVFwCkVImqhefLATit3PkTUYFtAT+TC' \
+                   b'AwK2E4lOu1XHM+Tmp2KIOnq2oUR8qMEvfxYThEf1MHxkctFljFssZ9N' \
+                   b'vASDD4lzw8r0Bhl+E5PhR22Eu1Wago5bvIldojkwG+WBxPQv3ZR546L' \
+                   b'MUZNaBXC0RhuGj5w83lbVz75qM98wvv1ekfZYAP7lrVyHxqCTPDomEU' \
+                   b'I45tQQZHCZl5nRx1fPCyyYfcfqvFlLWD4Q3PZAbnw6mi0MiWJbGYKME' \
+                   b'1XGicjqyn/zM9XKA1t/JzChS2bxf6rsyA9I7ibdRHUxsm1JgKry2jfW' \
+                   b'0CAwEAAaNnMGUwDgYDVR0PAQH/BAQDAgWgMB0GA1UdJQQWMBQGCCsGA' \
+                   b'QUFBwMCBggrBgEFBQcDATAVBgNVHREEDjAMggpTRVJWRVIyMDE2MB0G' \
+                   b'A1UdDgQWBBQabLGWg1sn7AXPwYPyfE0ER921ZDANBgkqhkiG9w0BAQs' \
+                   b'FAAOCAQEAnRohyl6ZmOsTWCtxOJx5A8yr//NweXKwWWmFQXRmCb4bMC' \
+                   b'xhD4zqLDf5P6RotGV0I/SHvqz+pAtJuwmr+iyAF6WTzo3164LCfnQEu' \
+                   b'psfrrfMkf3txgDwQkA0oPAw3HEwOnR+tzprw3Yg9x6UoZEhi4XqP9AX' \
+                   b'R49jU92KrNXJcPlz5MbkzNo5t9nr2f8q39b5HBjaiBJxzdM1hxqsbfD' \
+                   b'KirTYbkUgPlVOo/NDmopPPb8IX8ubj/XETZG2jixD0zahgcZ1vdr/iZ' \
+                   b'+50WSXKN2TAKBO2fwoK+2/zIWrGRxJTARfQdF+fGKuj+AERIFNh88HW' \
+                   b'xSDYjHQAaFMcfdUpa9GGQ=='
+        cert_der = base64.b64decode(cert_der)
+
+        mock_socket = MagicMock()
+        mock_socket.getpeercert.return_value = cert_der
+
+        raw_response = HTTPResponse()
+        raw_response._fp = MagicMock()
+        raw_response._fp.fp.raw._sock = mock_socket
+        raw_response._fp.fp._sock = mock_socket
+
+        response = MagicMock()
+        response.raw = raw_response
+
+        expected = b"tls-server-end-point:" \
+                   b"\x99\x6F\x3E\xEA\x81\x2C\x18\x70\xE3\x05\x49\xFF" \
+                   b"\x9B\x86\xCD\x87\xA8\x90\xB6\xD8\xDF\xDF\x4A\x81" \
+                   b"\xBE\xF9\x67\x59\x70\xDA\xDB\x26"
+        actual = HTTPNegotiateAuth._get_cbt_data(response)
+        assert actual == expected

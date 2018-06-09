@@ -32,7 +32,7 @@ class UnknownSignatureAlgorithmOID(Warning):
 class HTTPNegotiateAuth(AuthBase):
 
     def __init__(self, username=None, password=None, auth_provider='auto',
-                 send_cbt=True, service='HTTP', delegate=False,
+                 send_cbt=True, service='WSMAN', delegate=False,
                  hostname_override=None, wrap_required=False):
         """
         Creates a HTTP auth context that uses Microsoft's Negotiate protocol
@@ -175,8 +175,9 @@ class HTTPNegotiateAuth(AuthBase):
                     socket = raw_response._fp.fp.raw._sock
                 else:
                     socket = raw_response._fp.fp._sock
-            except AttributeError:
-                warning = "Failed to get raw socket for CBT from urllib3 resp"
+            except AttributeError as err:
+                warning = "Failed to get raw socket for CBT from urllib3 " \
+                          "resp: %s" % str(err)
                 warnings.warn(warning, NoCertificateRetrievedWarning)
             else:
                 try:

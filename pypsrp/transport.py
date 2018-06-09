@@ -10,12 +10,12 @@ from pypsrp.exceptions import AuthenticationError, WinRMTransportError
 from pypsrp.negotiate import HTTPNegotiateAuth
 from pypsrp._utils import to_string, get_hostname
 
-HAVE_CREDSSP = True
+HAS_CREDSSP = True
 CREDSSP_IMP_ERR = None
 try:
     from requests_credssp import HttpCredSSPAuth
 except ImportError as err:  # pragma: no cover
-    HAVE_CREDSSP = False
+    HAS_CREDSSP = False
     CREDSSP_IMP_ERR = err
 
 log = logging.getLogger(__name__)
@@ -28,18 +28,18 @@ class TransportHTTP(object):
 
     AUTH_KWARGS = {
         "certificate": ["certificate_key_pem", "certificate_pem"],
-        "credssp": ["credssp_auth_provider", "credssp_disable_tlsv1_2",
+        "credssp": ["credssp_auth_mechanism", "credssp_disable_tlsv1_2",
                     "credssp_minimum_version"],
         "negotiate": ["negotiate_delegate", "negotiate_hostname_override",
                       "negotiate_send_cbt", "negotiate_service"],
     }
 
-    def __init__(self, server, port, username=None, password=None, ssl=True,
-                 path="wsman", auth="negotiate", cert_validation=True,
-                 connection_timeout=30, encryption='auto', proxy=None,
-                 no_proxy=False, **kwargs):
+    def __init__(self, server, port=None, username=None, password=None,
+                 ssl=True, path="wsman", auth="negotiate",
+                 cert_validation=True, connection_timeout=30,
+                 encryption='auto', proxy=None, no_proxy=False, **kwargs):
         self.server = server
-        self.port = port
+        self.port = port if port is not None else (5986 if ssl else 5985)
         self.username = username
         self.password = password
         self.ssl = ssl
@@ -47,7 +47,7 @@ class TransportHTTP(object):
 
         if auth not in self.SUPPORTED_AUTHS:
             raise ValueError("The specified auth '%s' is not supported, "
-                             "please select on of '%s'"
+                             "please select one of '%s'"
                              % (auth, ", ".join(self.SUPPORTED_AUTHS)))
         self.auth = auth
         self.cert_validation = cert_validation
@@ -56,27 +56,27 @@ class TransportHTTP(object):
         # determine the message encryption logic
         if encryption not in ["auto", "always", "never"]:
             raise ValueError("The encryption value '%s' must be auto, "
-                             "always, or never")
+                             "always, or never" % encryption)
         enc_providers = ["credssp", "kerberos", "negotiate", "ntlm"]
         if ssl:
             # msg's are automatically encrypted with TLS, we only want message
             # encryption if always was specified
             self.wrap_required = encryption == "always"
-            if encryption and self.auth not in enc_providers:
+            if self.wrap_required and self.auth not in enc_providers:
                 raise ValueError(
                     "Cannot use message encryption with auth '%s', either set "
-                    "encryption='auto' or use one of the following providers: "
-                    "%s" % (self.auth, ", ".join(enc_providers))
+                    "encryption='auto' or use one of the following auth "
+                    "providers: %s" % (self.auth, ", ".join(enc_providers))
                 )
         else:
             # msg's should always be encrypted when not using SSL, unless the
             # user specifies to never encrypt
             self.wrap_required = not encryption == "never"
-            if encryption and self.auth not in enc_providers:
+            if self.wrap_required and self.auth not in enc_providers:
                 raise ValueError(
                     "Cannot use message encryption with auth '%s', either set "
                     "encryption='never', use ssl=True or use one of the "
-                    "following providers: %s"
+                    "following auth providers: %s"
                     % (self.auth, ", ".join(enc_providers))
                 )
         self.encryption = None
@@ -89,7 +89,7 @@ class TransportHTTP(object):
                 setattr(self, kwarg, kwargs.get(kwarg, None))
 
         self.endpoint = "%s://%s:%d/%s" \
-                        % ("https" if ssl else "http", server, port, path)
+                        % ("https" if ssl else "http", server, self.port, path)
         log.info("Initialising HTTP transport for endpoint: %s"
                  % self.endpoint)
         self.session = None
@@ -179,6 +179,7 @@ class TransportHTTP(object):
                                                       cert=None)
 
         # set the proxy config
+        orig_proxy = session.proxies
         session.proxies = settings['proxies']
         if self.proxy is not None:
             proxy_key = 'https' if self.ssl else 'http'
@@ -186,7 +187,7 @@ class TransportHTTP(object):
                 proxy_key: self.proxy
             }
         elif self.no_proxy:
-            session.proxies = None
+            session.proxies = orig_proxy
 
         # set cert validation config
         session.verify = self.cert_validation
@@ -226,7 +227,7 @@ class TransportHTTP(object):
                                            "https/mutual"
 
     def _build_auth_credssp(self, session):
-        if not HAVE_CREDSSP:
+        if not HAS_CREDSSP:
             raise ImportError("Cannot use CredSSP auth as requests-credssp is "
                               "not installed: %s" % str(CREDSSP_IMP_ERR))
 
@@ -234,7 +235,7 @@ class TransportHTTP(object):
             raise ValueError("For credssp auth, the username must be "
                              "specified")
         if self.password is None:
-            raise ValueError("For credssp auth, the password must be"
+            raise ValueError("For credssp auth, the password must be "
                              "specified")
 
         kwargs = self._get_auth_kwargs('credssp')
@@ -268,7 +269,8 @@ class TransportHTTP(object):
         for kwarg in self.AUTH_KWARGS[auth_provider]:
             kwarg_value = getattr(self, kwarg, None)
             if kwarg_value is not None:
-                kwargs[kwarg] = kwarg_value
+                kwarg_key = kwarg[len(auth_provider) + 1:]
+                kwargs[kwarg_key] = kwarg_value
 
         return kwargs
 
