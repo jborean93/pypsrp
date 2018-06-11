@@ -58,6 +58,7 @@ install:
     Restart-Service -Name winrm
 
     pip install pip setuptools --upgrade
+    pip install idna<2.7  # TODO: remove once requests catches up
     pip install -r requirements-test.txt
     pip install .
     pip install .[credssp]
