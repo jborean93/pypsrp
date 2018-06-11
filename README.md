@@ -9,7 +9,6 @@ TBD
 ## Backlog
 
 * Add support for host based calls and implement reference host object
-* Test out JEA endpoint and add test
 * Look into adding SSH as a transport option
 * Create a higher layer API
 * Logging for cipher suite and other connection details

@@ -32,7 +32,7 @@ class WinRMTransportError(WinRMError):
     @property
     def message(self):
         return "Bad %s response returned from the server. Code: %d, " \
-               "Content: %s"\
+               "Content: '%s'"\
                % (self.protocol.upper(), self.code, self.response_text)
 
     def __str__(self):

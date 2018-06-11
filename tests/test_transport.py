@@ -6,6 +6,7 @@ import pytest
 import pypsrp.transport as pypsrp_transport
 
 from pypsrp.encryption import WinRMEncryption
+from pypsrp.exceptions import AuthenticationError, WinRMTransportError
 from pypsrp.negotiate import HTTPNegotiateAuth
 from pypsrp.transport import TransportHTTP
 
@@ -94,6 +95,13 @@ class TestTransportHTTP(object):
         assert str(err.value) == \
             "For certificate auth, the path to the certificate pem file " \
             "must be specified with certificate_pem"
+
+    def test_build_certificate_not_ssl(self):
+        transport = TransportHTTP("", certificate_key_pem="path",
+                                  certificate_pem="path", ssl=False)
+        with pytest.raises(ValueError) as err:
+            transport._build_auth_certificate(None)
+        assert str(err.value) == "For certificate auth, SSL must be used"
 
     def test_build_certificate(self):
         transport = TransportHTTP("", auth="certificate",
@@ -425,3 +433,181 @@ class TestTransportHTTP(object):
         assert wrap_mock.call_args_list[0][0][1] == "server"
         assert wrap_mock.call_args_list[1][0][0] == b"message 2"
         assert wrap_mock.call_args_list[1][0][1] == "server"
+
+    def test_send_default(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b"content"
+        response.headers['content-type'] = "application/soap+xml;charset=UTF-8"
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+
+        transport = TransportHTTP("server", ssl=True)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        actual = transport._send_request(prep_request, "server")
+        assert actual == b"content"
+        assert send_mock.call_count == 1
+        assert send_mock.call_args[0] == (prep_request,)
+        assert send_mock.call_args[1]['timeout'] == 30
+
+    def test_send_timeout_kwargs(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b"content"
+        response.headers['content-type'] = "application/soap+xml;charset=UTF-8"
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+
+        transport = TransportHTTP("server", ssl=True, connection_timeout=20)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        actual = transport._send_request(prep_request, "server")
+        assert actual == b"content"
+        assert send_mock.call_count == 1
+        assert send_mock.call_args[0] == (prep_request,)
+        assert send_mock.call_args[1]['timeout'] == 20
+
+    def test_send_auth_error(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 401
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+
+        transport = TransportHTTP("server", ssl=True)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        with pytest.raises(AuthenticationError) as err:
+            transport._send_request(prep_request, "server")
+        assert str(err.value) == "Failed to authenticate the user None with " \
+                                 "negotiate"
+
+    def test_send_winrm_error_blank(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 500
+        response._content = b""
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+
+        transport = TransportHTTP("server", ssl=True)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        with pytest.raises(WinRMTransportError) as err:
+            transport._send_request(prep_request, "server")
+        assert str(err.value) == "Bad HTTP response returned from the " \
+                                 "server. Code: 500, Content: ''"
+        assert err.value.code == 500
+        assert err.value.protocol == 'http'
+        assert err.value.response_text == ''
+
+    def test_send_winrm_error_content(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 500
+        response._content = b"error msg"
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+
+        transport = TransportHTTP("server", ssl=True)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        with pytest.raises(WinRMTransportError) as err:
+            transport._send_request(prep_request, "server")
+        assert str(err.value) == "Bad HTTP response returned from the " \
+                                 "server. Code: 500, Content: 'error msg'"
+        assert err.value.code == 500
+        assert err.value.protocol == 'http'
+        assert err.value.response_text == 'error msg'
+
+    def test_send_winrm_encrypted_single(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b"content"
+        response.headers['content-type'] = \
+            'multipart/encrypted;protocol="application/HTTP-SPNEGO-session-' \
+            'encrypted";boundary="Encrypted Boundary'
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+        unwrap_mock = MagicMock()
+        unwrap_mock.return_value = b"unwrapped content"
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+        monkeypatch.setattr(WinRMEncryption, "unwrap_message", unwrap_mock)
+
+        transport = TransportHTTP("server", ssl=False)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        actual = transport._send_request(prep_request, "server")
+        assert actual == b"unwrapped content"
+        assert send_mock.call_count == 1
+        assert send_mock.call_args[0] == (prep_request,)
+        assert send_mock.call_args[1]['timeout'] == 30
+
+        assert unwrap_mock.call_count == 1
+        assert unwrap_mock.call_args[0] == (b"content", "server")
+        assert unwrap_mock.call_args[1] == {}
+
+    def test_send_winrm_encrypted_multiple(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b"content"
+        response.headers['content-type'] = \
+            'multipart/x-multi-encrypted;protocol="application/HTTP-CredSSP-' \
+            'session-encrypted";boundary="Encrypted Boundary'
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+        unwrap_mock = MagicMock()
+        unwrap_mock.return_value = b"unwrapped content"
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+        monkeypatch.setattr(WinRMEncryption, "unwrap_message", unwrap_mock)
+
+        transport = TransportHTTP("server", ssl=False)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        actual = transport._send_request(prep_request, "server")
+        assert actual == b"unwrapped content"
+        assert send_mock.call_count == 1
+        assert send_mock.call_args[0] == (prep_request,)
+        assert send_mock.call_args[1]['timeout'] == 30
+
+        assert unwrap_mock.call_count == 1
+        assert unwrap_mock.call_args[0] == (b"content", "server")
+        assert unwrap_mock.call_args[1] == {}

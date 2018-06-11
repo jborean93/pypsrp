@@ -57,7 +57,6 @@ class TestRunspacePool(object):
                              [[True, 'test_psrp_open_runspace']],
                              indirect=True)
     def test_psrp_open_runspace(self, winrm_transport):
-        # TODO also test out small packet size and large init_runspace_pool
         wsman = WSMan(winrm_transport)
         runspace_pool = RunspacePool(wsman)
         assert runspace_pool.state == RunspacePoolState.BEFORE_OPEN
@@ -260,6 +259,43 @@ class TestRunspacePool(object):
             assert str(err.value) == "Failed to reset runspace state"
         finally:
             pool.close()
+
+    @pytest.mark.parametrize('winrm_transport',
+                             # JEA endpoint was configured manually to only
+                             # allow Get-Item and access to the WSMan provider
+                             [[False, 'test_psrp_with_jea_configuration']],
+                             indirect=True)
+    def test_psrp_with_jea_configuration(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+        with RunspacePool(wsman, configuration_name="ContosoJEA") as pool:
+            ps = PowerShell(pool)
+            ps.add_cmdlet("Get-Item").add_parameter(
+                "Path", "WSMan:\\localhost\\Service\\AllowUnencrypted"
+            )
+            actual = ps.invoke()
+
+            ps_fail = PowerShell(pool)
+            ps_fail.add_cmdlet("Get-Item").add_parameter("Path", "C:\\Windows")
+            ps_fail.add_statement().add_script(
+                "Set-Item -Path WSMan:\\localhost\\Service\\AllowUnencrypted "
+                "-Value $false"
+            )
+            actual_fail = ps_fail.invoke()
+
+        assert len(actual) == 1
+        assert str(actual[0]) == \
+            "Microsoft.WSMan.Management.WSManConfigLeafElement"
+        assert actual[0].property_sets[0].adapted_properties['Value'] == 'true'
+        assert ps.had_errors is False
+
+        assert actual_fail == []
+        assert ps_fail.had_errors is True
+        assert len(ps_fail.streams.error) == 2
+        assert str(ps_fail.streams.error[0]) == \
+            "Cannot find a provider with the name 'FileSystem'."
+        assert str(ps_fail.streams.error[1]) == \
+            "The syntax is not supported by this runspace. This can occur " \
+            "if the runspace is in no-language mode."
 
     def test_psrp_connect_already_opened(self):
         transport = TransportHTTP("", 5985, "", "")

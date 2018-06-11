@@ -22,7 +22,7 @@ def test_winrm_transport_error():
     with pytest.raises(WinRMTransportError) as exc:
         raise WinRMTransportError("proto", 1234, "response")
     assert str(exc.value) == "Bad PROTO response returned from the server. " \
-                             "Code: 1234, Content: response"
+                             "Code: 1234, Content: 'response'"
     assert exc.value.protocol == "proto"
     assert exc.value.code == 1234
     assert exc.value.response_text == "response"

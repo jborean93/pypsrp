@@ -220,6 +220,8 @@ class TransportHTTP(object):
             raise ValueError("For certificate auth, the path to the "
                              "certificate pem file must be specified with "
                              "certificate_pem")
+        if self.ssl is False:
+            raise ValueError("For certificate auth, SSL must be used")
 
         session.cert = (self.certificate_pem, self.certificate_key_pem)
         session.headers['Authorization'] = "http://schemas.dmtf.org/wbem/" \

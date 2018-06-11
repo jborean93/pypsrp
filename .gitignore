@@ -1,3 +1,8 @@
+# pypsrp testing files
+cert.pem
+cert_key.pem
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -110,3 +115,6 @@ ENV/
 
 # MacOS File
 .DS_Store
+
+# Vagrant
+.vagrant/

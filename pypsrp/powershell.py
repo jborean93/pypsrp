@@ -45,8 +45,8 @@ class RunspacePool(object):
 
     def __init__(self, wsman, apartment_state=ApartmentState.UNKNOWN,
                  thread_options=PSThreadOptions.DEFAULT, host_info=None,
-                 min_runspaces=1, max_runspaces=1,
-                 session_key_timeout_ms=60000):
+                 configuration_name="Microsoft.PowerShell", min_runspaces=1,
+                 max_runspaces=1, session_key_timeout_ms=60000):
         """
         Represents a Runspace pool on a remote host. This pool can contain
         one or more running PowerShell instances.
@@ -60,6 +60,10 @@ class RunspacePool(object):
         :param thread_options: The ThreadOptions enum int values that specify
             what type of thread of create
         :param host_info:
+        :param configuration_name: The PSRP configuration name to connect to,
+            by default this is Microsoft.PowerShell which opens a full
+            PowerShell endpoint, use this to specify the JEA configuration to
+            connect to
         :param min_runspaces: The minimum number of runspaces that a pool can
             hold
         :param max_runspaces: The maximum number of runspaces that a pool can
@@ -72,8 +76,9 @@ class RunspacePool(object):
         self.id = str(uuid.uuid4()).upper()
         self.state = RunspacePoolState.BEFORE_OPEN
         self.wsman = wsman
-        resuri = "http://schemas.microsoft.com/powershell/Microsoft.PowerShell"
-        self.shell = WinRS(wsman, resource_uri=resuri, id=self.id,
+        resource_uri = "http://schemas.microsoft.com/powershell/%s" \
+                       % configuration_name
+        self.shell = WinRS(wsman, resource_uri=resource_uri, id=self.id,
                            input_streams='stdin pr', output_streams='stdout')
         self.ci_table = {}
         self.pipelines = {}

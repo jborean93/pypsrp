@@ -1,0 +1,10 @@
+@{
+    SchemaVersion = '2.0.0.0'
+    GUID = 'd5d2909a-5e28-4343-a108-a96e3e1f787d'
+    Author = 'Jordan Borean'
+    SessionType = 'RestrictedRemoteServer'
+    RunAsVirtualAccount = $true
+    RoleDefinitions = @{
+        'BUILTIN\Administrators' = @{ RoleCapabilities = 'JEARole' }
+    }
+}

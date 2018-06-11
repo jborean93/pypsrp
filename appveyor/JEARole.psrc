@@ -1,0 +1,10 @@
+@{
+    GUID = '43ce7ae2-385e-42a1-934f-9acece819e36'
+    Author = 'Jordan Borean'
+    Description = 'A test JEA role used in the functional tests for pypsrp'
+    CompanyName = 'N/A'
+    Copyright = '(c) 2018 Jordan Borean (jborean93@gmail.com)'
+    VisibleCmdlets = 'Get-Item'
+    VisibleProviders = 'WSMan'
+
+}

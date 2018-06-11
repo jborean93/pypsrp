@@ -204,7 +204,7 @@ class TestWSMan(object):
         with pytest.raises(WinRMTransportError) as exc:
             wsman.send("", None)
         error_msg = "Bad HTTP response returned from the server. Code: 401, " \
-                    "Content: not an XML response"
+                    "Content: 'not an XML response'"
         assert str(exc.value) == error_msg
         assert exc.value.code == 401
         assert exc.value.protocol == "http"

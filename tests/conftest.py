@@ -145,21 +145,22 @@ class TransportFake(object):
 
             # when resource uri is PowerShell we know the Send/Command messages
             # contain PSRP fragments and we need to generify them
-            exp_res_uri = "http://schemas.microsoft.com/powershell/Microsoft." \
-                          "PowerShell"
+            exp_res_uri = "http://schemas.microsoft.com/powershell/"
             res_uri = \
                 xml_obj.find("s:Header/wsman:ResourceURI", NAMESPACES)
             if res_uri is not None:
                 res_uri = res_uri.text
 
             streams = xml_obj.findall("s:Body/rsp:Send/rsp:Stream", NAMESPACES)
-            if res_uri == exp_res_uri and len(streams) > 0:
+            if res_uri is not None and res_uri.startswith(exp_res_uri) and \
+                    len(streams) > 0:
                 for stream in streams:
                     self._generify_fragment(stream)
 
             command = xml_obj.find("s:Body/rsp:CommandLine/rsp:Arguments",
                                    NAMESPACES)
-            if res_uri == exp_res_uri and command is not None:
+            if res_uri is not None and res_uri.startswith(exp_res_uri) and \
+                    command is not None:
                 self._generify_fragment(command)
         else:
             xml_obj = ET.fromstring(to_bytes(xml))
