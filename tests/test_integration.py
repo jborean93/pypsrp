@@ -45,6 +45,8 @@ def functional_transports():
     password = os.environ['PYPSRP_PASSWORD']
     server = os.environ['PYPSRP_SERVER']
     cert_dir = os.environ.get('PYPSRP_CERT_DIR', None)
+    http_port = int(os.environ.get('PYPSRP_HTTP_PORT', 5985))
+    https_port = int(os.environ.get('PYPSRP_HTTPS_PORT', 5986))
 
     # can't really test kerberos in CI so it is missing from this list
     auths = ['negotiate', 'ntlm', 'credssp']
@@ -61,14 +63,14 @@ def functional_transports():
     transports = []
     for auth in auths:
         transport = TransportHTTP(server, username=username, password=password,
-                                  ssl=False, auth=auth)
+                                  ssl=False, auth=auth, port=http_port)
         transports.append(transport)
 
     for auth in auths_ssl:
         transport = TransportHTTP(server, username=username, password=password,
                                   ssl=True, auth=auth, cert_validation=False,
                                   certificate_key_pem=cert_key_pem,
-                                  certificate_pem=cert_pem)
+                                  certificate_pem=cert_pem, port=https_port)
         transports.append(transport)
     yield transports
 
@@ -95,7 +97,7 @@ class TestPowerShellFunctional(object):
                 ps.add_cmdlet("Get-Item").add_parameter("Path", "C:\\Windows")
                 ps.add_statement()
 
-                sec_string = pool.serialize("super secret", ObjectMeta("SS"))
+                sec_string = pool.serialize(u"super secret", ObjectMeta("SS"))
                 ps.add_cmdlet("Set-Variable")
                 ps.add_parameter("Name", "password")
                 ps.add_parameter("Value", sec_string)
@@ -124,6 +126,8 @@ class TestPowerShellFunctional(object):
             assert actual[2] == u"host secret"
             assert str(ps.streams.verbose[0]) == large_string
 
+    @pytest.mark.skip("TODO: fix up appveyor issue (Code: 1359, Machine: "
+                      "127.0.0.1, Reason: An internal error occurred.)")
     def test_psrp_jea(self, functional_transports):
         for transport in functional_transports:
             wsman = WSMan(transport)

@@ -9,7 +9,12 @@ environment:
     WITH_COMPILER: "cmd /E:ON /V:ON /C .\\build-scripts\\run_with_compiler.cmd"
     PYPSRP_SERVER: 127.0.0.1
     PYPSRP_AUTH: negotiate
+    # used as part of unit tests
     PYPSRP_PORT: 5985
+
+    # used as part of the integration tests which tests both http and https
+    PYPSRP_HTTP_PORT: 5985
+    PYPSRP_HTTPS_PORT: 5986
   matrix:
   # https://www.appveyor.com/docs/installed-software/#python
   - PYTHON: Python27
@@ -34,13 +39,27 @@ init:
 
 install:
 - ps: |
-    powershell.exe -File "$pwd\appveyor\setup.ps1" -ResetWinRM -Name $env:PYPSRP_USERNAME -Password $env:PYPSRP_PASSWORD -JEAConfigPath "$pwd\appveyor" -InformationAction Continue
+    powershell.exe -File "$pwd\appveyor\setup.ps1" -ResetWinRM -Name $env:PYPSRP_USERNAME -JEAConfigPath "$pwd\appveyor" -InformationAction Continue
     # make sure JEA settings are loaded
     Register-PSSessionConfiguration -Path "$pwd\appveyor\JEARoleSettings.pssc" -Name JEARole -Force
 
-    pip install -U pip setuptools
-    pip install .
+    # need to add the cert mapping after registering the JEA role
+    $sec_pass = ConvertTo-SecureString -String $env:PYPSRP_PASSWORD -AsPlainText -Force
+    $credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $env:PYPSRP_USERNAME, $sec_pass
+    $thumbprint = (Get-ChildItem -Path Cert:\LocalMachine\TrustedPeople)[0].Thumbprint
+
+    New-Item -Path WSMan:\localhost\ClientCertificate `
+        -Subject "$($env:PYPSRP_USERNAME)@localhost" `
+        -URI * `
+        -Issuer $thumbprint `
+        -Credential $credential `
+        -Force
+
+    Restart-Service -Name winrm
+
+    pip install pip setuptools --upgrade
     pip install -r requirements-test.txt
+    pip install .
     pip install .[credssp]
 
     # test out pywin32 on some matrixes

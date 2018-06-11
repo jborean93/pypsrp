@@ -1,7 +1,6 @@
 [CmdletBinding()]
 param(
     [String]$Name,
-    [String]$Password,
     [String]$JEAConfigPath,
     # will delete and recreate the WinRM cert and listeners, do not set when running on Vagrant box
     [switch]$ResetWinRM
@@ -209,8 +208,7 @@ Function New-CertificateAuthBinding
 {
     [CmdletBinding()]
     Param (
-        [String]$Name,
-        [SecureString]$Password
+        [String]$Name
     )
 
     $output_path = "$($env:USERPROFILE)\Documents"
@@ -251,17 +249,6 @@ Function New-CertificateAuthBinding
     $store.Open("MaxAllowed")
     $store.Add($cert)
     $store.Close()
-
-    Write-Information -MessageData "Mapping cert to $Name"
-    $credential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $Name, $Password
-    $thumbprint = $cert.Thumbprint
-
-    New-Item -Path WSMan:\localhost\ClientCertificate `
-        -Subject "$Name@localhost" `
-        -URI * `
-        -Issuer $thumbprint `
-        -Credential $credential `
-        -Force
 }
 
 Function New-JEAConfiguration {
@@ -305,12 +292,11 @@ Function New-JEAConfiguration {
 }
 
 Write-Information -MessageData "Installing openssl which is used to convert the authentication private key to the PEM format"
-&choco.exe install -y openssl.light
+&choco.exe install -y openssl.light --no-progress
 
 Reset-WinRMConfig -ResetWinRM:$ResetWinRM
 
-$sec_password = ConvertTo-SecureString -String $Password -AsPlainText -Force
-New-CertificateAuthBinding -Name $Name -Password $sec_password
+New-CertificateAuthBinding -Name $Name
 
 # this doesn't actually register it, running this in WinRM will fail and so
 # we need to run the following manually
