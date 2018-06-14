@@ -1,4 +1,5 @@
 import hashlib
+import os
 import tempfile
 
 import pytest
@@ -31,13 +32,16 @@ class TestClient(object):
         client = self._get_client(winrm_transport)
         test_string = b"abcdefghijklmnopqrstuvwxyz"
 
-        with tempfile.NamedTemporaryFile() as temp_file:
-            temp_file.write(test_string)
-            temp_file.flush()
-            actual = client.copy(temp_file.name, "test_file")
+        temp_file, path = tempfile.mkstemp()
+        try:
+            os.write(temp_file, test_string)
+            actual = client.copy(path, "test_file")
 
             # run it a 2nd time to ensure it doesn't fail
-            actual = client.copy(temp_file.name, actual)
+            actual = client.copy(path, actual)
+        finally:
+            os.close(temp_file)
+            os.remove(path)
 
         try:
             # verify the returned object is the full path
@@ -56,8 +60,12 @@ class TestClient(object):
     def test_client_copy_file_empty(self, winrm_transport):
         client = self._get_client(winrm_transport)
 
-        with tempfile.NamedTemporaryFile() as temp_file:
-            actual = client.copy(temp_file.name, "test_file")
+        temp_file, path = tempfile.mkstemp()
+        try:
+            actual = client.copy(path, "test_file")
+        finally:
+            os.close(temp_file)
+            os.remove(path)
 
         try:
             # verify the returned object is the full path
@@ -83,10 +91,13 @@ class TestClient(object):
         # data sent in 3 packets (2 * data + hash)
         test_string = b"abcdefghijklmnopqrstuvwxyz" * 5000
 
-        with tempfile.NamedTemporaryFile() as temp_file:
-            temp_file.write(test_string)
-            temp_file.flush()
-            actual = client.copy(temp_file.name, "test_file")
+        temp_file, path = tempfile.mkstemp()
+        try:
+            os.write(temp_file, test_string)
+            actual = client.copy(path, "test_file")
+        finally:
+            os.close(temp_file)
+            os.remove(path)
 
         # verify the returned object is the full path
         assert actual == u"C:\\Users\\vagrant\\test_file"
@@ -110,10 +121,13 @@ class TestClient(object):
         # data sent in 3 packets (get size + data + hash)
         test_string = b"abcdefghijklmnopqrstuvwxyz" * 10000
 
-        with tempfile.NamedTemporaryFile() as temp_file:
-            temp_file.write(test_string)
-            temp_file.flush()
-            actual = client.copy(temp_file.name, "test_file")
+        temp_file, path = tempfile.mkstemp()
+        try:
+            os.write(temp_file, test_string)
+            actual = client.copy(path, "test_file")
+        finally:
+            os.close(temp_file)
+            os.remove(path)
 
         # verify the returned object is the full path
         assert actual == u"C:\\Users\\vagrant\\test_file"
@@ -137,10 +151,13 @@ class TestClient(object):
         # data sent in 4 packets (get size + 2 * data + hash)
         test_string = b"abcdefghijklmnopqrstuvwxyz" * 20000
 
-        with tempfile.NamedTemporaryFile() as temp_file:
-            temp_file.write(test_string)
-            temp_file.flush()
-            actual = client.copy(temp_file.name, "test_file")
+        temp_file, path = tempfile.mkstemp()
+        try:
+            os.write(temp_file, test_string)
+            actual = client.copy(path, "test_file")
+        finally:
+            os.close(temp_file)
+            os.remove(path)
 
         # verify the returned object is the full path
         assert actual == u"C:\\Users\\vagrant\\test_file"
@@ -159,16 +176,19 @@ class TestClient(object):
         client = self._get_client(winrm_transport)
         test_string = b"abcdefghijklmnopqrstuvwxyz"
 
-        with tempfile.NamedTemporaryFile() as temp_file:
-            temp_file.write(test_string)
-            temp_file.flush()
+        temp_file, path = tempfile.mkstemp()
+        try:
+            os.write(temp_file, test_string)
             with pytest.raises(WinRMError) as err:
-                client.copy(temp_file.name, "test_file")
+                actual = client.copy(path, "test_file")
             expected_err = \
                 "Failed to copy file: Transport failure, hash mistmatch\r\n" \
                 "Actual: 32d10c7b8cf96570ca04ce37f2a19d84240d3a89\r\n" \
                 "Expected: c3499c2729730a7f807efb8676a92dcb6f8a3f8f"
             assert expected_err in str(err.value)
+        finally:
+            os.close(temp_file)
+            os.remove(path)
 
     @pytest.mark.parametrize('winrm_transport',
                              [[True, 'test_client_execute_cmd']],
@@ -178,7 +198,7 @@ class TestClient(object):
         actual = client.execute_cmd("dir")
         actual_args = client.execute_cmd("echo abc")
 
-        assert u"Volume in drive C is" in actual[0]
+        assert u"Volume in drive C" in actual[0]
         assert actual[1] == u""
         assert actual[2] == 0
 
@@ -235,19 +255,27 @@ class TestClient(object):
 
         # file was created with
         # Set-Content -Path C:\temp\file.txt -Value ("abc`r`n" * 50000)
-        with tempfile.NamedTemporaryFile('rb') as dest_file:
-            client.fetch("C:\\temp\\file.txt", dest_file.name)
+
+        temp_file, path = tempfile.mkstemp()
+        os.close(temp_file)
+        os.remove(path)
+        try:
+            client.fetch("C:\\temp\\file.txt", path)
             expected_hash = b"\x70\xe3\xbe\xa8\xcd\xb0\xd0\xc8" \
                             b"\x83\xbc\xcf\xf5\x22\x89\x33\xd9" \
                             b"\x33\xb8\x8a\x80"
             hash = hashlib.sha1()
-            while True:
-                data = dest_file.read(65536)
-                if not data:
-                    break
-                hash.update(data)
+            with open(path, "rb") as temp_file:
+                while True:
+                    data = temp_file.read(65536)
+                    if not data:
+                        break
+                    hash.update(data)
             actual_hash = hash.digest()
             assert actual_hash == expected_hash
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
 
     @pytest.mark.parametrize('winrm_transport',
                              [[True, 'test_client_fetch_file_fail_dir']],

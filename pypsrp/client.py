@@ -309,10 +309,10 @@ $hash.Replace("-", "").ToLowerInvariant()''' % src
                 raise WinRMError("Failed to fetch file %s: %s" % (src, error))
             expected_hash = powershell.output[-1]
 
-            with tempfile.NamedTemporaryFile('wb') as temp_file:
+            temp_file, path = tempfile.mkstemp()
+            try:
                 file_bytes = base64.b64decode(powershell.output[0])
-                temp_file.write(file_bytes)
-                temp_file.flush()
+                os.write(temp_file, file_bytes)
 
                 sha1 = hashlib.sha1()
                 sha1.update(file_bytes)
@@ -324,7 +324,10 @@ $hash.Replace("-", "").ToLowerInvariant()''' % src
                     raise WinRMError("Failed to fetch file %s, hash mismatch\n"
                                      "Source: %s\nFetched: %s"
                                      % (src, expected_hash, actual_hash))
-                shutil.copy(temp_file.name, dest)
+                shutil.copy(path, dest)
+            finally:
+                os.close(temp_file)
+                os.remove(path)
 
     @staticmethod
     def sanitise_clixml(clixml):
