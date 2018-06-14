@@ -8,6 +8,7 @@ import re
 import sys
 import uuid
 
+from copy import copy
 from cryptography.hazmat.primitives.padding import PKCS7
 from six import string_types
 
@@ -507,7 +508,8 @@ class Serializer(object):
 
         lst = ET.SubElement(obj, tag)
         for value in iter(values):
-            self.serialize(value, metadata.list_value_meta, parent=lst,
+            entry_meta = copy(metadata.list_value_meta)
+            self.serialize(value, entry_meta, parent=lst,
                            clear=False)
 
         return obj
@@ -702,7 +704,7 @@ class Serializer(object):
 
     def _deserialize_string(self, value):
         if value is None:
-            return None
+            return ""
 
         def rplcr(matchobj):
             # The matched object is the UTF-16 byte representation of the UTF-8

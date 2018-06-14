@@ -71,12 +71,12 @@ class TransportFake(object):
         current_version = "%s%s" % (sys.version_info[0], sys.version_info[1])
         node_entries = self._test_meta.keys()
         if "messages-py%s" % current_version in node_entries:
-            self._test_messages = "messages-py%s" % current_version
+            self._test_msg_key = "messages-py%s" % current_version
         else:
-            self._test_messages = "messages"
+            self._test_msg_key = "messages"
 
     def send(self, message):
-        current_msg = self._test_meta[self._test_messages][self._msg_counter]
+        current_msg = self._test_meta[self._test_msg_key][self._msg_counter]
         message = self._normalise_xml(message, generify=False)
         request = self._normalise_xml(
             current_msg['request'],
@@ -258,5 +258,7 @@ def winrm_transport(request, monkeypatch):
     # to be uncommented in pypsrp/transport.py
     test_messages = getattr(transport, '_test_messages', None)
     if test_messages is not None:
-        print(yaml.dump({"messages": test_messages}, default_flow_style=False,
-                        width=9999))
+        yaml_text = yaml.dump({"messages-py26": test_messages},
+                              default_flow_style=False,
+                              width=9999)
+        print(yaml_text)

@@ -47,7 +47,7 @@ else:  # pragma: no cover
     to_string = to_bytes
 
 
-def version_newer(version, reference_version):
+def version_equal_or_newer(version, reference_version):
     """
     Compares the 2 version strings and returns a bool that states whether
     version is newer than or equal to the reference version.
@@ -57,7 +57,7 @@ def version_newer(version, reference_version):
 
     :param version: The version string to compare
     :param reference_version: The version string to check version against
-    :return: True if version is newer than reference_version
+    :return: True if version is newer than or equal toreference_version
     """
     version_parts = version.split(".")
     reference_version_parts = reference_version.split(".")

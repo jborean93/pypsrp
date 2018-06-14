@@ -41,7 +41,7 @@ class TestSerializer(object):
         actual_serial = serializer._serialize_string(input_val)
         assert actual_serial == expected
         actual_deserial = serializer._deserialize_string(actual_serial)
-        assert actual_deserial == input_val
+        assert actual_deserial == (input_val or "")
 
     @pytest.mark.parametrize('data, expected', [
         [u"a", "<S>a</S>"],

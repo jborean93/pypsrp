@@ -275,42 +275,42 @@ class TestPipeline(object):
                                 <ToString>None</ToString>
                                 <I32>0</I32>
                             </Obj>
-                            <Obj N="MergeError" RefId="6">
-                                <TNRef RefId="1"/>
-                                <ToString>None</ToString>
-                                <I32>0</I32>
-                            </Obj>
-                            <Obj N="MergeWarning" RefId="7">
-                                <TNRef RefId="1"/>
-                                <ToString>None</ToString>
-                                <I32>0</I32>
-                            </Obj>
-                            <Obj N="MergeVerbose" RefId="8">
-                                <TNRef RefId="1"/>
-                                <ToString>None</ToString>
-                                <I32>0</I32>
-                            </Obj>
-                            <Obj N="MergeDebug" RefId="9">
-                                <TNRef RefId="1"/>
-                                <ToString>None</ToString>
-                                <I32>0</I32>
-                            </Obj>
-                            <Obj N="Args" RefId="10">
+                            <Obj N="Args" RefId="6">
                                 <TNRef RefId="0"/>
                                 <LST>
-                                    <Obj RefId="11">
+                                    <Obj RefId="7">
                                         <MS>
                                             <S N="N">Name</S>
                                             <S N="V">var</S>
                                         </MS>
                                     </Obj>
-                                    <Obj RefId="12">
+                                    <Obj RefId="8">
                                         <MS>
                                             <S N="N">Value</S>
                                             <S N="V">abc</S>
                                         </MS>
                                     </Obj>
                                 </LST>
+                            </Obj>
+                            <Obj N="MergeError" RefId="9">
+                                <TNRef RefId="1"/>
+                                <ToString>None</ToString>
+                                <I32>0</I32>
+                            </Obj>
+                            <Obj N="MergeWarning" RefId="10">
+                                <TNRef RefId="1"/>
+                                <ToString>None</ToString>
+                                <I32>0</I32>
+                            </Obj>
+                            <Obj N="MergeVerbose" RefId="11">
+                                <TNRef RefId="1"/>
+                                <ToString>None</ToString>
+                                <I32>0</I32>
+                            </Obj>
+                            <Obj N="MergeDebug" RefId="12">
+                                <TNRef RefId="1"/>
+                                <ToString>None</ToString>
+                                <I32>0</I32>
                             </Obj>
                         </MS>
                     </Obj>
@@ -360,42 +360,42 @@ class TestPipeline(object):
                                                 <ToString>None</ToString>
                                                 <I32>0</I32>
                                             </Obj>
-                                            <Obj N="MergeError" RefId="8">
-                                                <TNRef RefId="1"/>
-                                                <ToString>None</ToString>
-                                                <I32>0</I32>
-                                            </Obj>
-                                            <Obj N="MergeWarning" RefId="9">
-                                                <TNRef RefId="1"/>
-                                                <ToString>None</ToString>
-                                                <I32>0</I32>
-                                            </Obj>
-                                            <Obj N="MergeVerbose" RefId="10">
-                                                <TNRef RefId="1"/>
-                                                <ToString>None</ToString>
-                                                <I32>0</I32>
-                                            </Obj>
-                                            <Obj N="MergeDebug" RefId="11">
-                                                <TNRef RefId="1"/>
-                                                <ToString>None</ToString>
-                                                <I32>0</I32>
-                                            </Obj>
-                                            <Obj N="Args" RefId="12">
+                                            <Obj N="Args" RefId="8">
                                                 <TNRef RefId="0"/>
                                                 <LST>
-                                                    <Obj RefId="13">
+                                                    <Obj RefId="9">
                                                         <MS>
                                                             <S N="N">Name</S>
                                                             <S N="V">var</S>
                                                         </MS>
                                                     </Obj>
-                                                    <Obj RefId="14">
+                                                    <Obj RefId="10">
                                                         <MS>
                                                             <S N="N">Value</S>
                                                             <S N="V">abc</S>
                                                         </MS>
                                                     </Obj>
                                                 </LST>
+                                            </Obj>
+                                          <Obj N="MergeError" RefId="11">
+                                                <TNRef RefId="1"/>
+                                                <ToString>None</ToString>
+                                                <I32>0</I32>
+                                            </Obj>
+                                            <Obj N="MergeWarning" RefId="12">
+                                                <TNRef RefId="1"/>
+                                                <ToString>None</ToString>
+                                                <I32>0</I32>
+                                            </Obj>
+                                            <Obj N="MergeVerbose" RefId="13">
+                                                <TNRef RefId="1"/>
+                                                <ToString>None</ToString>
+                                                <I32>0</I32>
+                                            </Obj>
+                                            <Obj N="MergeDebug" RefId="14">
+                                                <TNRef RefId="1"/>
+                                                <ToString>None</ToString>
+                                                <I32>0</I32>
                                             </Obj>
                                         </MS>
                                     </Obj>
@@ -428,36 +428,36 @@ class TestPipeline(object):
                                                 <ToString>None</ToString>
                                                 <I32>0</I32>
                                             </Obj>
-                                            <Obj N="MergeError" RefId="21">
-                                                <TNRef RefId="1"/>
-                                                <ToString>None</ToString>
-                                                <I32>0</I32>
-                                            </Obj>
-                                            <Obj N="MergeWarning" RefId="22">
-                                                <TNRef RefId="1"/>
-                                                <ToString>None</ToString>
-                                                <I32>0</I32>
-                                            </Obj>
-                                            <Obj N="MergeVerbose" RefId="23">
-                                                <TNRef RefId="1"/>
-                                                <ToString>None</ToString>
-                                                <I32>0</I32>
-                                            </Obj>
-                                            <Obj N="MergeDebug" RefId="24">
-                                                <TNRef RefId="1"/>
-                                                <ToString>None</ToString>
-                                                <I32>0</I32>
-                                            </Obj>
-                                            <Obj N="Args" RefId="25">
+                                            <Obj N="Args" RefId="21">
                                                 <TNRef RefId="0"/>
                                                 <LST>
-                                                    <Obj RefId="26">
+                                                    <Obj RefId="22">
                                                         <MS>
                                                             <S N="N">Name</S>
                                                             <S N="V">var</S>
                                                         </MS>
                                                     </Obj>
                                                 </LST>
+                                            </Obj>
+                                            <Obj N="MergeError" RefId="23">
+                                                <TNRef RefId="1"/>
+                                                <ToString>None</ToString>
+                                                <I32>0</I32>
+                                            </Obj>
+                                            <Obj N="MergeWarning" RefId="24">
+                                                <TNRef RefId="1"/>
+                                                <ToString>None</ToString>
+                                                <I32>0</I32>
+                                            </Obj>
+                                            <Obj N="MergeVerbose" RefId="25">
+                                                <TNRef RefId="1"/>
+                                                <ToString>None</ToString>
+                                                <I32>0</I32>
+                                            </Obj>
+                                            <Obj N="MergeDebug" RefId="26">
+                                                <TNRef RefId="1"/>
+                                                <ToString>None</ToString>
+                                                <I32>0</I32>
                                             </Obj>
                                         </MS>
                                     </Obj>
@@ -481,29 +481,29 @@ class TestPipeline(object):
                                                 <ToString>None</ToString>
                                                 <I32>0</I32>
                                             </Obj>
-                                            <Obj N="MergeError" RefId="31">
-                                                <TNRef RefId="1"/>
-                                                <ToString>None</ToString>
-                                                <I32>0</I32>
-                                            </Obj>
-                                            <Obj N="MergeWarning" RefId="32">
-                                                <TNRef RefId="1"/>
-                                                <ToString>None</ToString>
-                                                <I32>0</I32>
-                                            </Obj>
-                                            <Obj N="MergeVerbose" RefId="33">
-                                                <TNRef RefId="1"/>
-                                                <ToString>None</ToString>
-                                                <I32>0</I32>
-                                            </Obj>
-                                            <Obj N="MergeDebug" RefId="34">
-                                                <TNRef RefId="1"/>
-                                                <ToString>None</ToString>
-                                                <I32>0</I32>
-                                            </Obj>
-                                            <Obj N="Args" RefId="35">
+                                            <Obj N="Args" RefId="31">
                                                 <TNRef RefId="0"/>
                                                 <LST/>
+                                            </Obj>
+                                            <Obj N="MergeError" RefId="32">
+                                                <TNRef RefId="1"/>
+                                                <ToString>None</ToString>
+                                                <I32>0</I32>
+                                            </Obj>
+                                            <Obj N="MergeWarning" RefId="33">
+                                                <TNRef RefId="1"/>
+                                                <ToString>None</ToString>
+                                                <I32>0</I32>
+                                            </Obj>
+                                            <Obj N="MergeVerbose" RefId="34">
+                                                <TNRef RefId="1"/>
+                                                <ToString>None</ToString>
+                                                <I32>0</I32>
+                                            </Obj>
+                                            <Obj N="MergeDebug" RefId="35">
+                                                <TNRef RefId="1"/>
+                                                <ToString>None</ToString>
+                                                <I32>0</I32>
                                             </Obj>
                                         </MS>
                                     </Obj>
@@ -536,42 +536,42 @@ class TestPipeline(object):
                                 <ToString>None</ToString>
                                 <I32>0</I32>
                             </Obj>
-                            <Obj N="MergeError" RefId="41">
-                                <TNRef RefId="1"/>
-                                <ToString>None</ToString>
-                                <I32>0</I32>
-                            </Obj>
-                            <Obj N="MergeWarning" RefId="42">
-                                <TNRef RefId="1"/>
-                                <ToString>None</ToString>
-                                <I32>0</I32>
-                            </Obj>
-                            <Obj N="MergeVerbose" RefId="43">
-                                <TNRef RefId="1"/>
-                                <ToString>None</ToString>
-                                <I32>0</I32>
-                            </Obj>
-                            <Obj N="MergeDebug" RefId="44">
-                                <TNRef RefId="1"/>
-                                <ToString>None</ToString>
-                                <I32>0</I32>
-                            </Obj>
-                            <Obj N="Args" RefId="45">
+                            <Obj N="Args" RefId="41">
                                 <TNRef RefId="0"/>
                                 <LST>
-                                    <Obj RefId="46">
+                                    <Obj RefId="42">
                                         <MS>
                                             <S N="N">Name</S>
                                             <S N="V">var</S>
                                         </MS>
                                     </Obj>
-                                    <Obj RefId="47">
+                                    <Obj RefId="43">
                                         <MS>
                                             <S N="N">Value</S>
                                             <S N="V">abc</S>
                                         </MS>
                                     </Obj>
                                 </LST>
+                            </Obj>
+                            <Obj N="MergeError" RefId="44">
+                                <TNRef RefId="1"/>
+                                <ToString>None</ToString>
+                                <I32>0</I32>
+                            </Obj>
+                            <Obj N="MergeWarning" RefId="45">
+                                <TNRef RefId="1"/>
+                                <ToString>None</ToString>
+                                <I32>0</I32>
+                            </Obj>
+                            <Obj N="MergeVerbose" RefId="46">
+                                <TNRef RefId="1"/>
+                                <ToString>None</ToString>
+                                <I32>0</I32>
+                            </Obj>
+                            <Obj N="MergeDebug" RefId="47">
+                                <TNRef RefId="1"/>
+                                <ToString>None</ToString>
+                                <I32>0</I32>
                             </Obj>
                         </MS>
                     </Obj>
@@ -585,7 +585,7 @@ class TestPipeline(object):
     def test_create_pipeline_single(self):
         serializer = Serializer()
 
-        command = Command()
+        command = Command(protocol_version="2.2")
         command.cmd = "Set-Variable"
         command.is_script = False
         command.use_local_scope = False
@@ -608,7 +608,7 @@ class TestPipeline(object):
     def test_create_pipeline_multiple(self):
         serializer = Serializer()
 
-        command1 = Command()
+        command1 = Command(protocol_version="2.2")
         command1.cmd = "Set-Variable"
         command1.is_script = False
         command1.use_local_scope = False
@@ -618,14 +618,14 @@ class TestPipeline(object):
             CommandParameter(name="Value", value="abc")
         ]
 
-        command2 = Command()
+        command2 = Command(protocol_version="2.2")
         command2.cmd = "Get-Variable"
         command2.is_script = False
         command2.use_local_scope = False
         command2.args = [
             CommandParameter(name="Name", value="var"),
         ]
-        command3 = Command()
+        command3 = Command(protocol_version="2.2")
         command3.cmd = "Write-Output"
         command3.is_script = False
         command3.use_local_scope = False
@@ -659,8 +659,8 @@ class TestPipeline(object):
         assert actual.commands[0].is_script is False
         assert str(actual.commands[0].merge_debug) == "None"
         assert str(actual.commands[0].merge_error) == "None"
-        assert str(actual.commands[0].merge_my_results) == "None"
-        assert str(actual.commands[0].merge_previous_results) == "None"
+        assert str(actual.commands[0].merge_my_result) == "None"
+        assert str(actual.commands[0].merge_previous) == "None"
         assert str(actual.commands[0].merge_verbose) == "None"
         assert str(actual.commands[0].merge_warning) == "None"
         assert actual.commands[0].use_local_scope is False
@@ -683,8 +683,8 @@ class TestPipeline(object):
         assert actual.commands[0].is_script is False
         assert str(actual.commands[0].merge_debug) == "None"
         assert str(actual.commands[0].merge_error) == "None"
-        assert str(actual.commands[0].merge_my_results) == "None"
-        assert str(actual.commands[0].merge_previous_results) == "None"
+        assert str(actual.commands[0].merge_my_result) == "None"
+        assert str(actual.commands[0].merge_previous) == "None"
         assert str(actual.commands[0].merge_verbose) == "None"
         assert str(actual.commands[0].merge_warning) == "None"
         assert actual.commands[0].use_local_scope is False
@@ -697,8 +697,8 @@ class TestPipeline(object):
         assert actual.commands[1].is_script is False
         assert str(actual.commands[1].merge_debug) == "None"
         assert str(actual.commands[1].merge_error) == "None"
-        assert str(actual.commands[1].merge_my_results) == "None"
-        assert str(actual.commands[1].merge_previous_results) == "None"
+        assert str(actual.commands[1].merge_my_result) == "None"
+        assert str(actual.commands[1].merge_previous) == "None"
         assert str(actual.commands[1].merge_verbose) == "None"
         assert str(actual.commands[1].merge_warning) == "None"
         assert actual.commands[1].use_local_scope is False
@@ -709,8 +709,8 @@ class TestPipeline(object):
         assert actual.commands[2].is_script is False
         assert str(actual.commands[2].merge_debug) == "None"
         assert str(actual.commands[2].merge_error) == "None"
-        assert str(actual.commands[2].merge_my_results) == "None"
-        assert str(actual.commands[2].merge_previous_results) == "None"
+        assert str(actual.commands[2].merge_my_result) == "None"
+        assert str(actual.commands[2].merge_previous) == "None"
         assert str(actual.commands[2].merge_verbose) == "None"
         assert str(actual.commands[2].merge_warning) == "None"
         assert actual.commands[2].use_local_scope is False
@@ -747,6 +747,12 @@ class TestPipelineResultTypes(object):
 
     def test_to_string_multiple_values(self):
         result_type = PipelineResultTypes(value=3)
+        expected = "Warning"
+        actual = str(result_type)
+        assert actual == expected
+
+    def test_to_string_multiple_values_protocol_v2(self):
+        result_type = PipelineResultTypes(protocol_version_2=True, value=3)
         expected = "Output, Error"
         actual = str(result_type)
         assert actual == expected

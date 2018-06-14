@@ -13,8 +13,9 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
 from pypsrp.complex_objects import ApartmentState, Command, CommandMetadata, \
-    CommandParameter, CommandType, HostInfo, ObjectMeta, Pipeline,\
-    PSInvocationState, PSThreadOptions, RemoteStreamOptions, RunspacePoolState
+    CommandParameter, CommandType, HostInfo, ObjectMeta, Pipeline, \
+    PipelineResultTypes, PSInvocationState, PSThreadOptions, \
+    RemoteStreamOptions, RunspacePoolState
 from pypsrp.exceptions import FragmentError, InvalidPipelineStateError, \
     InvalidPSRPOperation, InvalidRunspacePoolStateError, WSManFaultError
 from pypsrp.messages import ConnectRunspacePool, CreatePipeline, Destination, \
@@ -25,7 +26,7 @@ from pypsrp.messages import ConnectRunspacePool, CreatePipeline, Destination, \
 from pypsrp.serializer import Serializer
 from pypsrp.shell import SignalCode, WinRS
 from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet
-from pypsrp._utils import version_newer
+from pypsrp._utils import version_equal_or_newer
 
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
     # ElementTree in Python 2.6 does not support namespaces so we need to use
@@ -43,7 +44,7 @@ SERIALIZATION_VERSION = "1.1.0.1"
 
 class RunspacePool(object):
 
-    def __init__(self, wsman, apartment_state=ApartmentState.UNKNOWN,
+    def __init__(self, connection, apartment_state=ApartmentState.UNKNOWN,
                  thread_options=PSThreadOptions.DEFAULT, host_info=None,
                  configuration_name="Microsoft.PowerShell", min_runspaces=1,
                  max_runspaces=1, session_key_timeout_ms=60000):
@@ -54,7 +55,8 @@ class RunspacePool(object):
         This is meant to be a near representation of the
         System.Management.Automation.Runspaces.RunspacePool .NET class
 
-        :param wsman: The WSMan instance to send commands over
+        :param connection: The connection object used to send the command over
+            to the remote host. Right now only pypsrp.wsman.WSMan is supported
         :param apartment_state: The ApartmentState enum int values that specify
             the apartment state of the remote thread
         :param thread_options: The ThreadOptions enum int values that specify
@@ -71,14 +73,16 @@ class RunspacePool(object):
         :param session_key_timeout_ms: The maximum time to wait for a session
             key transfer from the server
         """
+        log.info("Initialising RunspacePool object for configuration %s"
+                 % configuration_name)
         # The below are defined in some way at
         # https://msdn.microsoft.com/en-us/library/ee176015.aspx
         self.id = str(uuid.uuid4()).upper()
         self.state = RunspacePoolState.BEFORE_OPEN
-        self.wsman = wsman
+        self.connection = connection
         resource_uri = "http://schemas.microsoft.com/powershell/%s" \
                        % configuration_name
-        self.shell = WinRS(wsman, resource_uri=resource_uri, id=self.id,
+        self.shell = WinRS(connection, resource_uri=resource_uri, id=self.id,
                            input_streams='stdin pr', output_streams='stdout')
         self.ci_table = {}
         self.pipelines = {}
@@ -97,7 +101,7 @@ class RunspacePool(object):
         self._min_runspaces = min_runspaces
         self._max_runspaces = max_runspaces
         self._serializer = Serializer()
-        self._fragmenter = Fragmenter(self.wsman._max_payload_size,
+        self._fragmenter = Fragmenter(self.connection._max_payload_size,
                                       self._serializer)
         self._exchange_key = None
         self._key_exchanged = False
@@ -125,6 +129,7 @@ class RunspacePool(object):
 
         :param min_runspaces: The minimum number of runspaces in the pool
         """
+        log.info("Setting minimum runspaces for pool to %d" % min_runspaces)
         if self.state != RunspacePoolState.OPENED:
             self._min_runspaces = min_runspaces
             return
@@ -162,6 +167,7 @@ class RunspacePool(object):
 
         :param max_runspaces: The maximum number of runspaces in the pool
         """
+        log.info("Setting maximum runspaces for pool to %d" % max_runspaces)
         if self.state != RunspacePoolState.OPENED:
             self._max_runspaces = max_runspaces
             return
@@ -200,6 +206,7 @@ class RunspacePool(object):
         operations waiting for a runspace. If the pool is already closed or
         broken or closing, this will just return
         """
+        log.info("Closing Runspace Pool")
         if self.state in [RunspacePoolState.CLOSED, RunspacePoolState.CLOSING,
                           RunspacePoolState.BROKEN]:
             return
@@ -213,6 +220,7 @@ class RunspacePool(object):
         state. This only supports reconnecting to a runspace pool created by
         the same client with the same SessionId value in the WSMan headers.
         """
+        log.info("Connecting to Runspace Pool")
         if self.state == RunspacePoolState.OPENED:
             return
         elif self.state != RunspacePoolState.DISCONNECTED:
@@ -222,17 +230,21 @@ class RunspacePool(object):
             )
 
         if self._new_client:
+            log.debug("Remote Runspace Pool was created with a different "
+                      "client, connecting as new client")
             self._connect_new_client()
             self._new_client = False
         else:
+            log.debug("Remote Runspace Pool was created with the same client, "
+                      "connecting as an existing client")
             self._connect_existing_client()
 
     def _connect_existing_client(self):
         selector_set = SelectorSet()
         selector_set.add_option("ShellId", self.shell.id)
 
-        self.wsman.reconnect(self.shell.resource_uri,
-                             selector_set=selector_set)
+        self.connection.reconnect(self.shell.resource_uri,
+                                  selector_set=selector_set)
         self.state = RunspacePoolState.OPENED
 
     def _connect_new_client(self):
@@ -256,8 +268,8 @@ class RunspacePool(object):
                                            "powershell")
         open_content.text = base64.b64encode(data).decode('utf-8')
 
-        response = self.wsman.connect(self.shell.resource_uri, connect,
-                                      options, selectors)
+        response = self.connection.connect(self.shell.resource_uri, connect,
+                                           options, selectors)
         response_xml = response.find("rsp:ConnectResponse/"
                                      "pwsh:connectResponseXml",
                                      NAMESPACES).text
@@ -265,6 +277,7 @@ class RunspacePool(object):
 
         self._parse_responses(fragments)
         self.shell.id = self.id  # need to sync up the ShellID with the rs ID
+        self.shell._selector_set = selectors
         self._receive()
 
     def create_disconnected_power_shells(self):
@@ -275,6 +288,8 @@ class RunspacePool(object):
 
         :return: List<PowerShell>: List of disconnected PowerShell objects
         """
+        log.info("Getting list of disconnected PowerShells for the current "
+                 "Runspace Pool")
         return [s for s in self.pipelines.values() if
                 s.state == PSInvocationState.DISCONNECTED]
 
@@ -282,6 +297,7 @@ class RunspacePool(object):
         """
         Disconnects the runspace pool, must be in the Opened state
         """
+        log.info("Disconnecting from Runspace Pool")
         if self.state == RunspacePoolState.DISCONNECTED:
             return
         elif self.state != RunspacePoolState.OPENED:
@@ -294,8 +310,8 @@ class RunspacePool(object):
         selector_set = SelectorSet()
         selector_set.add_option("ShellId", self.shell.id)
 
-        self.wsman.disconnect(self.shell.resource_uri, disconnect,
-                              selector_set=selector_set)
+        self.connection.disconnect(self.shell.resource_uri, disconnect,
+                                   selector_set=selector_set)
         self.state = RunspacePoolState.DISCONNECTED
         for pipeline in self.pipelines.values():
             pipeline.state = PSInvocationState.DISCONNECTED
@@ -376,7 +392,7 @@ class RunspacePool(object):
         return [self._serializer.deserialize(o._xml, meta) for o in output]
 
     @staticmethod
-    def get_runspace_pools(wsman):
+    def get_runspace_pools(connection):
         """
         Queries the server for disconnected runspace pools and creates a list
         of runspace pool objects associated with each disconnected runspace
@@ -384,10 +400,12 @@ class RunspacePool(object):
         in the Disconnected state and can be connected to the server by calling
         the connect() method on the runspace pool.
 
-        :param wsman: The WSMan instance that is used to transport the messages
-            to the server
+        :param connection: The connection object used to query the remote
+            server for a list of Runspace Pools. Currently only
+            pypsrp.wsman.WSMan is supported.
         :return: List<RunspacePool> objects each in the Disconnected state
         """
+        log.info("Getting list of Runspace Pools on remote host")
         wsen = NAMESPACES['wsen']
         wsmn = NAMESPACES['wsman']
 
@@ -396,8 +414,8 @@ class RunspacePool(object):
         ET.SubElement(enum_msg, "{%s}MaxElements" % wsmn).text = "32000"
 
         # TODO: support wsman:EndOfSequence
-        response = wsman.enumerate("http://schemas.microsoft.com/wbem/wsman/1/"
-                                   "windows/shell", enum_msg)
+        response = connection.enumerate("http://schemas.microsoft.com/wbem/"
+                                        "wsman/1/windows/shell", enum_msg)
         shells = response.findall("wsen:EnumerateResponse/"
                                   "wsman:Items/"
                                   "rsp:Shell", NAMESPACES)
@@ -405,7 +423,7 @@ class RunspacePool(object):
         runspace_pools = []
         for shell in shells:
             shell_id = shell.find("rsp:ShellId", NAMESPACES).text
-            pool = RunspacePool(wsman)
+            pool = RunspacePool(connection)
             pool.id = shell_id
             pool.shell.shell_id = shell_id
             pool.shell.opened = True
@@ -413,7 +431,7 @@ class RunspacePool(object):
 
             # Seems like the server sends all pools not just disconnected but
             # the .NET API always sets the state to Disconnected when callling
-            # GetRunspacePools
+            # GetRunspacePools so we replicate that here
             pool.state = RunspacePoolState.DISCONNECTED
 
             enum_msg = ET.Element("{%s}Enumerate" % wsen)
@@ -426,18 +444,18 @@ class RunspacePool(object):
             selector_set.add_option("ShellId", shell_id)
             filter.append(selector_set.pack())
 
-            response = wsman.enumerate("http://schemas.microsoft.com/wbem/"
-                                       "wsman/1/windows/shell/Command",
-                                       enum_msg)
-            commands = response.findall("wsen:EnumerateResponse/"
-                                        "wsman:Items/"
-                                        "rsp:Command", NAMESPACES)
+            resp = connection.enumerate("http://schemas.microsoft.com/wbem/"
+                                        "wsman/1/windows/shell/Command",
+                                        enum_msg)
+            commands = resp.findall("wsen:EnumerateResponse/wsman:Items/"
+                                    "rsp:Command", NAMESPACES)
             pipelines = {}
             for command in commands:
                 command_id = command.find("rsp:CommandId", NAMESPACES).text
 
                 powershell = PowerShell(pool)
                 powershell.id = command_id
+                powershell._command_id = command_id
                 powershell.state = PSInvocationState.DISCONNECTED
                 pipelines[powershell.id] = powershell
 
@@ -454,6 +472,7 @@ class RunspacePool(object):
             runspace host. These can then be accessed in a PowerShell instance
             of the runspace with $PSSenderInfo.ApplicationArguments
         """
+        log.info("Openning a new Runspace Pool on remote host")
         if self.state == RunspacePoolState.OPENED:
             return
         if self.state != RunspacePoolState.BEFORE_OPEN:
@@ -495,6 +514,7 @@ class RunspacePool(object):
         open and if the key has already been exchanged then nothing will
         happen.
         """
+        log.info("Starting key exchange with remote host")
         if self._key_exchanged or self._exchange_key is not None:
             # key is already exchanged or we are still in the processes of
             # exchanging it, no need to run again
@@ -539,6 +559,7 @@ class RunspacePool(object):
         This is only supported for the protocol version 2.3 and above (Server
         2016/Windows 10+)
         """
+        log.info("Resetting remote Runspace Pool state")
         if self.state == RunspacePoolState.BEFORE_OPEN:
             # no need to reset if the runspace has not been opened
             return
@@ -548,7 +569,7 @@ class RunspacePool(object):
                 [RunspacePoolState.BEFORE_OPEN, RunspacePoolState.OPENED],
                 "reset RunspacePool state"
             )
-        elif not version_newer(self.protocol_version, "2.3"):
+        elif not version_equal_or_newer(self.protocol_version, "2.3"):
             raise InvalidPSRPOperation("Cannot reset runspace state on "
                                        "protocol versions older than 2.3, "
                                        "actual: %s" % self.protocol_version)
@@ -600,13 +621,18 @@ class RunspacePool(object):
             Response: The return object of the response handler function for
                 the message type
         """
-        response = self.shell.receive("stdout", command_id=id,
-                                      timeout=timeout)[2]['stdout']
-        return self._parse_responses(response, id)
+        command_id = None
 
-    def _parse_responses(self, responses, id=None):
-        messages = self._fragmenter.defragment(responses)
         pipeline = self.pipelines.get(id)
+        if pipeline is not None:
+            command_id = pipeline._command_id
+
+        response = self.shell.receive("stdout", command_id=command_id,
+                                      timeout=timeout)[2]['stdout']
+        return self._parse_responses(response, pipeline)
+
+    def _parse_responses(self, responses, pipeline=None):
+        messages = self._fragmenter.defragment(responses)
 
         response_functions = {
             # While the docs say we should verify, they are out of date with
@@ -655,11 +681,18 @@ class RunspacePool(object):
         return return_values
 
     def _process_session_capability(self, message):
+        log.debug("Received SessionCapability with protocol version: "
+                  "%s, ps version: %s, serialization version: %s"
+                  % (message.data.protocol_version, message.data.ps_version,
+                     message.data.serialization_version))
         self.protocol_version = message.data.protocol_version
         self.ps_version = message.data.ps_version
         self.serialization_version = message.data.serialization_version
 
     def _process_runspacepool_init_data(self, message):
+        log.debug("Received RunspacePoolInitData with min runspaces: %d and "
+                  "max runspaces: %d" % (message.data.min_runspaces,
+                                         message.data.max_runspaces))
         self._min_runspaces = message.data.min_runspaces
         self._max_runspaces = message.data.max_runspaces
 
@@ -672,6 +705,8 @@ class RunspacePool(object):
         return response
 
     def _process_runspacepool_state(self, message):
+        log.debug("Received RunspacePoolState with state: %d"
+                  % message.data.state)
         self.state = message.data.state
         if self.state == RunspacePoolState.BROKEN:
             raise InvalidPSRPOperation(
@@ -684,6 +719,7 @@ class RunspacePool(object):
         self._application_private_data = message.data
 
     def _process_encrypted_session_key(self, message):
+        log.debug("Received EncryptedSessionKey response")
         enc_sess_key = base64.b64decode(message.data.session_key)
 
         # strip off Win32 Crypto Blob Header and reverse the bytes
@@ -714,10 +750,12 @@ class PowerShell(object):
         :param runspace_pool: The RunspacePool that the PowerShell instance
             will run over
         """
+        log.info("Initialising PowerShell in remote Runspace Pool")
         self.runspace_pool = runspace_pool
         self.state = PSInvocationState.NOT_STARTED
 
-        self.commands = PSCommand()
+        self.commands = []
+        self._current_command = None
         self.had_errors = False
         self.history_string = None
         self.id = str(uuid.uuid4()).upper()
@@ -725,6 +763,10 @@ class PowerShell(object):
         self.streams = PSDataStreams()
         self.output = []
         self._from_disconnect = False
+
+        # this is not necessarily the same ID as id, this relates to the WSMan
+        # CommandID that is created and we need to reference in the WSMan msgs
+        self._command_id = None
 
         runspace_pool.pipelines[self.id] = self
 
@@ -738,7 +780,8 @@ class PowerShell(object):
         :return: The current PowerShell object with the argument added to the
             last added Command
         """
-        self.commands.add_argument(value)
+        command_parameter = CommandParameter(value=value)
+        self._current_command.args.append(command_parameter)
         return self
 
     def add_command(self, command):
@@ -748,7 +791,8 @@ class PowerShell(object):
         :param command: Command to add
         :return: The current PowerShell object with the Command added
         """
-        self.commands.add_command(command)
+        self.commands.append(command)
+        self._current_command = command
         return self
 
     def add_cmdlet(self, cmdlet, use_local_scope=None):
@@ -763,7 +807,11 @@ class PowerShell(object):
         :param use_local_scope: Run the cmdlet under the local scope
         :return: The current PowerShell object with the cmdlet added
         """
-        self.commands.add_cmdlet(cmdlet, use_local_scope)
+        command = Command(protocol_version=self.runspace_pool.protocol_version,
+                          cmd=cmdlet, is_script=False,
+                          use_local_scope=use_local_scope)
+        self.commands.append(command)
+        self._current_command = command
         return self
 
     def add_parameter(self, parameter_name, value=None):
@@ -780,7 +828,8 @@ class PowerShell(object):
             that value will be used instead
         :return: the current PowerShell instance with the parameter added
         """
-        self.commands.add_parameter(parameter_name, value)
+        command_parameter = CommandParameter(name=parameter_name, value=value)
+        self._current_command.args.append(command_parameter)
         return self
 
     def add_parameters(self, parameters):
@@ -793,7 +842,7 @@ class PowerShell(object):
         :return: the current PowerShell instance with the parameters added
         """
         for parameter_name, value in parameters.items():
-            self.commands.add_parameter(parameter_name, value)
+            self.add_parameter(parameter_name, value)
         return self
 
     def add_script(self, script, use_local_scope=None):
@@ -804,7 +853,11 @@ class PowerShell(object):
         :param use_local_scope: Run the script under the local scope
         :return: the current PowerShell instance with the command added
         """
-        self.commands.add_script(script, use_local_scope)
+        command = Command(protocol_version=self.runspace_pool.protocol_version,
+                          cmd=script, is_script=True,
+                          use_local_scope=use_local_scope)
+        self.commands.append(command)
+        self._current_command = command
         return self
 
     def add_statement(self):
@@ -815,7 +868,17 @@ class PowerShell(object):
         :return: The current PowerShell instance with the last command set
             as the last one in that statement
         """
-        self.commands.add_statement()
+        self._current_command.end_of_statement = True
+        self._current_command = None
+        return self
+
+    def clear_commands(self):
+        """
+        Clears all the commands of the current PowerShell object.
+        :return: The current PowerShell instance with all the commands cleared
+        """
+        self._current_command = None
+        self.commands = []
         return self
 
     def connect(self):
@@ -842,12 +905,11 @@ class PowerShell(object):
         rsp = NAMESPACES['rsp']
 
         connect = ET.Element("{%s}Connect" % rsp, CommandId=self.id)
-        selectors = SelectorSet()
-        selectors.add_option("ShellId", self.runspace_pool.id)
 
-        self.runspace_pool.wsman.connect(self.runspace_pool.shell.resource_uri,
-                                         connect,
-                                         selector_set=selectors)
+        self.runspace_pool.connection.connect(
+            self.runspace_pool.shell.resource_uri, connect,
+            selector_set=self.runspace_pool.shell._selector_set
+        )
         self.state = PSInvocationState.RUNNING
         self._from_disconnect = True
 
@@ -899,13 +961,14 @@ class PowerShell(object):
             the various steams, see complex_objects.RemoteStreamOptions for the
             values. Will default to returning the invocation info on all
         """
+        log.info("Beginning remote Pipeline invocation")
         if self.state != PSInvocationState.NOT_STARTED:
             raise InvalidPipelineStateError(
                 self.state, PSInvocationState.NOT_STARTED,
                 "start a PowerShell pipeline"
             )
 
-        if len(self.commands.commands) == 0:
+        if len(self.commands) == 0:
             raise InvalidPSRPOperation("Cannot invoke PowerShell without any "
                                        "commands being set")
 
@@ -915,7 +978,7 @@ class PowerShell(object):
 
         pipeline = Pipeline(
             is_nested=self.is_nested,
-            cmds=self.commands.commands,
+            cmds=self.commands,
             history=self.history_string,
             redirect_err_to_out=redirect_shell_error_to_out
         )
@@ -928,6 +991,7 @@ class PowerShell(object):
 
         # finally send the input if any was specified
         if input is not None:
+            log.info("Sending input to remote Pipeline")
             if not isinstance(input, list):
                 input = [input]
 
@@ -939,7 +1003,7 @@ class PowerShell(object):
 
             for fragment in fragments:
                 self.runspace_pool.shell.send('stdin', fragment,
-                                              command_id=self.id)
+                                              command_id=self._command_id)
 
     def end_invoke(self):
         """
@@ -949,18 +1013,7 @@ class PowerShell(object):
         :return: A list of output objects
         """
         while self.state == PSInvocationState.RUNNING:
-            try:
-                responses = self.runspace_pool._receive(self.id)
-            except WSManFaultError as err:
-                # operation timeout needs to be ignored and silently tried
-                # again
-                if err.code == 2150858793:
-                    continue
-                else:
-                    raise err
-            for response in responses:
-                if response[0] == MessageType.PIPELINE_OUTPUT:
-                    self.output.append(response[1].data.data)
+            self.poll_invoke()
 
         return self.output
 
@@ -988,10 +1041,173 @@ class PowerShell(object):
                           redirect_shell_error_to_out, remote_stream_options)
         return self.end_invoke()
 
+    def merge_previous(self, enabled=False):
+        """
+        Sets the MergePreviousResults of the last command in the pipeline.
+        This is the same as the MergeUnclaimedPreviousCommandResults property
+        used in the .NET System.Management.Automation.Runspaces.Command class.
+
+        :param enabled: Whether to merge previous results to the Output and
+            Error streams or not
+        :return: The current PowerShell instance with the last command set to
+            MergePreviousResults
+        """
+        if enabled:
+            value = PipelineResultTypes.OUTPUT | PipelineResultTypes.ERROR
+        else:
+            value = PipelineResultTypes.NONE
+        pipeline = PipelineResultTypes(protocol_version_2=True, value=value)
+        self._current_command.merge_previous = pipeline
+        return self
+
+    def merge_all(self, to="none"):
+        """
+        Will merge all relevant streams to the stream specified of the last
+        command in the pipeline.
+
+        :param to: Can be one of the following
+            none: Do not merge the streams
+            output: Send all streams to the Output stream
+        :return: The current PowerSHell instance with the last command set to
+            Merge<stream> to the stream desired.
+        """
+        self.merge_error(to)
+
+        if version_equal_or_newer(self.runspace_pool.protocol_version, "2.2"):
+            self.merge_debug(to)
+            self.merge_verbose(to)
+            self.merge_warning(to)
+
+        if version_equal_or_newer(self.runspace_pool.protocol_version, "2.3"):
+            self.merge_information(to)
+        return self
+
+    def merge_error(self, to="none"):
+        """
+        Controls where the Error stream of the last command in the pipeline
+        will be sent to.
+
+        :param to: Can be one of the following
+            none: Send all Error streams to the Error stream
+            output: Send all Error streams to the Output stream
+        :return: The current PowerShell instance with the last command set to
+            MergeError to the stream desired.
+        """
+        self._set_merge_to("merge_error", to, ["none", "output"])
+
+        # For V2 backwards compatibility
+        if to == "none":
+            my_result = self._current_command.merge_error
+        else:
+            my_result = PipelineResultTypes(value=PipelineResultTypes.ERROR)
+        self._current_command.merge_my_result = my_result
+        self._current_command.merge_to_result = \
+            self._current_command.merge_error
+        return self
+
+    def merge_warning(self, to="none"):
+        """
+        Controls where the Warning stream of the last command in the pipeline
+        will be sent to. This will throw an InvalidPSRPOperation error if the
+        protocol version of the server is less than 2.2 (PSv2).
+
+        :param to: Can be on of the following
+            none: Send all Warning streams to the Warning stream
+            output: Send all Warning streams to the Output stream
+            null: Sends it to a null pipe (this doesn't seem to do anything)
+        :return: The current PowerShell instance with the last command set to
+            MergeWarning to the stream desired.
+        """
+        self._set_merge_to("merge_warning", to, None, "2.2")
+        return self
+
+    def merge_verbose(self, to="none"):
+        """
+        Controls where the Verbose stream of the last command in the pipeline
+        will be sent to. This will throw an InvalidPSRPOperation error if the
+        protocol version of the server is less than 2.2 (PSv2).
+
+        :param to: Can be on of the following
+            none: Send all Verbose streams to the Verbose stream
+            output: Send all Verbose streams to the Output stream
+            null: Sends it to a null pipe (this doesn't seem to do anything)
+        :return: The current PowerShell instance with the last command set to
+            MergeVerbose to the stream desired.
+        """
+        self._set_merge_to("merge_verbose", to, None, "2.2")
+        return self
+
+    def merge_debug(self, to="none"):
+        """
+        Controls where the Debug stream of the last command in the pipeline
+        will be sent to. This will throw an InvalidPSRPOperation error if the
+        protocol version of the server is less than 2.2 (PSv2).
+
+        :param to: Can be on of the following
+            none: Send all Debug streams to the Debug stream
+            output: Send all Debug streams to the Output stream
+            null: Sends it to a null pipe (this doesn't seem to do anything)
+        :return: The current PowerShell instance with the last command set to
+            MergeDebug to the stream desired.
+        """
+        self._set_merge_to("merge_debug", to, None, "2.2")
+        return self
+
+    def merge_information(self, to="none"):
+        """
+        Controls where the Information stream of the last command in the
+        pipeline will be sent to. This will throw an InvalidPSRPOperation error
+        if the protocol version of the server is less than 2.3 (PSv5).
+
+        :param to: Can be on of the following
+            none: Send all Information streams to the Information stream
+            output: Send all Information streams to the Output stream
+            null: Sends it to a null pipe (this doesn't seem to do anything)
+        :return: The current PowerShell instance with the last command set to
+            MergeInformation to the stream desired.
+        """
+        self._set_merge_to("merge_information", to, None, "2.3")
+        return self
+
+    def merge_reset(self):
+        """
+        Will reset the merge behaviour of all streams back to the default. This
+        is done on the last command in the pipeline.
+
+        :return: The current PowerShell instance with the last commands merge
+            behaviour set to the default.
+        """
+        self.merge_previous(enabled=False)
+        self.merge_all("none")
+        return self
+
+    def poll_invoke(self, timeout=None):
+        """
+        Poll the running process to update the output streams and the status.
+
+        :param timeout: Override the default WSMan timeout when polling the
+        pipeline.
+        """
+        try:
+            responses = self.runspace_pool._receive(self.id,
+                                                    timeout=timeout)
+        except WSManFaultError as err:
+            # operation timeout needs to be ignored and silently tried
+            # again
+            if err.code == 2150858793:
+                responses = []
+            else:
+                raise err
+
+        for response in responses:
+            if response[0] == MessageType.PIPELINE_OUTPUT:
+                self.output.append(response[1].data.data)
+
     def stop(self):
         """
         Stop the currently running command.
         """
+        log.info("Stopping remote Pipeline")
         if self.state in [PSInvocationState.STOPPING,
                           PSInvocationState.STOPPED]:
             return
@@ -1014,19 +1230,42 @@ class PowerShell(object):
 
         # send first fragment as Command message
         first_frag = base64.b64encode(fragments.pop(0)).decode('utf-8')
-        self.runspace_pool.shell.command('', arguments=[first_frag],
-                                         command_id=self.id)
+        resp = self.runspace_pool.shell.command('', arguments=[first_frag],
+                                                command_id=self.id)
+        cmd_id = resp.find("rsp:CommandResponse/rsp:CommandId", NAMESPACES)
+        if cmd_id is not None:
+            self._command_id = cmd_id.text
         self.state = PSInvocationState.RUNNING
 
         # send the remaining fragments with the Send message
         for fragment in fragments:
             self.runspace_pool.shell.send('stdin', fragment,
-                                          command_id=self.id)
+                                          command_id=self._command_id)
+
+    def _set_merge_to(self, merge, to, valid, min_protocol=None):
+        valid = valid or ["none", "null", "output"]
+        if to not in valid:
+            raise InvalidPSRPOperation("Invalid merge to option '%s', valid "
+                                       "values %s" % (to, ", ".join(valid)))
+
+        if min_protocol is not None:
+            if not version_equal_or_newer(self.runspace_pool.protocol_version,
+                                          min_protocol):
+                error_msg = \
+                    "Merge option for '%s' is not supported in the current " \
+                    "protocol version %s, minimum version required %s" % \
+                    (merge, self.runspace_pool.protocol_version, min_protocol)
+                raise InvalidPSRPOperation(error_msg)
+
+        to_value = getattr(PipelineResultTypes, to.upper())
+        to_result = PipelineResultTypes(value=to_value)
+        setattr(self._current_command, merge, to_result)
 
     def _process_error_record(self, message):
         self.streams.error.append(message.data)
 
     def _process_pipeline_state(self, message):
+        log.debug("Received PipelineState with state: %d" % message.data.state)
         self.state = message.data.state
         if message.data.error_record is not None:
             self.streams.error.append(message.data.error_record)
@@ -1048,108 +1287,6 @@ class PowerShell(object):
 
     def _process_information_record(self, message):
         self.streams.information.append(message.data)
-
-
-class PSCommand(object):
-
-    def __init__(self):
-        self.commands = []
-        self._current_command = None
-
-    def add_argument(self, value):
-        """
-        Adds an argument to the last added command.
-
-        :param value: The argument to add. If the value is a native Python
-            type then it will be automatically serialized, otherwise if it is
-            an already serialized object then that value will be used instead
-        :return: The current PSCommand object with the argument added to the
-            last added Command
-        """
-        command_parameter = CommandParameter(value=value)
-        self._current_command.args.append(command_parameter)
-        return self
-
-    def add_command(self, command):
-        """
-        Add a Command object to the current command pipeline.
-
-        :param command: Command to add
-        :return: The current PSCommand object with the Command added
-        """
-        self.commands.append(command)
-        self._current_command = command
-        return self
-
-    def add_cmdlet(self, cmdlet, use_local_scope=None):
-        """
-        Add a cmdlet/command to the current command pipeline. This is similar
-        to add_command but it takes in a string and constructs the Command
-        object for you. For example to construct "Get-Process | Sort-Object"
-
-        .add_cmdlet("Get-Process").add_cmdlet("Sort-Object")
-
-        :param cmdlet: A string representing the cmdlet to add
-        :param use_local_scope: Run the cmdlet under the local scope
-        :return: The current PSCommand object with the cmdlet added
-        """
-        command = Command(cmd=cmdlet, is_script=False,
-                          use_local_scope=use_local_scope)
-        self.commands.append(command)
-        self._current_command = command
-        return self
-
-    def add_parameter(self, parameter_name, value=None):
-        """
-        Add a parameter to the last added command. For example to construct
-        "Get-Process -Name powershell"
-
-        .add_cmdlet("Get-Process").add_parameter("Name", "powershell")
-
-        :param parameter_name: The name of the parameter
-        :param value: The value for the parameter, None means no value is set.
-            If the value is a native Python type then it will be automatically
-            serialized, otherwise if it is an already serialized object then
-            that value will be used instead
-        :return: The current PSCommand object with the parameter added to the
-            last command's parameter list
-        """
-        command_parameter = CommandParameter(name=parameter_name, value=value)
-        self._current_command.args.append(command_parameter)
-        return self
-
-    def add_script(self, script, use_local_scope=None):
-        """
-        Add a piece of script to construct a command pipeline.
-
-        :param script: A string representing the script
-        :param use_local_scope: Run the script under the local scope
-        :return: the current PSCommand object with the script added
-        """
-        command = Command(cmd=script, is_script=True,
-                          use_local_scope=use_local_scope)
-        self.commands.append(command)
-        self._current_command = command
-        return self
-
-    def add_statement(self):
-        """
-        Set's the last command in the pipeline to be the last in that
-        statement/pipeline so the next command is in a new statement.
-
-        :return: The current PSCommand instance with the last command set
-            as the last one in that statement
-        """
-        self._current_command.end_of_statement = True
-        self._current_command = None
-        return self
-
-    def clear(self):
-        """
-        Clears the commands.
-        """
-        self._current_command = None
-        self.commands = []
 
 
 class PSDataStreams(object):

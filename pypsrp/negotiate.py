@@ -106,6 +106,7 @@ class HTTPNegotiateAuth(AuthBase):
 
             # create a request with the Negotiate token present
             request = response.request.copy()
+            log.debug("Sending http request with new auth token")
             self._set_auth_token(request, out_token, "Negotiate")
 
             # send the request with the auth token and get the response
@@ -117,6 +118,8 @@ class HTTPNegotiateAuth(AuthBase):
             # break if there was no token received from the host and return the
             # last response
             if in_token in [None, b""]:
+                log.debug("Did not receive a http response with an auth "
+                          "response, stopping authentication process")
                 break
 
             out_token = token_gen.send(in_token)

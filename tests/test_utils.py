@@ -2,8 +2,8 @@ import pytest
 
 from six import PY3
 
-from pypsrp._utils import to_bytes, to_string, to_unicode, version_newer, \
-    get_hostname
+from pypsrp._utils import to_bytes, to_string, to_unicode, \
+    version_equal_or_newer, get_hostname
 
 
 def test_unicode_to_bytes_default():
@@ -85,7 +85,7 @@ def test_to_str():
                              ["2.3", "2.3.1", False],
                          ])
 def test_version_newer(version, reference_version, expected):
-    assert version_newer(version, reference_version) == expected
+    assert version_equal_or_newer(version, reference_version) == expected
 
 
 @pytest.mark.parametrize('url, expected',

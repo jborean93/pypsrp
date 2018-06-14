@@ -8,11 +8,6 @@ TBD
 
 ## Backlog
 
-* Add support for host based calls and implement reference host object
 * Look into adding SSH as a transport option
-* Create a higher layer API
-* Logging for cipher suite and other connection details
-* Poll invoke for PSRP
-* Live interactive console for PSRP
-* Inspection of args for higher layer apps using pypsrp
-* Add retry logic for connection failures
+* Add support for host based calls and implement reference host object
+* Live interactive console for PSRP (dependent on the above as well)

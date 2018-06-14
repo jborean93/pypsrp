@@ -3,6 +3,8 @@
 
 from copy import deepcopy
 
+from pypsrp._utils import version_equal_or_newer
+
 
 class ObjectMeta(object):
 
@@ -428,10 +430,11 @@ class Pipeline(ComplexObject):
         [MS-PSRP] 2.2.3.11 Pipeline
         https://msdn.microsoft.com/en-us/library/dd358182.aspx
 
-        :param is_nested:
-        :param commands:
-        :param history:
-        :param redirect_err_to_out:
+        :param is_nested: Whether the pipeline is a nested pipeline
+        :param commands: List of commands to run
+        :param history: The history string to add to the pipeline
+        :param redirect_err_to_out: Whether to redirect the global
+            error output pipe to the commands error output pipe.
         """
         super(Pipeline, self).__init__()
         cmd_types = [
@@ -525,22 +528,30 @@ class Pipeline(ComplexObject):
 
 class Command(ComplexObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, protocol_version="2.3", **kwargs):
         """
         [MS-PSRP] 2.2.3.12 Command
         https://msdn.microsoft.com/en-us/library/dd339976.aspx
 
+        :param protocol_version: The negotiated protocol version of the remote
+            host. This determines what merge_* objects are added to the
+            serialized xml.
         :param cmd: The cmdlet or script to run
         :param is_script: Whether cmd is a script or not
         :param use_local_scope: Use local or global scope to invoke commands
-        :param merge_my_results: Error and Output streams are to be merged on
-            pipeline invocation
-        :param merge_previous_results: Error and Ouput streams of previous
-            commands
-        :param merge_error: Merge Error streams with the Output streams
-        :param merge_warning: Merge Warning streams with the Output streams
-        :param merge_verbose: Merge Verbose streams with the Output streams
-        :param merge_debug: Merge Debug streams with the Output streams
+        :param merge_my_result: Controls the behaviour of what stream to merge
+            to 'merge_to_result'. Only supports NONE or ERROR (only used in
+            protocol 2.1)
+        :param merge_to_result: Controls the behaviour of where to merge the
+            'merge_my_result' stream. Only supports NONE or OUTPUT (only used
+            in protocol 2.1)
+        :param merge_previous: Controls the behaviour of where to merge the
+            previous Output and Error streams that have been unclaimed
+        :param merge_error: The merge behaviour of the Error stream
+        :param merge_warning: The merge behaviour of the Warning stream
+        :param merge_verbose: The merge behaviour of the Verbose stream
+        :param merge_debug: The merge behaviour of the Debug stream
+        :param merge_information: The merge behaviour of the Information stream
         :param args: List of CommandParameters for the cmdlet being invoked
         :param end_of_statement: Whether this command is the last in the
             current statement
@@ -554,44 +565,71 @@ class Command(ComplexObject):
             "PublicKeyToken=31bf3856ad364e35]]",
             "System.Object",
         ]
-        self._extended_properties = (
+        extended_properties = [
             ('cmd', ObjectMeta("S", name="Cmd")),
             ('is_script', ObjectMeta("B", name="IsScript")),
             ('use_local_scope', ObjectMeta("B", name="UseLocalScope")),
-            ('merge_my_results', ObjectMeta("Obj", name="MergeMyResult",
-                                            object=PipelineResultTypes)),
-            # MergeToResults should have the same value as MergeMyResults
-            ('merge_my_results', ObjectMeta("Obj", name="MergeToResult",
-                                            object=PipelineResultTypes)),
-            ('merge_previous_results', ObjectMeta("Obj",
-                                                  name="MergePreviousResults",
-                                                  object=PipelineResultTypes)),
-            ('merge_error', ObjectMeta("Obj", name="MergeError",
-                                       object=PipelineResultTypes)),
-            ('merge_warning', ObjectMeta("Obj", name="MergeWarning",
-                                         object=PipelineResultTypes)),
-            ('merge_verbose', ObjectMeta("Obj", name="MergeVerbose",
-                                         object=PipelineResultTypes)),
-            ('merge_debug', ObjectMeta("Obj", name="MergeDebug",
-                                       object=PipelineResultTypes)),
+            ('merge_my_result', ObjectMeta("Obj", name="MergeMyResult",
+                                           object=PipelineResultTypes)),
+            ('merge_to_result', ObjectMeta("Obj", name="MergeToResult",
+                                           object=PipelineResultTypes)),
+            ('merge_previous', ObjectMeta("Obj", name="MergePreviousResults",
+                                          object=PipelineResultTypes)),
             ('args', ListMeta(
                 name="Args",
                 list_value_meta=ObjectMeta(object=CommandParameter),
                 list_types=arg_types)
              ),
-        )
+        ]
+
+        if version_equal_or_newer(protocol_version, "2.2"):
+            extended_properties.extend([
+                ('merge_error', ObjectMeta("Obj", name="MergeError",
+                                           object=PipelineResultTypes,
+                                           optional=True)),
+                ('merge_warning', ObjectMeta("Obj", name="MergeWarning",
+                                             object=PipelineResultTypes,
+                                             optional=True)),
+                ('merge_verbose', ObjectMeta("Obj", name="MergeVerbose",
+                                             object=PipelineResultTypes,
+                                             optional=True)),
+                ('merge_debug', ObjectMeta("Obj", name="MergeDebug",
+                                           object=PipelineResultTypes,
+                                           optional=True)),
+            ])
+
+        if version_equal_or_newer(protocol_version, "2.3"):
+            extended_properties.extend([
+                ('merge_information', ObjectMeta(
+                    "Obj", name="MergeInformation",
+                    object=PipelineResultTypes,
+                    optional=True
+                )),
+            ])
+        self._extended_properties = extended_properties
+
+        self.protocol_version = protocol_version
         self.cmd = kwargs.get("cmd")
         self.is_script = kwargs.get("is_script")
         self.use_local_scope = kwargs.get("use_local_scope")
 
         none_merge = PipelineResultTypes(value=PipelineResultTypes.NONE)
-        self.merge_my_results = kwargs.get("merge_my_results", none_merge)
-        self.merge_previous_results = kwargs.get("merge_previous_results",
-                                                 none_merge)
+
+        # valid in all protocols, only really used in 2.1 (PowerShell 2.0)
+        self.merge_my_result = kwargs.get("merge_my_result", none_merge)
+        self.merge_to_result = kwargs.get("merge_to_result", none_merge)
+
+        self.merge_previous = kwargs.get("merge_previous", none_merge)
+
+        # only valid for 2.2+ (PowerShell 3.0+)
         self.merge_error = kwargs.get("merge_error", none_merge)
         self.merge_warning = kwargs.get("merge_warning", none_merge)
         self.merge_verbose = kwargs.get("merge_verbose", none_merge)
         self.merge_debug = kwargs.get("merge_debug", none_merge)
+
+        # only valid for 2.3+ (PowerShell 5.0+)
+        self.merge_information = kwargs.get("merge_information", none_merge)
+
         self.args = kwargs.get("args", [])
 
         # not used in the serialized message but controls how Pipeline is
@@ -1415,52 +1453,57 @@ class CommandOrigin(Enum):
 
 
 class PipelineResultTypes(Enum):
-    NONE = 0x00
-    OUTPUT = 0x01
-    ERROR = 0x02
-    WARNING = 0x04
-    VERBOSE = 0x08
-    DEBUG = 0x10
-    ALL = 0x20
-    NULL = 0x40
+    # While MS-PSRP show this as flags with different values, we only
+    # ever send NONE OUTPUT, ERROR, or OUTPUT_AND_ERROR across the wire and
+    # the actual C# code use these values as enums and not flags. We will
+    # replicate that behaviour here. If using these values, do not rely on
+    # the actual numeric values but rather these definitions.
 
-    def __init__(self, **kwargs):
+    NONE = 0  # default streaming behaviour
+    OUTPUT = 1
+    ERROR = 2
+    WARNING = 3  # also output and error for MergePreviousResults (PS v2)
+    VERBOSE = 4
+    DEBUG = 5
+    INFORMATION = 6
+    ALL = 7  # Error, Warning, Verbose, Debug, Information streams
+    NULL = 8  # redirect to nothing - pretty much the same as null
+
+    def __init__(self, protocol_version_2=False, **kwargs):
         """
         [MS-PSRP] 2.2.3.31 PipelineResultTypes
         https://msdn.microsoft.com/en-us/library/ee938207.aspx
 
+        Used as identifiers
+
+        :param protocol_version_2: Whether to use the original string map or
+            just None, Output, and Error that are a bitwise combination. This
+            is only really relevant for MergePreviousResults in a Command obj
         :param value: The initial PipelineResultType flag to set
         """
+        if protocol_version_2 is True:
+            string_map = {
+                0: 'None',
+                1: 'Output',
+                2: 'Error',
+                3: 'Output, Error',
+            }
+        else:
+            string_map = {
+                0: 'None',
+                1: 'Output',
+                2: 'Error',
+                3: 'Warning',
+                4: 'Verbose',
+                5: 'Debug',
+                6: 'Information',
+                7: 'All',
+                8: 'Null',
+            }
         super(PipelineResultTypes, self).__init__(
             "System.Management.Automation.Runspaces.PipelineResultTypes",
-            {}, **kwargs
+            string_map, **kwargs
         )
-
-    @property
-    def _to_string(self):
-        if self.value == 0:
-            return "None"
-        elif self.value == 0x20:
-            return "All"
-        elif self.value == 0x40:
-            return "Null"
-
-        string_map = (
-            ("Output", 0x01),
-            ("Error", 0x02),
-            ("Warning", 0x04),
-            ("Verbose", 0x08),
-            ("Debug", 0x10),
-        )
-        values = []
-        for name, flag in string_map:
-            if self.value & flag == flag:
-                values.append(name)
-        return ", ".join(values)
-
-    @_to_string.setter
-    def _to_string(self, value):
-        pass
 
 
 class ProgressRecordType(Enum):

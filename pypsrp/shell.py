@@ -2,6 +2,7 @@
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 import base64
+import logging
 import sys
 
 from pypsrp.exceptions import WSManFaultError
@@ -13,6 +14,8 @@ if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
     from lxml import etree as ET
 else:  # pragma: no cover
     import xml.etree.ElementTree as ET
+
+log = logging.getLogger(__name__)
 
 
 class CommandState(object):
@@ -87,6 +90,8 @@ class WinRS(object):
         self.client_ip = None
         self.shell_run_time = None
         self.shell_inactivity = None
+
+        self._selector_set = None
         # TODO: should I store a process table like a RunspacePool
 
     def __enter__(self):
@@ -102,7 +107,7 @@ class WinRS(object):
         """
         if not self.opened:
             return
-        self._invoke(self.wsman.delete, id=self.id)
+        self.wsman.delete(self.resource_uri, selector_set=self._selector_set)
         self.id = None
         self.opened = False
 
@@ -134,7 +139,8 @@ class WinRS(object):
         for argument in arguments:
             ET.SubElement(cmd, "{%s}Arguments" % rsp).text = argument
 
-        return self._invoke(self.wsman.command, cmd, options, self.id)
+        return self.wsman.command(self.resource_uri, cmd, option_set=options,
+                                  selector_set=self._selector_set)
 
     def open(self, base_options=None, open_content=None):
         """
@@ -194,7 +200,8 @@ class WinRS(object):
             # set options back to None if nothing was actually set
             options = None
 
-        response = self._invoke(self.wsman.create, shell, options=options)
+        response = self.wsman.create(self.resource_uri, shell,
+                                     option_set=options)
         self._parse_shell_create(response)
         self.opened = True
 
@@ -228,9 +235,10 @@ class WinRS(object):
         options = OptionSet()
         options.add_option('WSMAN_CMDSHELL_OPTION_KEEPALIVE', True)
 
-        response = self._invoke(self.wsman.receive, receive,
-                                options=options,
-                                id=self.id, timeout=timeout)
+        response = self.wsman.receive(self.resource_uri, receive,
+                                      option_set=options,
+                                      selector_set=self._selector_set,
+                                      timeout=timeout)
 
         command_state = response.find("rsp:ReceiveResponse/"
                                       "rsp:CommandState",
@@ -282,7 +290,8 @@ class WinRS(object):
             stream.attrib['CommandId'] = command_id
 
         stream.text = base64.b64encode(data).decode('utf-8')
-        return self._invoke(self.wsman.send, send, id=self.id)
+        return self.wsman.send(self.resource_uri, send,
+                               selector_set=self._selector_set)
 
     def signal(self, code, command_id):
         """
@@ -297,17 +306,8 @@ class WinRS(object):
         signal = ET.Element("{%s}Signal" % rsp,
                             attrib={"CommandId": command_id})
         ET.SubElement(signal, "{%s}Code" % rsp).text = code
-        return self._invoke(self.wsman.signal, signal, id=self.id)
-
-    def _invoke(self, function, resource=None, options=None, id=None,
-                timeout=None):
-        selector_set = None
-        if id is not None:
-            selector_set = SelectorSet()
-            selector_set.add_option('ShellId', id)
-
-        return function(self.resource_uri, resource, options, selector_set,
-                        timeout)
+        return self.wsman.signal(self.resource_uri, signal,
+                                 selector_set=self._selector_set)
 
     def _parse_shell_create(self, response):
         fields = {
@@ -325,6 +325,15 @@ class WinRS(object):
             element = response.find("rsp:Shell/%s" % xml_element, NAMESPACES)
             if element is not None:
                 setattr(self, shell_attr, element.text)
+
+        selector_set = response.find("wst:ResourceCreated/"
+                                     "wsa:ReferenceParameters/"
+                                     "wsman:SelectorSet", NAMESPACES)
+        if selector_set is not None:
+            self._selector_set = SelectorSet()
+            for selector in selector_set:
+                self._selector_set.add_option(selector.attrib['Name'],
+                                              selector.text)
 
 
 class Process(object):
@@ -344,6 +353,8 @@ class Process(object):
             bypass it. If True then executable must be the full path to the
             exe. This only works on older OS's before 2012 R2 (not including)
         """
+        log.info("Creating WinRS process for '%s' with arguments '%s'"
+                 % (executable, arguments))
         self.shell = shell
         self.id = id
         self.no_shell = no_shell

@@ -90,8 +90,8 @@ class TransportHTTP(object):
 
         self.endpoint = "%s://%s:%d/%s" \
                         % ("https" if ssl else "http", server, self.port, path)
-        log.info("Initialising HTTP transport for endpoint: %s"
-                 % self.endpoint)
+        log.info("Initialising HTTP transport for endpoint: %s, auth: %s, "
+                 "user: %s" % (self.endpoint, self.username, self.auth))
         self.session = None
 
         # used when building tests, keep commented out

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import time
+import warnings
 
 import pytest
 
@@ -48,6 +49,7 @@ def gen_rsa_keypair(public_exponent, key_size, backend):
 
 class RSPoolTest(object):
     def __init__(self):
+        self.protocol_version = "2.3"
         self.pipelines = {}
 
 
@@ -267,7 +269,7 @@ class TestRunspacePool(object):
                              indirect=True)
     def test_psrp_with_jea_configuration(self, winrm_transport):
         wsman = WSMan(winrm_transport)
-        with RunspacePool(wsman, configuration_name="ContosoJEA") as pool:
+        with RunspacePool(wsman, configuration_name="JEARole") as pool:
             ps = PowerShell(pool)
             ps.add_cmdlet("Get-Item").add_parameter(
                 "Path", "WSMan:\\localhost\\Service\\AllowUnencrypted"
@@ -489,7 +491,7 @@ class TestPSRPScenarios(object):
         assert output[3] == u"hi\""
         # this result differs on whether this is mocked or not
         if type(winrm_transport).__name__ == "TransportFake":
-            assert output[4] == "win-j4ractt2gq8\\vagrant"
+            assert output[4] == "win-nnmu24vvkj0\\vagrant"
         else:
             assert winrm_transport.username.lower() in output[4].lower()
         assert output[5] == 123
@@ -499,6 +501,53 @@ class TestPSRPScenarios(object):
             'Windows Remote Management (WS-Management)'
         assert output[6].adapted_properties['ServiceName'] == 'winrm'
         assert output[6].extended_properties['Name'] == 'winrm'
+
+    @pytest.mark.parametrize('winrm_transport',
+                             # because we are seeing how the client handles
+                             # different server protocol versions, we want to
+                             # use existing responses
+                             [
+                                 [False, 'test_psrp_run_protocol_version_2.1'],
+                                 [False, 'test_psrp_run_protocol_version_2.2'],
+                                 [False, 'test_psrp_run_protocol_version_2.3'],
+                             ],
+                             indirect=True)
+    def test_psrp_run_protocol_version(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+        with RunspacePool(wsman) as pool:
+            if type(winrm_transport).__name__ == "TransportFake":
+                expected_version = winrm_transport._test_name.split("_")[-1]
+                actual_version = pool.protocol_version
+                assert actual_version == expected_version
+
+            ps = PowerShell(pool)
+            ps.add_script('''begin {
+    $DebugPreference = 'Continue'
+    Write-Debug "Start Block"
+    Write-Error "error"
+}
+process {
+    $input
+}
+end {
+    Write-Debug "End Block"
+}''')
+            # this tests the merge logic works on v2.1
+            ps.merge_error("output")
+            actual = ps.invoke(["message 1", 2, ["3", 3]])
+
+            assert len(actual) == 4
+            assert str(actual[0]) == "error"
+            assert isinstance(actual[0], ErrorRecord)
+            assert actual[1] == u"message 1"
+            assert actual[2] == 2
+            assert actual[3] == [u"3", 3]
+            assert ps.state == PSInvocationState.COMPLETED
+            assert ps.had_errors is False
+            assert ps.streams.error == []
+            assert len(ps.streams.debug) == 2
+            assert str(ps.streams.debug[0]) == "Start Block"
+            assert str(ps.streams.debug[1]) == "End Block"
 
     @pytest.mark.parametrize('winrm_transport',
                              [[True, 'test_psrp_nested_command']],
@@ -607,6 +656,56 @@ class TestPSRPScenarios(object):
         assert ps.streams.warning[0].invocation is False
 
     @pytest.mark.parametrize('winrm_transport',
+                             # due to sending the information stream we need
+                             # to use existing responses as not all servers
+                             # support this
+                             [[False, 'test_psrp_merge_commands']],
+                             indirect=True)
+    def test_psrp_merge_commands(self, winrm_transport):
+        wsman = WSMan(winrm_transport)
+        with RunspacePool(wsman) as pool:
+            ps = PowerShell(pool)
+
+            script = '''$DebugPreference = 'Continue'
+            $VerbosePreference = 'Continue'
+            Write-Debug 'debug stream'
+            Write-Verbose 'verbose stream'
+            Write-Error 'error stream'
+            Write-Output 'output stream'
+            Write-Warning 'warning stream'
+            Write-Information 'information stream'
+            '''
+            ps.add_script(script)
+            ps.merge_all("output")
+            ps.merge_previous(True)
+
+            ps.add_statement().add_script(script)
+            ps.merge_all("output")
+            ps.merge_reset()
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                actual = ps.invoke()
+
+            assert len(actual) == 7
+            assert len(ps.streams.debug) == 1
+            assert len(ps.streams.error) == 1
+            assert len(ps.streams.information) == 1
+            assert len(ps.streams.progress) == 1
+            assert len(ps.streams.verbose) == 1
+            assert len(ps.streams.warning) == 1
+
+            assert str(actual[0]) == "debug stream"
+            assert str(actual[1]) == "verbose stream"
+            assert str(actual[2]) == "error stream"
+            assert str(actual[3]) == "output stream"
+            assert str(actual[4]) == "warning stream"
+            assert str(actual[5]) == "information stream"
+
+            # the 2nd statement should only have the output stream
+            assert str(actual[6]) == "output stream"
+
+    @pytest.mark.parametrize('winrm_transport',
                              [[True, 'test_psrp_error_failed']], indirect=True)
     def test_psrp_error_failed(self, winrm_transport):
         wsman = WSMan(winrm_transport)
@@ -696,8 +795,7 @@ class TestPSRPScenarios(object):
         # we need to set the endpoint for the fake tests to the same length as
         # the one that created the message. This is so the max payload size is
         # the same
-        winrm_transport.endpoint = \
-            "http://server2012r2.domain.local:5985/wsman"
+        winrm_transport.endpoint = "https://127.0.0.1:55986/wsman"
 
         wsman = WSMan(winrm_transport)
         wsman.update_max_payload_size()
@@ -744,7 +842,7 @@ class TestPSRPScenarios(object):
         with RunspacePool(wsman) as pool:
             ps = PowerShell(pool)
             ps.add_script("echo original")
-            ps.commands.clear()
+            ps.clear_commands()
             ps.add_script("echo new")
             actual = ps.invoke()
         assert actual[0] == u"new"
@@ -758,6 +856,8 @@ class TestPSRPScenarios(object):
         with RunspacePool(wsman) as pool:
             ps = PowerShell(pool)
             ps.state = PSInvocationState.RUNNING
+            ps._command_id = ps.id
+
             with pytest.raises(WSManFaultError) as err:
                 ps.end_invoke()
             assert str(err.value.reason) == \
@@ -767,6 +867,8 @@ class TestPSRPScenarios(object):
                 "specified an invalid command identifier."
 
     @pytest.mark.parametrize('winrm_transport',
+                             # due to tests sometimes leaving pools open
+                             # we are going to mock the data for this one
                              [[False, 'test_psrp_disconnected_commands']],
                              indirect=True)
     def test_psrp_disconnected_commands(self, winrm_transport):
@@ -822,11 +924,11 @@ class TestPSRPScenarios(object):
         ps = PowerShell(RSPoolTest())
         ps.add_cmdlet("Test-Path")
         ps.add_parameters({"Path": "path", "ItemType": "Leaf"})
-        assert len(ps.commands.commands) == 1
-        assert ps.commands.commands[0].cmd == "Test-Path"
+        assert len(ps.commands) == 1
+        assert ps.commands[0].cmd == "Test-Path"
 
         # we can't guarantee the dict order so this is the next best thing
-        args = ps.commands.commands[0].args
+        args = ps.commands[0].args
         assert args[0].name == 'Path' or args[0].name == 'ItemType'
         assert args[1].name == 'Path' or args[1].name == 'ItemType'
 
@@ -913,6 +1015,26 @@ class TestPSRPScenarios(object):
             assert str(err.value) == \
                 "Cannot 'stop a running pipeline' on the current state '%s'," \
                 " expecting state(s): 'Running'" % state_msg[state]
+
+    def test_set_merge_to_invalid_to(self):
+        ps = PowerShell(RSPoolTest())
+        with pytest.raises(InvalidPSRPOperation) as err:
+            ps._set_merge_to("error", "fake", None)
+        assert str(err.value) == "Invalid merge to option 'fake', valid " \
+                                 "values none, null, output"
+
+        with pytest.raises(InvalidPSRPOperation) as err:
+            ps._set_merge_to("error", "fake", ["option1", "option2"])
+        assert str(err.value) == \
+            "Invalid merge to option 'fake', valid values option1, option2"
+
+    def test_set_merge_to_invalid_protocol(self):
+        ps = PowerShell(RSPoolTest())
+        with pytest.raises(InvalidPSRPOperation) as err:
+            ps._set_merge_to("error", "output", None, "3.0")
+        assert str(err.value) == "Merge option for 'error' is not supported " \
+                                 "in the current protocol version 2.3, " \
+                                 "minimum version required 3.0"
 
 
 class TestFragmenter(object):

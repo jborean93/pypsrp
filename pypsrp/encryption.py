@@ -1,8 +1,11 @@
+import logging
 import re
 import struct
 
 from pypsrp._utils import to_bytes
 from pypsrp.exceptions import WinRMError
+
+log = logging.getLogger(__name__)
 
 
 class WinRMEncryption(object):
@@ -13,6 +16,8 @@ class WinRMEncryption(object):
     SPNEGO = "application/HTTP-SPNEGO-session-encrypted"
 
     def __init__(self, auth, protocol):
+        log.info("Initialising WinRMEncryption helper for protocol %s"
+                 % protocol)
         self.auth = auth
         self.protocol = protocol
 
@@ -24,6 +29,7 @@ class WinRMEncryption(object):
             self._unwrap = self._unwrap_credssp
 
     def wrap_message(self, message, hostname):
+        log.info("Wrapping message for host: %s" % hostname)
         if self.protocol == self.CREDSSP and len(message) > self.SIXTEEN_KB:
             content_type = "multipart/x-multi-encrypted"
             encrypted_msg = b""
@@ -38,9 +44,11 @@ class WinRMEncryption(object):
 
         encrypted_msg += to_bytes("%s--\r\n" % self.MIME_BOUNDARY)
 
+        log.debug("Created wrapped message of content type %s" % content_type)
         return content_type, encrypted_msg
 
     def unwrap_message(self, message, hostname):
+        log.info("Unwrapped message for host: %s" % hostname)
         parts = message.split(to_bytes("%s\r\n" % self.MIME_BOUNDARY))
         parts = list(filter(None, parts))
 
@@ -61,6 +69,8 @@ class WinRMEncryption(object):
             unwrapped_data = self._unwrap(wrapped_data, hostname)
             actual_length = len(unwrapped_data)
 
+            log.debug("Actual unwrapped length: %d, expected unwrapped length:"
+                      " %d" % (actual_length, expected_length))
             if actual_length != expected_length:
                 raise WinRMError("The encrypted length from the server does "
                                  "not match the expected length, decryption "
@@ -120,6 +130,8 @@ class WinRMEncryption(object):
     def _credssp_trailer(self, msg_len, cipher_suite):
         # On Windows this is derived from SecPkgContext_StreamSizes, this is
         # not available on other platforms so we need to calculate it manually
+        log.debug("Attempting to get CredSSP trailer length for msg of "
+                  "length %d with cipher %s" % (msg_len, cipher_suite))
 
         if re.match('^.*-GCM-[\w\d]*$', cipher_suite):
             # GCM has a fixed length of 16 bytes

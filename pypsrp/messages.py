@@ -5,13 +5,16 @@ import logging
 import struct
 import sys
 import uuid
+import warnings
 
 from six import binary_type
 
 from pypsrp.complex_objects import ApartmentState, CommandType, \
-    ComplexObject, DictionaryMeta, ErrorRecord, HostInfo, \
-    HostMethodIdentifier, InformationalRecord, ListMeta, ObjectMeta, \
-    Pipeline, ProgressRecordType, PSThreadOptions, RemoteStreamOptions
+    ComplexObject, DictionaryMeta, ErrorRecord, GenericComplexObject, \
+    HostInfo, HostMethodIdentifier, InformationalRecord, ListMeta, \
+    ObjectMeta, Pipeline, ProgressRecordType, PSThreadOptions, \
+    RemoteStreamOptions
+from pypsrp.exceptions import SerializationError
 from pypsrp._utils import to_string
 
 
@@ -177,7 +180,16 @@ class Message(object):
         # not encapsulated so we set it to a dynamic object and the serializer
         # will work out what is best
         if message_type == MessageType.PIPELINE_OUTPUT:
-            message_data = serializer.deserialize(message_data)
+            # try to deserialize using our known objects, if that fails then
+            # we want to get a generic object at least but raise a warning
+            try:
+                message_data = serializer.deserialize(message_data)
+            except SerializationError as err:
+                warnings.warn("Failed to deserialize msg, trying to "
+                              "deserialize as generic complex object: %s"
+                              % str(err))
+                meta = ObjectMeta("ObjDynamic", object=GenericComplexObject)
+                message_data = serializer.deserialize(message_data, meta)
             message = PipelineOutput()
             message.data = message_data
         elif message_type == MessageType.PIPELINE_INPUT:

@@ -353,8 +353,8 @@ class TestErrorRecord(object):
             "Microsoft.PowerShell.Commands.WriteErrorException"
         assert actual.category == 0
         assert actual.reason == "WriteErrorException"
-        assert actual.target_name is None
-        assert actual.target_type is None
+        assert actual.target_name == ""
+        assert actual.target_type == ""
         assert actual.message == \
             "NotSpecified: (:) [Write-Error], WriteErrorException"
         assert actual.details_message is None
@@ -362,15 +362,15 @@ class TestErrorRecord(object):
         assert actual.script_stacktrace == \
             "at <ScriptBlock>, <No file>: line 5"
         assert actual.extended_info_present
-        assert actual.invocation_name is None
+        assert actual.invocation_name == ""
         assert actual.invocation_bound_parameters == {}
         assert actual.invocation_unbound_arguments == []
         assert str(actual.invocation_command_origin) == "Internal"
         assert actual.invocation_expecting_input is False
-        assert actual.invocation_line is None
+        assert actual.invocation_line == ""
         assert actual.invocation_offset_in_line == 0
-        assert actual.invocation_position_message is None
-        assert actual.invocation_script_name is None
+        assert actual.invocation_position_message == ""
+        assert actual.invocation_script_name == ""
         assert actual.invocation_script_line_number == 0
         assert actual.invocation_history_id == 1
         assert actual.invocation_pipeline_length == 0
@@ -378,7 +378,7 @@ class TestErrorRecord(object):
         assert actual.invocation_pipeline_iteration_info == []
         assert str(actual.command_type) == "Script"
         assert actual.command_definition == "Write-Error 'error stream'\n"
-        assert actual.command_name is None
+        assert actual.command_name == ""
         assert str(actual.command_visibility) == "Public"
         assert actual.pipeline_iteration_info == [0, 0]
 
@@ -487,21 +487,21 @@ class TestWarningRecord(object):
         assert actual.invocation
         assert actual.message == "warning stream"
         assert actual.pipeline_iteration_info == [0, 0]
-        assert actual.invocation_name is None
+        assert actual.invocation_name == ""
         assert actual.invocation_bound_parameters == {}
         assert actual.invocation_unbound_arguments == []
         assert str(actual.invocation_command_origin) == "Runspace"
         assert actual.invocation_expecting_input is False
-        assert actual.invocation_line is None
+        assert actual.invocation_line == ""
         assert actual.invocation_offset_in_line == 0
-        assert actual.invocation_position_message is None
-        assert actual.invocation_script_name is None
+        assert actual.invocation_position_message == ""
+        assert actual.invocation_script_name == ""
         assert actual.invocation_script_line_number == 0
         assert actual.invocation_history_id == 1
         assert actual.invocation_pipeline_length == 1
         assert actual.invocation_pipeline_position == 1
         assert actual.invocation_pipeline_iteration_info == [0, 0]
         assert actual.command_definition == "Write-Warning 'warning stream'\n"
-        assert actual.command_name is None
+        assert actual.command_name == ""
         assert str(actual.command_type) == "Script"
         assert str(actual.command_visibility) == "Public"

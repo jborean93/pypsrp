@@ -554,7 +554,7 @@ class TestTransportHTTP(object):
         response._content = b"content"
         response.headers['content-type'] = \
             'multipart/encrypted;protocol="application/HTTP-SPNEGO-session-' \
-            'encrypted";boundary="Encrypted Boundary'
+            'encrypted";boundary="Encrypted Boundary"'
 
         send_mock = MagicMock()
         send_mock.return_value = response
