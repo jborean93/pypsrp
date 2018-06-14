@@ -8,9 +8,10 @@ pypsrp is a Python client for the PowerShell Remoting Protocol (PSRP) and
 Windows Remove Management (WinRM) service. It allows your to execute commands
 on a remote Windows host from any machine that can run Python.
 
-This library exposes 3 different types of APIs;
+This library exposes 4 different types of APIs;
 
 * A simple client API that can copy files to and from the remote Windows host as well as execute processes and PowerShell scripts
+* A WSMan interface to execute various WSMan calls like `Send`, `Create`, `Connect`, `Disconnect`, etc
 * A Windows Remote Shell (WinRS) layer that executes cmd commands and executables using the base WinRM protocol
 * A PowerShell Remoting Protocol (PSRP) layer allows you to create remote Runspace Pools and PowerShell pipelines
 
@@ -31,8 +32,8 @@ supports the following authentication methods with WSMan;
 * Certificate
 * NTLM
 
-To add full support for Negotiate/Kerberos and CredSSP, optional libraries can
-be installed.
+It also supports `Negotiate/Kerberos`, and `CredSSP` but require extra
+libraries to be isntalled.
 
 
 ## Requirements
@@ -147,6 +148,252 @@ yum install gcc python-devel
 
 # For Fedora
 dnf install gcc python-devel
+```
+
+
+## How to Use
+
+There are 4 main components that are in use within this library;
+
+* `Transport`: Handles the raw transport of messages to and from the server
+* `Conection`: Handles the protocol connection details and how to interact with the transport, used by the Shell to issue commands
+* `Shell`: Handles the WSMV or PSRP protocol details used to create the remote shell that processes are run on
+* `Process`: Runs the process or script within a shell
+
+### Transport
+
+Currently only the transport that is supported is the HTTP protocol through
+`pypsrp.transport.TransportHTTP` and offers mostly all the same features in
+the WSMV spec including;
+
+* Basic, Certificate, Negotiate, Kerberos, and CredSSP authentication
+* TLS encryption
+* Message encryption with Negotiate, Kerberos, and CredSSP authentication
+* Definable proxy
+
+These are the options that can be used to setup `TransportHTTP`;
+
+* `server`: The hostname or IP address of the host to connect to
+* `port`: The port to connect to, default is `5986` if `ssl=True` else `5985`
+* `username`: The username to connect with, required for all auths except `certificate` and optionally required for `negotiate/kerberos`
+* `password`: The password for `username`
+* `ssl`: Whether to connect over `https` or `http`, default is `True`
+* `path`: The WinRM path to connect to, default is `wsman`
+* `auth`: The authentication protocol to use, default is `negotiate`, choices are `basic`, `certificate`, `negotiate`, `ntlm`, `kerberos`, `credssp`
+* `cert_validation`: Whether to validate the server's SSL certificate, default is `True`. Can be `False` to not validate or a path to a PEM file of trusted certificates
+* `connection_timeout`: The timeout for creating a HTTP connection, default is `30`
+* `encryption`: Controls the encryption settings, default is `auto`, choices are `auto`, `always`, `never`. Set to `always` to always run message encryption even over HTTPS, `never` to never use message encryption even over HTTP
+* `proxy`: The proxy URL used to connect to the remote host
+* `no_proxy`: Whether to ignore any environment proxy variable and connect directly to the host, default is `False`
+* `certificate_key_pem`: The path to the certificate key used in `certificate` authentication
+* `certificate_pem`: The path to the certificate used in `certificate` authentication
+* `credssp_auth_mechanism`: The sub-auth mechanism used in CredSSP, default is `auto`, choices are `auto`, `ntlm`, or `kerberos`
+* `credssp_disable_tlsv1_2`: Whether to used CredSSP auth over the insecure TLSv1.0, default is `False`
+* `credssp_minimum_version`: The minimum CredSSP server version that the client will connect to, default is `2`
+* `negotiate_delegate`: Whether to negotiate the credential to the host, default is `False`. This is only valid if `negotiate` auth negotiated Kerberos or `kerberos` was explicitly set
+* `negotiate_hostname_override`: The hostname used to calculate the host SPN when authenticating the host with Kerberos auth. This is only valid if `negotiate` auth negotiated Kerberos or `kerberos` was explicitly set
+* `negotiate_send_cbt`: Whether to binding the channel binding token (HTTPS only) to the auth or ignore, default is `True`
+* `negotiate_service`: Override the service part of the calculated SPN used when authenticating the server, default is `WSMAN`. This is only valid if `negotiate` auth negotiated Kerberos or `kerberos` was explicitly set
+
+When running over HTTP, this library will enforce encryption by default but if
+that is not supported (Basic auth) or isn't available on the host then either
+use HTTPS or disable encryption with `encryption="never"`.
+
+There are plans to add support for SSH as a transport but this still needs to
+be implemented.
+
+### Connection
+
+The connection object is used by each shell to issue commands to the remote
+host. Currently only `pypsrp.wsman.WSMan` is supported. These are the options
+when used to setup `WSMan`;
+
+* `transport`: The transport object to send the messages over
+* `max_envelope_size`: The maximum envelope size, in bytes, that can be sent to the server, default is `153600`
+* `operation_timeout`: The operation timeout, in seconds, of each WSMan operation, default is `20`
+
+There are plans to add support for an SSH connection object but this still
+needs to be implemented.
+
+### Shell
+
+There are two shells that can be used in this library, `pypsrp.shell.WinRS` and
+`pypsrp.powershell.RunspacePool`.
+
+`WinRS` is a cmd shell that can be used to issue cmd commands, including but
+not limited to other executables. Here are the options that can be used to
+configure a `WinRS` shell;
+
+* `wsman`: WinRS only works over WSMan, so this is the `pypsrp.wsman.WSMan` object to run the commands over
+* `resource_uri`: The resource uri of the shell, defaults to `http://schemas.microsoft.com/wbem/wsman/1/windows/shell/cmd`
+* `id`: The ID if the shell, this should be kept as `None` as it is created dynamically by the server
+* `input_streams`: The input stream(s) of the shell, default is `stdin`
+* `output_streams`: The output stream(s) of the shell, default is `stdout, stderr`
+* `codepage`: The codepage of the shell, default is the default of the host
+* `environment`: A dictionary of environment key/values to set for the remote shell
+* `idle_time_out`: THe idle timeout in seconds of the shell
+* `lifetime`: The total lifetime of the shell
+* `name`: The name (description only) of the shell
+* `no_profile`: Whether to create the shell with the user profile loaded or not
+* `working_directory`: The default working directory of the created shell
+
+`RunspacePool` is a shell used by the PSRP protocol, it is designed to be a
+close implementation of the .NET
+[System.Management.Automation.Runspaces.RunspacePool](https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.runspaces.runspacepool?view=powershellsdk-1.1.0)
+class. The methods and properties are similar and can mostly do the same thing.
+Here are the options that can be used to configure a `RunspacePool` shell;
+
+* `connection`: The connection object used by the RunspacePool to send commands to the remote server
+* `apartment_state`: The int value of `pypsrp.complex_objects.ApartmentState` for the remote thread, default is `UNKNOWN`
+* `thread_options`: The int value of `pypsrp.complex_objects.ThreadOptions` that specifies the type of thread to create, default is `DEFAULT`
+* `host_info`: The local host info implementation, default is no host
+* `configuration_name`: The configuration name to connect to, default is `Microsoft.PowerShell` and can be used to specify the Just Enough Administration (JEA) to connect to
+* `min_runspaces`: The minimuum number of runspaces that a pool can hold, default is 1
+* `max_runspaces`: The maximum number of runspaces that a pool can hold. Each PowerShell pipeline is run in a single Runspace, default is 1
+* `session_key_timeout_ms`: The maximum time to wait for a session key transfer from the server
+
+### Process
+
+There are two process objects that can be used, `pypsrp.shell.Process` for the
+`WinRS` shell and `pypsrp.powershell.PowerShell` for the `RunspacePool` shell.
+These objects are ultimately used to execute commands, processes, or scripts on
+the remote host.
+
+`Process` is used with the `WinRS` shell to execute a cmd command or another
+executable. The following options are used to configure the `Process` object;
+
+* `shell`: The `WinRS` shell the process is run over
+* `executable`: The executable or command to run
+* `arguments`: A list of arguments to the executable or command, default is no arguments
+* `id`: The ID of the created command, if not specified then this is dynamically created
+* `no_shell`: Whether to create a command in the cmd shell or bypass it, default is `False`. If `True` then the executable must be the full path to the exe. This only works on older OS' before 2012 R2 (not including)
+
+To execute the process, call `.invoke()`, the `stdout`, `stderr`, and `rc`
+properties contain the output of the command once complete.
+
+`PowerShell` is used by the PSRP protocol, it is designed to be a close
+implementation of the
+[System.Management.Automation.PowerShell](https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.powershell?view=powershellsdk-1.1.0)
+class. The methods and properties are similar and can mostly do the same thing.
+Here are the options that can be used to configure a `PowerShell` process;
+
+* `runspace_pool`: The `RunspacePool` object to run the `PowerShell` process on
+
+To execute the process, call `.invoke()`, the `output`, `had_erros`, and
+`streams` contains the execution status and output information of the process.
+Before invoke can be called, cmdlets or scripts must be added. These can be
+done with the following methods;
+
+* `add_script`: Add a raw PowerShell script to the pending commands
+* `add_cmdlet`: Add a cmdlet to the pending commands
+* `add_parameters`: Add a dictionary of key/value parameters to the last added command
+* `add_argument`: Add a value argument to the last added command
+* `add_statement`: Set the last command/script to be the end of that pipeline so the next command/script is like a newline
+
+See the examples below for more details.
+
+### Examples
+
+How to use the high level client API
+
+```python
+from pypsrp.client import Client
+
+# this takes in the same kwargs as the TransportHTTP object
+client = Client("server", username="user", password="password")
+
+# execute a cmd command
+stdout, stderr, rc = client.execute_cmd("dir")
+
+stdout, stderr, rc = client.execute_cmd("powershell.exe gci $pwd")
+sanitised_stderr = client.sanitise_clixml(stderr)
+
+# execute a PowerShell script
+output, streams, had_errors = client.execute_ps('''$path = "%s"
+if (Test-Path -Path $path) {
+    Remove-Item -Path $path -Force -Recurse
+}
+New-Item -Path $path -ItemType Directory''' % path)
+output, streams, had_errors = client.execute_ps("New-Item -Path C:\\temp\\folder -ItemType Directory")
+
+# copy a file from the local host to the remote host
+client.copy("~/file.txt", "C:\\temp\file.txt")
+
+# fetch a file from the remote host to the local host
+client.fetch("C:\\temp\\file.txt", "~/file.txt")
+```
+
+How to use WinRS/Process to execute a command
+
+
+```python
+from pypsrp.shell import Process, SignalCode, WinRS
+from pypsrp.transport import TransportHTTP
+from pypsrp.wsman import WSMan
+
+# creates a http connection with no encryption and basic auth
+transport = TransportHTTP("server", ssl=False, auth="basic",
+                          encryption="never", username="vagrant",
+                          password="vagrant")
+wsman = WSMan(transport)
+
+with WinRS(wsman) as shell:
+    process = Process(shell, "dir")
+    process.invoke()
+    process.signal(SignalCode.CTRL_C)
+
+    # execute a process with arguments in the background
+    process = Process(shell, "powershell", ["gci", "$pwd"])
+    process.begin_invoke()  # start the invocation and return immediately
+    process.poll_invoke()  # update the output stream
+    process.end_invoke()  # finally wait until the process is finished
+    process.signal(SignalCode.CTRL_C)
+```
+
+How to use RunspacePool/PowerShell to execute a PowerShell script/command
+
+```python
+from pypsrp.powershell import PowerShell, RunspacePool
+from pypsrp.transport import TransportHTTP
+from pypsrp.wsman import WSMan
+
+# creates a https connection with explicit kerberos auth and implicit credentials
+transport = TransportHTTP("server", auth="kerberos", cert_validation=False)
+wsman = WSMan(transport)
+
+with RunspacePool(wsman) as pool:
+    # execute 'Get-Process | Select-Object Name'
+    ps = PowerShell(pool)
+    ps.add_cmdlet("Get-Process").add_cmdlet("Select-Object").add_argument("Name")
+    output = ps.invoke()
+
+    # execute 'Get-Process | Select-Object -Property Name'
+    ps.add_cmdlet("Get-Process").add_cmdlet("Select-Object")
+    ps.add_parameter("Property", "Name")
+    ps.begin_invoke()  # execute process in the background
+    ps.poll_invoke()  # update the output streams
+    ps.end_invoke()  # wait until the process is finished
+
+    # execute 'Get-Process | Select-Object -Property Name; Get-Service audiosrv'
+    ps.add_cmdlet("Get-Process").add_cmdlet("Select-Object").add_parameter("Property", "Name")
+    ps.add_statement()
+    ps.add_cmdlet("Get-Service").add_argument("audiosrc")
+    ps.invoke()
+
+    # execute a PowerShell script with input being sent
+    script = '''begin {
+    $DebugPreference = "Continue"
+    Write-Debug -Message "begin"
+} process {
+    Write-Output -InputObject $input
+} end {
+    Write-Debug -Message "end"
+}
+'''
+    ps.add_script(script)
+    ps.invoke(["string", 1])
+    print(ps.output)
+    print(ps.streams.debug)
 ```
 
 
