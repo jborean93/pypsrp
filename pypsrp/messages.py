@@ -114,9 +114,9 @@ class Message(object):
             message_data = self._serializer.serialize(self.data)
 
         if not isinstance(message_data, binary_type):
-            log.info("Packing PSRP message: %s" % ET.tostring(message_data))
             message_data = \
                 ET.tostring(message_data, encoding='utf-8', method='xml')
+        log.info("Packing PSRP message: %s" % to_string(message_data))
 
         data = struct.pack("<I", self.destination)
         data += struct.pack("<I", self.message_type)
@@ -604,7 +604,7 @@ class RunspacePoolHostResponse(ComplexObject):
         self._extended_properties = (
             ('ci', ObjectMeta("I64", name="ci")),
             ('mi', ObjectMeta("Obj", name="mi", object=HostMethodIdentifier)),
-            ('mr', ObjectMeta("S", name="mr")),
+            ('mr', ObjectMeta(name="mr")),
             ('me', ObjectMeta("Obj", name="me", object=ErrorRecord,
                               optional=True)),
         )

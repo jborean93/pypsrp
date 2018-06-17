@@ -258,7 +258,7 @@ def winrm_transport(request, monkeypatch):
     # to be uncommented in pypsrp/transport.py
     test_messages = getattr(transport, '_test_messages', None)
     if test_messages is not None:
-        yaml_text = yaml.dump({"messages-py26": test_messages},
+        yaml_text = yaml.dump({"messages": test_messages},
                               default_flow_style=False,
                               width=9999)
         print(yaml_text)

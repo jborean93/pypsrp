@@ -14,10 +14,11 @@ from six import string_types
 
 from pypsrp.complex_objects import ApartmentState, Color, \
     CommandMetadataCount, CommandOrigin, Coordinates, ComplexObject, \
-    DictionaryMeta, GenericComplexObject, HostMethodIdentifier, \
-    InformationalRecord, ListMeta, ObjectMeta, ParameterMetadata, \
-    PipelineResultTypes, ProgressRecordType, PSThreadOptions, QueueMeta, \
-    RemoteStreamOptions, SessionStateEntryVisibility, Size, StackMeta
+    CultureInfo, DictionaryMeta, GenericComplexObject, HostMethodIdentifier, \
+    InformationalRecord, KeyInfoDotNet, ListMeta, ObjectMeta, \
+    ParameterMetadata, PipelineResultTypes, ProgressRecordType, PSCredential,\
+    PSThreadOptions, QueueMeta, RemoteStreamOptions, \
+    SessionStateEntryVisibility, Size, StackMeta
 from pypsrp.exceptions import SerializationError
 from pypsrp.messages import DebugRecord, ErrorRecord, InformationRecord, \
     VerboseRecord, WarningRecord
@@ -101,7 +102,7 @@ class Serializer(object):
             # primitive types
             'S': lambda m, d: self._serialize_string(d),
             'ToString': lambda d: self._serialize_string(d),
-            'C': lambda m, d: ord(d),
+            'C': lambda m, d: str(ord(d)),
             'B': lambda m, d: str(d).lower(),
             'DT': lambda m, d: None,
             'TS': lambda m, d: str(d),
@@ -158,7 +159,12 @@ class Serializer(object):
 
         if isinstance(element, string_types):
             element_string = element
-            element = ET.fromstring(element)
+            try:
+                element = ET.fromstring(element)
+            except ET.ParseError as err:
+                log.warning("Failed to parse data '%s' as XML, return raw "
+                            "xml: %s" % (element_string, str(err)))
+                return element_string
         else:
             xml_string = ET.tostring(element, encoding='utf-8', method='xml')
             element_string = to_string(xml_string)
@@ -226,6 +232,8 @@ class Serializer(object):
                     ObjectMeta("Obj", object=ErrorRecord),
                 "System.Management.Automation.Host.Coordinates":
                     ObjectMeta("Obj", object=Coordinates),
+                "System.Management.Automation.Host.KeyInfo":
+                    ObjectMeta("Obj", object=KeyInfoDotNet),
                 "System.Management.Automation.Host.Size":
                     ObjectMeta("Obj", object=Size),
                 "System.Management.Automation.InformationalRecord":
@@ -238,6 +246,8 @@ class Serializer(object):
                     ObjectMeta("Obj", object=ProgressRecordType),
                 "System.Management.Automation.PSBoundParametersDictionary":
                     DictionaryMeta(),
+                "System.Management.Automation.PSCredential":
+                    ObjectMeta("Obj", object=PSCredential),
                 "System.Management.Automation.PSObject":
                     ObjectMeta("ObjDynamic", object=GenericComplexObject),
                 "System.Management.Automation.PSPrimitiveDictionary":
@@ -259,6 +269,8 @@ class Serializer(object):
                     ObjectMeta("Obj", object=VerboseRecord),
                 "System.Management.Automation.WarningRecord":
                     ObjectMeta("Obj", object=WarningRecord),
+                "System.Globalization.CultureInfo":
+                    ObjectMeta("Obj", object=CultureInfo),
 
                 # Fallback to the GenericComplexObject
                 "System.Object":
@@ -353,12 +365,9 @@ class Serializer(object):
         elif metadata.tag == "DCT":
             obj = self._deserialize_dct(element)
         else:
-            # was a primitive type in an object so need to get the value
-            # extended property in that object
-            element = element.find("MS/%s[@N='V']" % metadata.tag)
-
-            # TODO: Add to Obj RefId
-            return self.deserialize(element, metadata, clear=False)
+            log.warning("Unknown metadata tag type '%s', failed to "
+                        "deserialize object" % metadata.tag)
+            obj = element_string
 
         if element.tag == "Obj":
             self.obj[element.attrib['RefId']] = obj
@@ -531,10 +540,10 @@ class Serializer(object):
 
         for key, value in iterator:
             en = ET.SubElement(dct, "En")
-            self.serialize(key, metadata.dict_key_meta, parent=en,
-                           clear=False)
-            self.serialize(value, metadata.dict_value_meta, parent=en,
-                           clear=False)
+            key_meta = copy(metadata.dict_key_meta)
+            value_meta = copy(metadata.dict_value_meta)
+            self.serialize(key, key_meta, parent=en, clear=False)
+            self.serialize(value, value_meta, parent=en, clear=False)
 
         return obj
 
@@ -764,12 +773,6 @@ class Serializer(object):
         if tn_ref is not None:
             ref_id = tn_ref.attrib['RefId']
             obj_types = self.tn[ref_id]
-
-        # could be a Complex object like Size/Coordinates that set the type
-        # with the <S N="T">type</S> extended property
-        type_element = element.find("MS/S[@N='T']")
-        if type_element is not None:
-            obj_types.append(type_element.text)
 
         return obj_types
 

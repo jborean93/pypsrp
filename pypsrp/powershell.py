@@ -20,9 +20,9 @@ from pypsrp.exceptions import FragmentError, InvalidPipelineStateError, \
     InvalidPSRPOperation, InvalidRunspacePoolStateError, WSManFaultError
 from pypsrp.messages import ConnectRunspacePool, CreatePipeline, Destination, \
     EndOfPipelineInput, GetAvailableRunspaces, GetCommandMetadata, \
-    InitRunspacePool, Message, MessageType, ResetRunspaceState, \
-    PipelineInput, PublicKey, SessionCapability, SetMaxRunspaces, \
-    SetMinRunspaces
+    InitRunspacePool, Message, MessageType, PipelineHostResponse, \
+    PipelineInput, PublicKey, ResetRunspaceState, RunspacePoolHostResponse, \
+    SessionCapability, SetMaxRunspaces, SetMinRunspaces
 from pypsrp.serializer import Serializer
 from pypsrp.shell import SignalCode, WinRS
 from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet
@@ -45,7 +45,7 @@ SERIALIZATION_VERSION = "1.1.0.1"
 class RunspacePool(object):
 
     def __init__(self, connection, apartment_state=ApartmentState.UNKNOWN,
-                 thread_options=PSThreadOptions.DEFAULT, host_info=None,
+                 thread_options=PSThreadOptions.DEFAULT, host=None,
                  configuration_name="Microsoft.PowerShell", min_runspaces=1,
                  max_runspaces=1, session_key_timeout_ms=60000):
         """
@@ -61,7 +61,8 @@ class RunspacePool(object):
             the apartment state of the remote thread
         :param thread_options: The ThreadOptions enum int values that specify
             what type of thread of create
-        :param host_info:
+        :param host: An implementation of pypsrp.host.PSHost that defines
+            the current host and what it supports
         :param configuration_name: The PSRP configuration name to connect to,
             by default this is Microsoft.PowerShell which opens a full
             PowerShell endpoint, use this to specify the JEA configuration to
@@ -92,10 +93,11 @@ class RunspacePool(object):
         # behaviour
         self.apartment_state = apartment_state
         self.thread_options = thread_options
-        self.host_info = host_info if host_info is not None else HostInfo()
+        self.host = host
         self.protocol_version = None
         self.ps_version = None
         self.serialization_version = None
+        self.user_events = []
 
         self._application_private_data = None
         self._min_runspaces = min_runspaces
@@ -486,7 +488,8 @@ class RunspacePool(object):
         init_runspace_pool = InitRunspacePool(
             self.min_runspaces, self.max_runspaces,
             PSThreadOptions(value=self.thread_options),
-            ApartmentState(value=self.apartment_state), self.host_info,
+            ApartmentState(value=self.apartment_state),
+            HostInfo(host=self.host),
             application_arguments
         )
         msgs = [session_capability, init_runspace_pool]
@@ -646,10 +649,11 @@ class RunspacePool(object):
             MessageType.RUNSPACE_AVAILABILITY:
                 self._process_runspacepool_availability,
             MessageType.RUNSPACEPOOL_STATE: self._process_runspacepool_state,
-            MessageType.USER_EVENT: None,
+            MessageType.USER_EVENT: self._process_user_event,
             MessageType.APPLICATION_PRIVATE_DATA:
                 self._process_application_private_data,
-            MessageType.RUNSPACEPOOL_HOST_CALL: None,
+            MessageType.RUNSPACEPOOL_HOST_CALL:
+                self._process_runspacepool_host_call,
         }
 
         if pipeline is not None:
@@ -665,7 +669,8 @@ class RunspacePool(object):
                 MessageType.PROGRESS_RECORD: pipeline._process_progress_record,
                 MessageType.INFORMATION_RECORD:
                     pipeline._process_information_record,
-                MessageType.PIPELINE_HOST_CALL: None
+                MessageType.PIPELINE_HOST_CALL:
+                    pipeline._process_pipeline_host_call,
             }
             response_functions.update(pipeline_response_functions)
 
@@ -679,6 +684,29 @@ class RunspacePool(object):
                 return_values.append((message.message_type, message))
 
         return return_values
+
+    def _process_host_call(self, message, response_obj, pipeline=None):
+        if self.host is None:
+            log.warning("Cannot run host call as no host was defined for the "
+                        "runspace, method: %s, args: %s"
+                        % (str(message.data.mi), str(message.data.mp)))
+            return message.data
+
+        response = self.host.run_method(message.data.mi, message.data.mp, self,
+                                        pipeline)
+
+        if response is not None:
+            msg = response_obj()
+            msg.ci = message.data.ci
+            msg.mi = message.data.mi
+            msg.mr = response
+
+            pid = pipeline.id if pipeline is not None else None
+            fragments = self._fragmenter.fragment(msg, self.id, pid)
+            for fragment in fragments:
+                self.shell.send('pr', fragment)
+
+        return message.data
 
     def _process_session_capability(self, message):
         log.debug("Received SessionCapability with protocol version: "
@@ -703,6 +731,9 @@ class RunspacePool(object):
         response = ci_handler(response)
         self.ci_table[ci] = response
         return response
+
+    def _process_runspacepool_host_call(self, message):
+        return self._process_host_call(message, RunspacePoolHostResponse)
 
     def _process_runspacepool_state(self, message):
         log.debug("Received RunspacePoolState with state: %d"
@@ -735,6 +766,9 @@ class RunspacePool(object):
         self._serializer.cipher = cipher
         self._key_exchanged = True
         self._exchange_key = None
+
+    def _process_user_event(self, message):
+        self.user_events.append(message.data)
 
 
 class PowerShell(object):
@@ -942,7 +976,7 @@ class PowerShell(object):
 
     def begin_invoke(
             self, input=None, add_to_history=False, apartment_state=None,
-            host=None, redirect_shell_error_to_out=False,
+            redirect_shell_error_to_out=False,
             remote_stream_options=RemoteStreamOptions.ADD_INVOCATION_INFO):
         """
         Invoke the command asynchronously, use end_invoke to get the output
@@ -953,8 +987,6 @@ class PowerShell(object):
         :param add_to_history: Add the commands run to the pool history
         :param apartment_state: Override the RunspacePool apartment state with
             one just for this invocation
-        :param host: Override the RunspacePool local host settings with one
-            just for this invocation
         :param redirect_shell_error_to_out: Whether to redirect the global
             error output pipe to the commands error output pipe.
         :param remote_stream_options: Whether to return the invocation info on
@@ -974,7 +1006,7 @@ class PowerShell(object):
 
         no_input = input is None or not input
         apartment_state = apartment_state or self.runspace_pool.apartment_state
-        host_info = host or self.runspace_pool.host_info
+        host_info = HostInfo(host=self.runspace_pool.host)
 
         pipeline = Pipeline(
             is_nested=self.is_nested,
@@ -1018,7 +1050,7 @@ class PowerShell(object):
         return self.output
 
     def invoke(self, input=None, add_to_history=False, apartment_state=None,
-               host=None, redirect_shell_error_to_out=False,
+               redirect_shell_error_to_out=False,
                remote_stream_options=RemoteStreamOptions.ADD_INVOCATION_INFO):
         """
         Invoke the command and return the output collection of return objects.
@@ -1028,8 +1060,6 @@ class PowerShell(object):
         :param add_to_history: Add the commands run to the pool history
         :param apartment_state: Override the RunspacePool apartment state with
             one just for this invocation
-        :param host: Override the RunspacePool local host settings with one
-            just for this invocation
         :param redirect_shell_error_to_out: Whether to redirect the global
             error output pipe to the commands error output pipe.
         :param remote_stream_options: Whether to return the invocation info on
@@ -1037,7 +1067,7 @@ class PowerShell(object):
             values. Will default to returning the invocation info on all
         :return: A list of output objects
         """
-        self.begin_invoke(input, add_to_history, apartment_state, host,
+        self.begin_invoke(input, add_to_history, apartment_state,
                           redirect_shell_error_to_out, remote_stream_options)
         return self.end_invoke()
 
@@ -1263,6 +1293,11 @@ class PowerShell(object):
 
     def _process_error_record(self, message):
         self.streams.error.append(message.data)
+
+    def _process_pipeline_host_call(self, message):
+        return self.runspace_pool._process_host_call(message,
+                                                     PipelineHostResponse,
+                                                     self)
 
     def _process_pipeline_state(self, message):
         log.debug("Received PipelineState with state: %d" % message.data.state)

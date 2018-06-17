@@ -23,6 +23,7 @@ At a basic level, you can use this library to;
 * Copy a file from the localhost to the remote Windows host
 * Fetch a file from the remote Windows host to the localhost
 * Create a Runspace Pool that contains one or multiple PowerShell pipelines and execute them asynchronously
+* Support for a reference host base implementation of PSRP for interactive scripts
 
 Currently this library only supports the WSMan transport method but is designed
 to support SSH at some point in the future (PR's are welcome). By default it
@@ -156,7 +157,7 @@ dnf install gcc python-devel
 There are 4 main components that are in use within this library;
 
 * `Transport`: Handles the raw transport of messages to and from the server
-* `Conection`: Handles the protocol connection details and how to interact with the transport, used by the Shell to issue commands
+* `Connection`: Handles the protocol connection details and how to interact with the transport, used by the Shell to issue commands
 * `Shell`: Handles the WSMV or PSRP protocol details used to create the remote shell that processes are run on
 * `Process`: Runs the process or script within a shell
 
@@ -246,7 +247,7 @@ Here are the options that can be used to configure a `RunspacePool` shell;
 * `connection`: The connection object used by the RunspacePool to send commands to the remote server
 * `apartment_state`: The int value of `pypsrp.complex_objects.ApartmentState` for the remote thread, default is `UNKNOWN`
 * `thread_options`: The int value of `pypsrp.complex_objects.ThreadOptions` that specifies the type of thread to create, default is `DEFAULT`
-* `host_info`: The local host info implementation, default is no host
+* `host`: The local host info implementation, default is no host
 * `configuration_name`: The configuration name to connect to, default is `Microsoft.PowerShell` and can be used to specify the Just Enough Administration (JEA) to connect to
 * `min_runspaces`: The minimuum number of runspaces that a pool can hold, default is 1
 * `max_runspaces`: The maximum number of runspaces that a pool can hold. Each PowerShell pipeline is run in a single Runspace, default is 1
@@ -405,8 +406,8 @@ Python script in the `pypsrp` directory.
 
 An easy way to turn on logging for the entire library is to create the
 following JSON file and run your script with
-`PYPSRP_LOG_CFG=log.json python script.py`.
-
+`PYPSRP_LOG_CFG=log.json python script.py` (this does not work with Python
+2.6).
 
 ```json
 {
@@ -521,5 +522,4 @@ tests.
 ## Backlog
 
 * Look into adding SSH as a transport option
-* Add support for host based calls and implement reference host object
-* Live interactive console for PSRP (dependent on the above as well)
+* Live interactive console for PSRP

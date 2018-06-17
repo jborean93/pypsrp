@@ -15,8 +15,8 @@ from pypsrp.complex_objects import Command, CommandType, ErrorRecord, \
 from pypsrp.exceptions import InvalidPipelineStateError, \
     InvalidPSRPOperation, InvalidRunspacePoolStateError, FragmentError, \
     WSManFaultError
-from pypsrp.messages import Message, MessageType, PipelineInput, \
-    RunspacePoolStateMessage
+from pypsrp.messages import Destination, Message, MessageType, PipelineInput, \
+    RunspacePoolHostCall, RunspacePoolStateMessage, UserEvent
 from pypsrp.powershell import Fragmenter, RunspacePool, PowerShell
 from pypsrp.serializer import Serializer
 from pypsrp.transport import TransportHTTP
@@ -413,6 +413,26 @@ class TestRunspacePool(object):
         assert str(err.value) == \
             "Cannot reset runspace state on protocol versions older than " \
             "2.3, actual: 2.2"
+
+    def test_psrp_runspace_host_call_no_host(self):
+        transport = TransportHTTP("", 5985, "", "")
+        wsman = WSMan(transport)
+        rs = RunspacePool(wsman)
+
+        msg = Message(Destination.CLIENT, None, None, RunspacePoolHostCall(),
+                      None)
+        actual = rs._process_runspacepool_host_call(msg)
+        assert actual == msg.data
+
+    def test_psrp_process_user_event(self):
+        transport = TransportHTTP("", 5985, "", "")
+        wsman = WSMan(transport)
+        rs = RunspacePool(wsman)
+
+        msg = Message(Destination.CLIENT, None, None, UserEvent(), None)
+        rs._process_user_event(msg)
+        assert len(rs.user_events) == 1
+        assert rs.user_events[0] == msg.data
 
 
 class TestPSRPScenarios(object):

@@ -154,29 +154,20 @@ class Coordinates(ComplexObject):
         https://msdn.microsoft.com/en-us/library/dd302883.aspx
 
         :param x: The X coordinate (0 is the leftmost column)
-        :param y: The Y coordinate (0 is the topmsot row)
+        :param y: The Y coordinate (0 is the topmost row)
         """
         super(Coordinates, self).__init__()
-        self._extended_properties = (
-            ('_type', ObjectMeta("S", name="T")),
-            ('_value', ObjectMeta("ObjDynamic", name="V",
-                                  object=GenericComplexObject)),
+        self._adapted_properties = (
+            ('x', ObjectMeta("I32", name="X")),
+            ('y', ObjectMeta("I32", name="Y")),
         )
-        self._type = "System.Management.Automation.Host.Coordinates"
+        self._types = [
+            "System.Management.Automation.Host.Coordinates",
+            "System.ValueType",
+            "System.Object"
+        ]
         self.x = kwargs.get('x')
         self.y = kwargs.get('y')
-
-    @property
-    def _value(self):
-        gen_object = GenericComplexObject()
-        gen_object.extended_properties['x'] = self.x
-        gen_object.extended_properties['y'] = self.y
-        return gen_object
-
-    @_value.setter
-    def _value(self, value):
-        self.x = value.extended_properties['x']
-        self.y = value.extended_properties['y']
 
 
 class Size(ComplexObject):
@@ -190,29 +181,21 @@ class Size(ComplexObject):
         :param height: The height of the size
         """
         super(Size, self).__init__()
-        self._extended_properties = (
-            ('_type', ObjectMeta("S", name="T")),
-            ('_value', ObjectMeta("ObjDynamic", name="V",
-                                  object=GenericComplexObject)),
+        self._adapted_properties = (
+            ('width', ObjectMeta("I32", name="Width")),
+            ('height', ObjectMeta("I32", name="Height")),
         )
-        self._type = "System.Management.Automation.Host.Size"
+        self._types = [
+            "System.Management.Automation.Host.Size",
+            "System.ValueType",
+            "System.Object"
+        ]
         self.width = kwargs.get('width')
         self.height = kwargs.get('height')
 
-    @property
-    def _value(self):
-        gen_object = GenericComplexObject()
-        gen_object.extended_properties['width'] = self.width
-        gen_object.extended_properties['height'] = self.height
-        return gen_object
 
-    @_value.setter
-    def _value(self, value):
-        self.width = value.extended_properties['width']
-        self.height = value.extended_properties['height']
-
-
-class Color(ComplexObject):
+class Color(Enum):
+    BLACK = 0
     DARK_BLUE = 1
     DARK_GREEN = 2
     DARK_CYAN = 3
@@ -234,15 +217,28 @@ class Color(ComplexObject):
         [MS-PSRP] 2.2.3.3 Color
         https://msdn.microsoft.com/en-us/library/dd360026.aspx
 
-        :param color The color int value to set
+        :param value: The enum value for Color
         """
-        super(Color, self).__init__()
-        self._extended_properties = (
-            ('_type', ObjectMeta("S", name="T")),
-            ('color', ObjectMeta("I32", name="V")),
-        )
-        self._type = "System.ConsoleColor"
-        self.color = kwargs.get('color')
+        string_map = {
+            0: "Black",
+            1: "DarkBlue",
+            2: "DarkGreen",
+            3: "DarkCyan",
+            4: "DarkRed",
+            5: "DarkMagenta",
+            6: "DarkYellow",
+            7: "Gray",
+            8: "DarkGray",
+            9: "Blue",
+            10: "Green",
+            11: "Cyan",
+            12: "Red",
+            13: "Magenta",
+            14: "Yellow",
+            15: "White",
+        }
+        super(Color, self).__init__("System.ConsoleColor", string_map,
+                                    **kwargs)
 
 
 class RunspacePoolState(object):
@@ -657,7 +653,10 @@ class CommandParameter(ComplexObject):
         self.value = kwargs.get('value')
 
 
+# The host default data is serialized quite differently from the normal rules
+# this contains some sub classes that are specific to the serialized form
 class _HostDefaultData(ComplexObject):
+
     class _DictValue(ComplexObject):
 
         def __init__(self, **kwargs):
@@ -669,6 +668,45 @@ class _HostDefaultData(ComplexObject):
             self.value_type = kwargs.get('value_type')
             self.value = kwargs.get('value')
 
+    class _Color(ComplexObject):
+
+        def __init__(self, color):
+            super(_HostDefaultData._Color, self).__init__()
+            self._extended_properties = (
+                ('type', ObjectMeta("S", name="T")),
+                ('color', ObjectMeta("I32", name="V")),
+            )
+            self.type = "System.ConsoleColor"
+            self.color = color.value
+
+    class _Coordinates(ComplexObject):
+
+        def __init__(self, coordinates):
+            super(_HostDefaultData._Coordinates, self).__init__()
+            self._extended_properties = (
+                ('type', ObjectMeta("S", name="T")),
+                ('value', ObjectMeta("ObjDynamic", name="V",
+                                     object=GenericComplexObject)),
+            )
+            self.type = "System.Management.Automation.Host.Coordinates"
+            self.value = GenericComplexObject()
+            self.value.extended_properties['x'] = coordinates.x
+            self.value.extended_properties['y'] = coordinates.y
+
+    class _Size(ComplexObject):
+
+        def __init__(self, size):
+            super(_HostDefaultData._Size, self).__init__()
+            self._extended_properties = (
+                ('type', ObjectMeta("S", name="T")),
+                ('value', ObjectMeta("ObjDynamic", name="V",
+                                     object=GenericComplexObject)),
+            )
+            self.type = "System.Management.Automation.Host.Size"
+            self.value = GenericComplexObject()
+            self.value.extended_properties['width'] = size.width
+            self.value.extended_properties['height'] = size.height
+
     def __init__(self, **kwargs):
         # Used by HostInfo to encapsulate the host info values inside a
         # special object required by PSRP
@@ -678,54 +716,24 @@ class _HostDefaultData(ComplexObject):
             ('_host_dict', DictionaryMeta(name="data",
                                           dict_key_meta=key_meta)),
         )
-        self.host_info = kwargs.get('host_info')
+        self.raw_ui = kwargs.get('raw_ui')
 
     @property
     def _host_dict(self):
-        int_type = "System.Int32"
-        str_type = "System.String"
-
-        foreground_color = self.host_info.foreground_color
-        background_color = self.host_info.background_color
-        cursor_position = self.host_info.cursor_position
-        window_position = self.host_info.window_position
-        cursor_size = self._DictValue(value_type=int_type,
-                                      value=self.host_info.cursor_size)
-        buffer_size = self.host_info.buffer_size
-        window_size = self.host_info.window_size
-        max_window_size = self.host_info.max_window_size
-        max_physical_window_size = self.host_info.max_physical_window_size
-        window_title = self._DictValue(value_type=str_type,
-                                       value=self.host_info.window_title)
-
-        host_dict = (
-            (0, foreground_color),
-            (1, background_color),
-            (2, cursor_position),
-            (3, window_position),
-            (4, cursor_size),
-            (5, buffer_size),
-            (6, window_size),
-            (7, max_window_size),
-            (8, max_physical_window_size),
-            (9, window_title),
+        return (
+            (0, self._Color(self.raw_ui.foreground_color)),
+            (1, self._Color(self.raw_ui.background_color)),
+            (2, self._Coordinates(self.raw_ui.cursor_position)),
+            (3, self._Coordinates(self.raw_ui.window_position)),
+            (4, self._DictValue(value_type="System.Int32",
+                                value=self.raw_ui.cursor_size)),
+            (5, self._Size(self.raw_ui.buffer_size)),
+            (6, self._Size(self.raw_ui.window_size)),
+            (7, self._Size(self.raw_ui.max_window_size)),
+            (8, self._Size(self.raw_ui.max_physical_window_size)),
+            (9, self._DictValue(value_type="System.String",
+                                value=self.raw_ui.window_title)),
         )
-
-        return host_dict
-
-    @_host_dict.setter
-    def _host_dict(self, value):
-        self.host_info = HostInfo()
-        self.host_info.foreground_color = value.get(0)
-        self.host_info.background_color = value.get(1)
-        self.host_info.cursor_position = value.get(2)
-        self.host_info.window_position = value.get(3)
-        self.host_info.cursor_size = value.get(4)
-        self.host_info.buffer_size = value.get(5)
-        self.host_info.window_size = value.get(6)
-        self.host_info.max_window_size = value.get(7)
-        self.host_info.max_physical_window_size = value.get(8)
-        self.host_info.window_title = value.get(9)
 
 
 class HostInfo(ComplexObject):
@@ -735,84 +743,49 @@ class HostInfo(ComplexObject):
         [MS-PSRP] 2.2.3.14 HostInfo
         https://msdn.microsoft.com/en-us/library/dd340936.aspx
 
-        :param foreground_color: Color used to render characters on the screen
-            buffer
-        :param background_color: Color used to render the background behind
-            characters on the screen buffer
-        :param cursor_position: Coordinates of the cursor in the screen buffer
-        :param window_position: Coordinates of the view window relative to the
-            screen buffer. (0, 0) is the upper left of the screen buffer
-        :param cursor_size: Cursor size as a percentage
-        :param buffer_size: Size of the screen buffer, measured in character
-            cells
-        :param window_size: Size of the window, measured in character cells
-        :param max_window_size: Size of the largest possible window for the
-            current buffer
-        :param max_physical_window_size: Size of the largest possible window
-            ignoring the current buffer dimensions
-        :param window_title: String of the title bar text of the current view
-            window
+        :param host: An implementation of pypsrp.host.PSHost that defines the
+            local host
         """
         super(HostInfo, self).__init__()
         self._extended_properties = (
             ('_host_data', ObjectMeta("Obj", name="_hostDefaultData",
                                       optional=True, object=_HostDefaultData)),
             ('_is_host_null', ObjectMeta("B", name="_isHostNull")),
-            ('_is_host_null', ObjectMeta("B", name="_isHostUINull")),
-            ('_is_host_null', ObjectMeta("B", name="_isHostRawUINull")),
-            ('_is_host_null', ObjectMeta("B", name="_useRunspaceHost")),
+            ('_is_host_ui_null', ObjectMeta("B", name="_isHostUINull")),
+            ('_is_host_raw_ui_null', ObjectMeta("B", name="_isHostRawUINull")),
+            ('_use_runspace_host', ObjectMeta("B", name="_useRunspaceHost")),
         )
-        self.foreground_color = kwargs.get('foreground_color')
-        self.background_color = kwargs.get('background_color')
-        self.cursor_position = kwargs.get('cursor_position')
-        self.window_position = kwargs.get('window_position')
-        self.cursor_size = kwargs.get('cursor_size')
-        self.buffer_size = kwargs.get('buffer_size')
-        self.window_size = kwargs.get('window_size')
-        self.max_window_size = kwargs.get('max_window_size')
-        self.max_physical_window_size = kwargs.get('max_physical_window_size')
-        self.window_title = kwargs.get('window_title')
+        self.host = kwargs.get('host', None)
 
     @property
     def _is_host_null(self):
-        host_null = False
-        attributes = ["foreground_color", "background_color",
-                      "cursor_position", "window_position", "cursor_size",
-                      "buffer_size", "window_size", "max_window_size",
-                      "max_physical_window_size", "window_title"]
-        for attr in attributes:
-            if getattr(self, attr, None) is None:
-                host_null = True
-                break
+        return self.host is None
 
-        return host_null
+    @property
+    def _is_host_ui_null(self):
+        if self.host is not None:
+            return self.host.ui is None
+        else:
+            return True
 
-    @_is_host_null.setter
-    def _is_host_null(self, value):
-        pass
+    @property
+    def _is_host_raw_ui_null(self):
+        if self.host is not None and self.host.ui is not None:
+            return self.host.ui.raw_ui is None
+        else:
+            return True
+
+    @property
+    def _use_runspace_host(self):
+        return self.host is None
 
     @property
     def _host_data(self):
-        if self._is_host_null:
+        if self._is_host_raw_ui_null:
             return None
         else:
-            host_data = _HostDefaultData(host_info=self)
+            host_data = _HostDefaultData(raw_ui=self.host.ui.raw_ui)
             return host_data
-
-    @_host_data.setter
-    def _host_data(self, value):
-        # need to get the host_info values from the temp _HostDefaultData
-        self.foreground_color = value.host_info.foreground_color
-        self.background_color = value.host_info.background_color
-        self.cursor_position = value.host_info.cursor_position
-        self.window_position = value.host_info.window_position
-        self.cursor_size = value.host_info.cursor_size
-        self.buffer_size = value.host_info.buffer_size
-        self.window_size = value.host_info.window_size
-        self.max_window_size = value.host_info.max_window_size
-        self.max_physical_window_size = \
-            value.host_info.max_physical_window_size
-        self.window_title = value.host_info.window_title
 
 
 class ErrorRecord(ComplexObject):
@@ -1431,6 +1404,254 @@ class ParameterMetadata(ComplexObject):
         self.dynamic = kwargs.get('dynamic')
 
 
+class PSCredential(ComplexObject):
+
+    def __init__(self, **kwargs):
+        """
+        [MS-PSRP] 2.2.3.25 PSCredential
+        https://msdn.microsoft.com/en-us/library/ee442231.aspx
+
+        Represents a username and a password. As the password is a secure
+        string, the RunspacePool must have already exchanged keys with
+        .exchange_keys() method.
+
+        :param username: The username (including the domain if required)
+        :param password: The password for the user, this should be a unicode
+            string in order to make sure the encoding is correct
+        """
+        super(PSCredential, self).__init__()
+        self._types = [
+            "System.Management.Automation.PSCredential",
+            "System.Object"
+        ]
+        self._adapted_properties = (
+            ('username', ObjectMeta("S", name="UserName")),
+            ('password', ObjectMeta("SS", name="Password")),
+        )
+        self._to_string = "System.Management.Automation.PSCredential"
+
+        self.username = kwargs.get('username')
+        self.password = kwargs.get('password')
+
+
+class KeyInfo(ComplexObject):
+
+    def __init__(self, **kwargs):
+        """
+        [MS-PSRP] 2.2.3.26 KeyInfo
+        https://msdn.microsoft.com/en-us/library/ee441795.aspx
+
+        Represents information about a keyboard event, this is used for the
+        serialized of a ReadKey host method and is not the same as the
+        serialized form of KeyInfo in .NET (see KeyInfoDotNet).
+
+        :param code: The int value for the virtual key code
+        :param character: The character
+        :param state: The ControlKeyState int value
+        :param key_down: Whether the key is pressed or released
+        """
+        super(KeyInfo, self).__init__()
+        self._extended_properties = (
+            ('code', ObjectMeta("I32", name="virtualKeyCode", optional=True)),
+            ('character', ObjectMeta("C", name="character")),
+            ('state', ObjectMeta("I32", name="controlKeyState")),
+            ('key_down', ObjectMeta("B", name="keyDown")),
+        )
+        self.code = kwargs.get('code')
+        self.character = kwargs.get('character')
+        self.state = kwargs.get('state')
+        self.key_down = kwargs.get('key_down')
+
+
+class KeyInfoDotNet(ComplexObject):
+
+    def __init__(self, **kwargs):
+        """
+        System.Management.Automation.Host.KeyInfo
+        https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.host.keyinfo
+
+        This is the proper serialized form of KeyInfo from .NET, it is
+        returned in a PipelineOutput message.
+
+        :param code: The int value for the virtual key code
+        :param character: The character
+        :param state: The ControlKeyState as a string value
+        :param key_down: Whether the key is pressed or released
+        """
+        super(KeyInfoDotNet, self).__init__()
+        self._types = [
+            "System.Management.Automation.Host.KeyInfo",
+            "System.ValueType",
+            "System.Object"
+        ]
+        self._adapted_properties = (
+            ('code', ObjectMeta("I32", name="VirtualKeyCode")),
+            ('character', ObjectMeta("C", name="Character")),
+            ('state', ObjectMeta("S", name="ControlKeyState")),
+            ('key_down', ObjectMeta("B", name="KeyDown")),
+        )
+        self.code = kwargs.get('code')
+        self.character = kwargs.get('character')
+        self.state = kwargs.get('state')
+        self.key_down = kwargs.get('key_down')
+
+
+class ControlKeyState(object):
+    """
+    [MS-PSRP] 2.2.3.27 ControlKeyStates
+    https://msdn.microsoft.com/en-us/library/ee442685.aspx
+    https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.host.controlkeystates
+
+    A set of zero or more control keys that are help down.
+    """
+    RightAltPressed = 0x0001
+    LeftAltPressed = 0x0002
+    RightCtrlPressed = 0x0004
+    LeftCtrlPressed = 0x0008
+    ShiftPressed = 0x0010
+    NumLockOn = 0x0020
+    ScrollLockOn = 0x0040
+    CapsLockOn = 0x0080
+    EnhancedKey = 0x0100
+
+
+class BufferCell(ComplexObject):
+
+    def __init__(self, **kwargs):
+        """
+        [MS-PSRP] 2.2.3.28 BufferCell
+        https://msdn.microsoft.com/en-us/library/ee443291.aspx
+
+        The contents of a cell of a host's screen buffer.
+
+        :param character: The chracter visibile in the cell
+        :param foreground_color: The Color of the foreground
+        :param background_color: The Color of the background
+        :param cell_type: The int value of BufferCellType
+        """
+        super(BufferCell, self).__init__()
+        self._adapted_properties = (
+            ('character', ObjectMeta("C", name="character")),
+            ('foreground_color', ObjectMeta("Obj", name="foregroundColor",
+                                            object=Color)),
+            ('background_color', ObjectMeta("Obj", name="backgroundColor",
+                                            object=Color)),
+            ('cell_type', ObjectMeta("I32", name="bufferCellType")),
+        )
+        self.character = kwargs.get('character')
+        self.foreground_color = kwargs.get('foreground_color')
+        self.background_color = kwargs.get('background_color')
+        self.cell_type = kwargs.get('cell_type')
+
+
+class BufferCellType(object):
+    """
+    [MS-PSRP] 2.2.3.29 BufferCellType
+    https://msdn.microsoft.com/en-us/library/ee442184.aspx
+
+    The type of a cell of a screen buffer.
+    """
+    COMPLETE = 0
+    LEADING = 1
+    TRAILING = 2
+
+
+class Array(ComplexObject):
+
+    def __init__(self, **kwargs):
+        """
+        [MS-PSRP] 2.2.6.1.4 Array
+        https://msdn.microsoft.com/en-us/library/dd340684.aspx
+
+        Represents a (potentially multi-dimensional) array of elements.
+
+        :param array: The array (list) that needs to be serialised. This can
+            be a multidimensional array (lists in a list)
+        """
+        super(Array, self).__init__()
+        self._extended_properties = (
+            ('mae', ListMeta(name="mae")),
+            ('mal', ListMeta(name="mal", list_value_meta=ObjectMeta("I32"))),
+        )
+        self._array = None
+        self._mae = None
+        self._mal = None
+        self._array = kwargs.get('array')
+
+    @property
+    def array(self):
+        if self._array is None:
+            self._array = self._build_array(self._mae, self._mal)
+
+        return self._array
+
+    @array.setter
+    def array(self, value):
+        self._array = value
+
+    @property
+    def mae(self):
+        # elements of the array are flattened into a list and ordered by first
+        # listing the deepest elements
+        mae = self._get_list_entries(self._array)
+        return mae
+
+    @mae.setter
+    def mae(self, value):
+        self._mae = value
+
+    @property
+    def mal(self):
+        mal = self._get_list_count(self.array)
+        return mal
+
+    @mal.setter
+    def mal(self, value):
+        self._mal = value
+
+    def _build_array(self, mae, mal):
+        values = []
+
+        length = mal.pop(-1)
+        while True:
+            entry = []
+            for i in range(0, length):
+                entry.append(mae.pop(0))
+            values.append(entry)
+            if len(mae) == 0:
+                break
+
+        if len(mal) == 0:
+            values = values[0]
+        elif len(mal) > 1:
+            values = self._build_array(values, mal)
+
+        return values
+
+    def _get_list_entries(self, list_value):
+        values = []
+        for value in list_value:
+            if isinstance(value, list):
+                values.extend(self._get_list_entries(value))
+            else:
+                values.append(value)
+
+        return values
+
+    def _get_list_count(self, list_value):
+        count = []
+
+        current_entry = list_value
+        while True:
+            if isinstance(current_entry, list):
+                count.append(len(current_entry))
+                current_entry = current_entry[0]
+            else:
+                break
+
+        return count
+
+
 class CommandOrigin(Enum):
     RUNSPACE = 0
     INTERNAL = 1
@@ -1504,6 +1725,37 @@ class PipelineResultTypes(Enum):
             "System.Management.Automation.Runspaces.PipelineResultTypes",
             string_map, **kwargs
         )
+
+
+class CultureInfo(ComplexObject):
+
+    def __init__(self, **kwargs):
+        super(CultureInfo, self).__init__()
+
+        self._adapted_properties = (
+            ('lcid', ObjectMeta("I32", name="LCID")),
+            ('name', ObjectMeta("S", name="Name")),
+            ('display_name', ObjectMeta("S", name="DisplayName")),
+            ('ietf_language_tag', ObjectMeta("S", name="IetfLanguageTag")),
+            ('three_letter_iso_name', ObjectMeta(
+                "S", name="ThreeLetterISOLanguageName"
+            )),
+            ('three_letter_windows_name', ObjectMeta(
+                "S", name="ThreeLetterWindowsLanguageName"
+            )),
+            ('two_letter_iso_language_name', ObjectMeta(
+                "S", name="TwoLetterISOLanguageName"
+            )),
+        )
+        self.lcid = kwargs.get('lcid')
+        self.name = kwargs.get('name')
+        self.display_name = kwargs.get('display_name')
+        self.ieft_language_tag = kwargs.get('ietf_language_tag')
+        self.three_letter_iso_name = kwargs.get('three_letter_iso_name')
+        self.three_letter_windows_name = \
+            kwargs.get('three_letter_windows_name')
+        self.two_letter_iso_language_name = \
+            kwargs.get('two_letter_iso_language_name')
 
 
 class ProgressRecordType(Enum):

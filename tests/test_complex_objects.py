@@ -2,9 +2,11 @@ import sys
 
 import pytest
 
-from pypsrp.complex_objects import Color, Command, CommandParameter, \
-    CommandType, Coordinates, HostInfo, ObjectMeta, Pipeline, \
-    PipelineResultTypes, PSThreadOptions, RemoteStreamOptions, Size
+from pypsrp.complex_objects import Array, BufferCell, BufferCellType, Color, \
+    Command, CommandParameter, CommandType, Coordinates, HostInfo, \
+    ObjectMeta, Pipeline, PipelineResultTypes, PSThreadOptions, \
+    RemoteStreamOptions, Size
+from pypsrp.host import PSHost, PSHostRawUserInterface, PSHostUserInterface
 from pypsrp.serializer import Serializer
 from pypsrp._utils import to_unicode
 
@@ -182,44 +184,32 @@ class TestHostInfo(object):
 
     def test_create_host_info(self):
         serializer = Serializer()
-        host_info = HostInfo()
-        host_info.foreground_color = Color(color=Color.CYAN)
-        host_info.background_color = Color(color=Color.RED)
-        host_info.cursor_position = Coordinates(x=1, y=2)
-        host_info.window_position = Coordinates(x=3, y=4)
-        host_info.cursor_size = 10
-        host_info.buffer_size = Size(height=10, width=20)
-        host_info.window_size = Size(height=30, width=40)
-        host_info.max_window_size = Size(height=50, width=60)
-        host_info.max_physical_window_size = Size(height=70, width=80)
-        host_info.window_title = "Random Window Title"
 
+        foreground_color = Color(value=Color.CYAN)
+        background_color = Color(value=Color.RED)
+        cursor_position = Coordinates(x=1, y=2)
+        window_position = Coordinates(x=3, y=4)
+        cursor_size = 10
+        buffer_size = Size(height=10, width=20)
+        window_size = Size(height=30, width=40)
+        max_window_size = Size(height=50, width=60)
+        max_physical_window_size = Size(height=70, width=80)
+        window_title = "Random Window Title"
+
+        ps_raw_ui = PSHostRawUserInterface(
+            window_title, cursor_size, foreground_color, background_color,
+            cursor_position, window_position, buffer_size,
+            max_physical_window_size, max_window_size, window_size
+        )
+        ps_ui = PSHostUserInterface(raw_ui=ps_raw_ui)
+        ps_host = PSHost(None, None, False, None, None, ps_ui, None)
+
+        host_info = HostInfo(host=ps_host)
         expected_xml = normalise_xml(self.HOST_XML)
 
         actual = serializer.serialize(host_info)
         actual_xml = normalise_xml(ET.tostring(actual))
         assert expected_xml == actual_xml
-
-    def test_parse_host_info(self):
-        serializer = Serializer()
-        actual = serializer.deserialize(normalise_xml(self.HOST_XML),
-                                        ObjectMeta("Obj", object=HostInfo))
-        assert actual.foreground_color.color == Color.CYAN
-        assert actual.background_color.color == Color.RED
-        assert actual.cursor_position.x == 1
-        assert actual.cursor_position.y == 2
-        assert actual.window_position.x == 3
-        assert actual.window_position.y == 4
-        assert actual.cursor_size == 10
-        assert actual.buffer_size.height == 10
-        assert actual.buffer_size.width == 20
-        assert actual.window_size.height == 30
-        assert actual.window_size.width == 40
-        assert actual.max_window_size.height == 50
-        assert actual.max_window_size.width == 60
-        assert actual.max_physical_window_size.height == 70
-        assert actual.max_physical_window_size.width == 80
-        assert actual.window_title == u"Random Window Title"
 
 
 class TestRemoteStreamOptions(object):
@@ -774,3 +764,252 @@ class TestPipelineResultTypes(object):
         expected = "Null"
         actual = str(result_type)
         assert actual == expected
+
+
+class TestBufferCell(object):
+
+    BUFFER_CELL = '''<Obj RefId="0">
+    <Props>
+        <C N="character">65</C>
+        <Obj N="foregroundColor" RefId="1">
+            <TN RefId="0">
+                <T>System.ConsoleColor</T>
+                <T>System.Enum</T>
+                <T>System.ValueType</T>
+                <T>System.Object</T>
+            </TN>
+            <ToString>Cyan</ToString>
+            <I32>11</I32>
+        </Obj>
+        <Obj N="backgroundColor" RefId="2">
+            <TNRef RefId="0"/>
+            <ToString>Green</ToString>
+            <I32>10</I32>
+        </Obj>
+        <I32 N="bufferCellType">0</I32>
+    </Props>
+</Obj>'''
+
+    def test_create_buffer_cell(self):
+        serializer = Serializer()
+
+        buffer_cell = BufferCell(
+            character="A", foreground_color=Color(value=Color.CYAN),
+            background_color=Color(value=Color.GREEN),
+            cell_type=BufferCellType.COMPLETE
+        )
+
+        expected_xml = normalise_xml(self.BUFFER_CELL)
+        actual = serializer.serialize(buffer_cell)
+        actual_xml = normalise_xml(ET.tostring(actual))
+
+        assert expected_xml == actual_xml
+
+    def test_parse_buffer_cell(self):
+        serializer = Serializer()
+        actual = serializer.deserialize(normalise_xml(self.BUFFER_CELL),
+                                        ObjectMeta("Obj", object=BufferCell))
+
+        assert actual.character == "A"
+        assert actual.foreground_color.value == Color.CYAN
+        assert actual.background_color.value == Color.GREEN
+        assert actual.cell_type == BufferCellType.COMPLETE
+
+
+class TestArray(object):
+
+    SINGLE_ARRAY = '''<Obj RefId="0">
+    <MS>
+        <Obj N="mae" RefId="1">
+            <TN RefId="0">
+                <T>System.Object[]</T>
+                <T>System.Array</T>
+                <T>System.Object</T>
+            </TN>
+            <LST>
+                <I32>1</I32>
+                <I32>2</I32>
+                <I32>3</I32>
+            </LST>
+        </Obj>
+        <Obj N="mal" RefId="2">
+            <TNRef RefId="0"/>
+            <LST>
+                <I32>3</I32>
+            </LST>
+        </Obj>
+    </MS>
+</Obj>'''
+
+    SINGLE_ARRAY2 = '''<Obj RefId="0">
+        <MS>
+            <Obj N="mae" RefId="1">
+                <TN RefId="0">
+                    <T>System.Object[]</T>
+                    <T>System.Array</T>
+                    <T>System.Object</T>
+                </TN>
+                <LST>
+                    <I32>4</I32>
+                    <I32>5</I32>
+                    <I32>6</I32>
+                </LST>
+            </Obj>
+            <Obj N="mal" RefId="2">
+                <TNRef RefId="0"/>
+                <LST>
+                    <I32>3</I32>
+                </LST>
+            </Obj>
+        </MS>
+    </Obj>'''
+
+    TWO_ARRAY = '''<Obj RefId="0">
+    <MS>
+        <Obj N="mae" RefId="1">
+            <TN RefId="0">
+                <T>System.Object[]</T>
+                <T>System.Array</T>
+                <T>System.Object</T>
+            </TN>
+            <LST>
+                <I32>1</I32>
+                <I32>2</I32>
+                <I32>3</I32>
+                <I32>4</I32>
+                <I32>5</I32>
+                <I32>6</I32>
+                <I32>7</I32>
+                <I32>8</I32>
+                <I32>9</I32>
+            </LST>
+        </Obj>
+        <Obj N="mal" RefId="2">
+            <TNRef RefId="0"/>
+            <LST>
+                <I32>3</I32>
+                <I32>3</I32>
+            </LST>
+        </Obj>
+    </MS>
+</Obj>'''
+
+    THREE_ARRAY = '''<Obj RefId="0">
+    <MS>
+        <Obj N="mae" RefId="1">
+            <TN RefId="0">
+                <T>System.Object[]</T>
+                <T>System.Array</T>
+                <T>System.Object</T>
+            </TN>
+            <LST>
+                <I32>1</I32>
+                <I32>2</I32>
+                <I32>3</I32>
+                <I32>4</I32>
+                <I32>5</I32>
+                <I32>6</I32>
+                <I32>7</I32>
+                <I32>8</I32>
+                <I32>9</I32>
+                <I32>10</I32>
+                <I32>11</I32>
+                <I32>12</I32>
+                <I32>13</I32>
+                <I32>14</I32>
+                <I32>15</I32>
+                <I32>16</I32>
+                <I32>17</I32>
+                <I32>18</I32>
+                <I32>19</I32>
+                <I32>20</I32>
+                <I32>21</I32>
+                <I32>22</I32>
+                <I32>23</I32>
+                <I32>24</I32>
+            </LST>
+        </Obj>
+        <Obj N="mal" RefId="2">
+            <TNRef RefId="0"/>
+            <LST>
+                <I32>2</I32>
+                <I32>3</I32>
+                <I32>4</I32>
+            </LST>
+        </Obj>
+    </MS>
+</Obj>'''
+
+    def test_create_array(self):
+        serializer = Serializer()
+
+        array = Array(array=[1, 2, 3])
+
+        expected_xml = normalise_xml(self.SINGLE_ARRAY)
+        actual = serializer.serialize(array)
+        actual_xml = normalise_xml(ET.tostring(actual))
+
+        assert expected_xml == actual_xml
+
+        array.array = [4, 5, 6]
+        expected_xml = normalise_xml(self.SINGLE_ARRAY2)
+        actual = serializer.serialize(array)
+        actual_xml = normalise_xml(ET.tostring(actual))
+
+        assert expected_xml == actual_xml
+
+    def test_parse_array(self):
+        serializer = Serializer()
+        actual = serializer.deserialize(self.SINGLE_ARRAY,
+                                        ObjectMeta("Obj", object=Array))
+        array = actual.array
+        assert array == [1, 2, 3]
+        assert actual.mae == [1, 2, 3]
+        assert actual.mal == [3]
+
+    def test_two_dimensional_create_array(self):
+        serializer = Serializer()
+
+        array = Array(array=[[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+
+        expected_xml = normalise_xml(self.TWO_ARRAY)
+        actual = serializer.serialize(array)
+        actual_xml = normalise_xml(ET.tostring(actual))
+
+        assert expected_xml == actual_xml
+
+    def test_parse_two_dimensional_array(self):
+        serializer = Serializer()
+        actual = serializer.deserialize(self.TWO_ARRAY,
+                                        ObjectMeta("Obj", object=Array))
+        array = actual.array
+        assert array == [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+        assert actual.mae == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        assert actual.mal == [3, 3]
+
+    def test_three_dimensional_create_array(self):
+        serializer = Serializer()
+
+        array = Array(array=[
+            [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]],
+            [[13, 14, 15, 16], [17, 18, 19, 20], [21, 22, 23, 24]]
+        ])
+
+        expected_xml = normalise_xml(self.THREE_ARRAY)
+        actual = serializer.serialize(array)
+        actual_xml = normalise_xml(ET.tostring(actual))
+
+        assert expected_xml == actual_xml
+
+    def test_parse_three_dimensional_array(self):
+        serializer = Serializer()
+        actual = serializer.deserialize(self.THREE_ARRAY,
+                                        ObjectMeta("Obj", object=Array))
+        array = actual.array
+        assert array == [
+            [[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12]],
+            [[13, 14, 15, 16], [17, 18, 19, 20], [21, 22, 23, 24]]
+        ]
+        assert actual.mae == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+                              13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
+        assert actual.mal == [2, 3, 4]

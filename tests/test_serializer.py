@@ -275,3 +275,26 @@ class TestSerializer(object):
             "System.Management.Automation.PSCustomObject",
             "System.Object"
         ]
+
+    def test_deserialize_empty_string(self):
+        serializer = Serializer()
+        actual = serializer.deserialize('')
+        assert actual == ''
+
+    def test_deserialize_unknown_tag(self):
+        serializer = Serializer()
+        xml = '''<Obj N="Value" RefId="14">
+    <MS>
+        <S N="T">System.Management.Automation.Host.Size</S>
+        <Obj N="V" RefId="15">
+            <MS>
+                <I32 N="height">50</I32>
+                <I32 N="width">60</I32>
+            </MS>
+        </Obj>
+    </MS>
+</Obj>'''
+        actual = serializer.deserialize(xml, ObjectMeta(
+            "fake", object=GenericComplexObject
+        ))
+        assert actual == xml
