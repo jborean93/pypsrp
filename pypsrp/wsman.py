@@ -4,10 +4,24 @@
 from __future__ import division
 
 import logging
+import requests
 import sys
 import uuid
+import warnings
 
-from pypsrp.exceptions import WinRMError, WinRMTransportError, WSManFaultError
+from pypsrp.encryption import WinRMEncryption
+from pypsrp.exceptions import AuthenticationError, WinRMError, \
+    WinRMTransportError, WSManFaultError
+from pypsrp.negotiate import HTTPNegotiateAuth
+from pypsrp._utils import to_string, get_hostname
+
+HAS_CREDSSP = True
+CREDSSP_IMP_ERR = None
+try:
+    from requests_credssp import HttpCredSSPAuth
+except ImportError as err:  # pragma: no cover
+    HAS_CREDSSP = False
+    CREDSSP_IMP_ERR = err
 
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
     # ElementTree in Python 2.6 does not support namespaces so we need to use
@@ -93,16 +107,23 @@ class WSManAction(object):
 
 class WSMan(object):
 
-    def __init__(self, transport, max_envelope_size=153600,
-                 operation_timeout=20):
+    def __init__(self, server, max_envelope_size=153600, operation_timeout=20,
+                 port=None, username=None, password=None, ssl=True,
+                 path="wsman", auth="negotiate", cert_validation=True,
+                 connection_timeout=30, encryption='auto', proxy=None,
+                 no_proxy=False, **kwargs):
         """
-        Class that handles the WS-Man actions that are required. This is a
-        fairly thin wrapper that exposes a method per action that takes in a
-        resource and the header metadata required by that resource.
+        Class that handles WSMan transport over HTTP. This exposes a method per
+        action that takes in a resource and the header metadata required by
+        that resource.
+
+        This is required by the pypsrp.shell.WinRS and
+        pypsrp.powershell.RunspacePool in order to connect to the remote host.
+        It uses HTTP(S) to send data to the remote host.
 
         https://msdn.microsoft.com/en-us/library/cc251598.aspx
 
-        :param transport: The transport to send the SOAP messages over
+        :param server: The hostname or IP address of the host to connect to
         :param max_envelope_size: The maximum size of the envelope that can be
             sent to the server. Use update_max_envelope_size() to query the
             server for the true value
@@ -110,17 +131,60 @@ class WSMan(object):
             can be sent to the server
         :param operation_timeout: Indicates that the client expects a response
             or a fault within the specified time.
+        :param port: THe port to connect to, default is 5986 if ssl=True, else
+            5985
+        :param username: The username to connect with
+        :param password: The password for the above username
+        :param ssl: Whether to connect over http or https
+        :param path: The WinRM path to connect to
+        :param auth: The auth protocol to use; basic, certificate, negotiate,
+            credssp. Can also specify ntlm or kerberos to limit the negotiate
+            protocol
+        :param cert_validation: Whether to validate the server's SSL cert
+        :param connection_timeout: The timeout for connecting to the HTTP
+            endpoint
+        :param encryption: Controls the encryption setting, default is auto
+            but can be set to always or never
+        :param proxy: The proxy URL used to connect to the remote host
+        :param no_proxy: Whether to ignore any environment proxy vars and
+            connect directly to the host endpoint
+        :param kwargs: Dynamic kwargs based on the auth protocol set
+            # auth='certificate'
+            certificate_key_pem: The path to the cert key pem file
+            certificate_pem: The path to the cert pem file
+
+            # auth='credssp'
+            credssp_auth_mechanism: The sub auth mechanism to use in CredSSP,
+                default is 'auto' but can be 'ntlm' or 'kerberos'
+            credssp_disable_tlsv1_2: Use TLSv1.0 instead of 1.2
+            credssp_minimum_version: The minimum CredSSP server version to
+                allow
+
+            # auth in ['negotiate', 'ntlm', 'kerberos']
+            negotiate_send_cbt: Whether to send the CBT token on HTTPS
+                connections, default is True
+
+            # the below are only relevant when kerberos (or nego used kerb)
+            negotiate_delegate: Whether to delegate the Kerb token to extra
+                servers (credential delegation), default is False
+            negotiate_hostname_override: Override the hostname used when
+                building the server SPN
+            negotiate_service: Override the service used when building the
+                server SPN, default='WSMAN'
         """
         log.info("Initialising WSMan class with maximum envelope size of %d "
                  "and operation timeout of %s"
                  % (max_envelope_size, operation_timeout))
         self.session_id = str(uuid.uuid4())
-        self.transport = transport
+        self.transport = _TransportHTTP(server, port, username, password, ssl,
+                                        path, auth, cert_validation,
+                                        connection_timeout, encryption, proxy,
+                                        no_proxy, **kwargs)
         self.max_envelope_size = max_envelope_size
         self.operation_timeout = operation_timeout
 
         # register well known namespace prefixes so ElementTree doesn't
-        # randomly generate them
+        # randomly generate them, saving packet space
         for key, value in NAMESPACES.items():
             ET.register_namespace(key, value)
 
@@ -136,7 +200,7 @@ class WSMan(object):
         # MaxEnvelopeSizekb value * 1024. Otherwise the
         # update_max_envelope_size() function can be called and it will gather
         # this information for you.
-        self._max_payload_size = self._calc_envelope_size(max_envelope_size)
+        self.max_payload_size = self._calc_envelope_size(max_envelope_size)
 
     def command(self, resource_uri, resource, option_set=None,
                 selector_set=None, timeout=None):
@@ -207,7 +271,7 @@ class WSMan(object):
         server_max_size = int(max_size_kb) * 1024
         max_envelope_size = self._calc_envelope_size(server_max_size)
         self.max_envelope_size = server_max_size
-        self._max_payload_size = max_envelope_size
+        self.max_payload_size = max_envelope_size
 
     def _invoke(self, action, resource_uri, resource, option_set=None,
                 selector_set=None, timeout=None):
@@ -478,3 +542,286 @@ class SelectorSet(_WSManSet):
 
     def __init__(self):
         super(SelectorSet, self).__init__("SelectorSet", "Selector", False)
+
+
+# this should not be used outside of this class
+class _TransportHTTP(object):
+
+    SUPPORTED_AUTHS = ["basic", "certificate", "credssp", "kerberos",
+                       "negotiate", "ntlm"]
+
+    AUTH_KWARGS = {
+        "certificate": ["certificate_key_pem", "certificate_pem"],
+        "credssp": ["credssp_auth_mechanism", "credssp_disable_tlsv1_2",
+                    "credssp_minimum_version"],
+        "negotiate": ["negotiate_delegate", "negotiate_hostname_override",
+                      "negotiate_send_cbt", "negotiate_service"],
+    }
+
+    def __init__(self, server, port=None, username=None, password=None,
+                 ssl=True, path="wsman", auth="negotiate",
+                 cert_validation=True, connection_timeout=30,
+                 encryption='auto', proxy=None, no_proxy=False, **kwargs):
+        self.server = server
+        self.port = port if port is not None else (5986 if ssl else 5985)
+        self.username = username
+        self.password = password
+        self.ssl = ssl
+        self.path = path
+
+        if auth not in self.SUPPORTED_AUTHS:
+            raise ValueError("The specified auth '%s' is not supported, "
+                             "please select one of '%s'"
+                             % (auth, ", ".join(self.SUPPORTED_AUTHS)))
+        self.auth = auth
+        self.cert_validation = cert_validation
+        self.connection_timeout = connection_timeout
+
+        # determine the message encryption logic
+        if encryption not in ["auto", "always", "never"]:
+            raise ValueError("The encryption value '%s' must be auto, "
+                             "always, or never" % encryption)
+        enc_providers = ["credssp", "kerberos", "negotiate", "ntlm"]
+        if ssl:
+            # msg's are automatically encrypted with TLS, we only want message
+            # encryption if always was specified
+            self.wrap_required = encryption == "always"
+            if self.wrap_required and self.auth not in enc_providers:
+                raise ValueError(
+                    "Cannot use message encryption with auth '%s', either set "
+                    "encryption='auto' or use one of the following auth "
+                    "providers: %s" % (self.auth, ", ".join(enc_providers))
+                )
+        else:
+            # msg's should always be encrypted when not using SSL, unless the
+            # user specifies to never encrypt
+            self.wrap_required = not encryption == "never"
+            if self.wrap_required and self.auth not in enc_providers:
+                raise ValueError(
+                    "Cannot use message encryption with auth '%s', either set "
+                    "encryption='never', use ssl=True or use one of the "
+                    "following auth providers: %s"
+                    % (self.auth, ", ".join(enc_providers))
+                )
+        self.encryption = None
+
+        self.proxy = proxy
+        self.no_proxy = no_proxy
+
+        for kwarg_list in self.AUTH_KWARGS.values():
+            for kwarg in kwarg_list:
+                setattr(self, kwarg, kwargs.get(kwarg, None))
+
+        self.endpoint = "%s://%s:%d/%s" \
+                        % ("https" if ssl else "http", server, self.port, path)
+        log.info("Initialising HTTP transport for endpoint: %s, auth: %s, "
+                 "user: %s" % (self.endpoint, self.username, self.auth))
+        self.session = None
+
+        # used when building tests, keep commented out
+        # self._test_messages = []
+
+    def send(self, message):
+        hostname = get_hostname(self.endpoint)
+        if self.session is None:
+            self.session = self._build_session()
+
+            # need to send an initial blank message to setup the security
+            # context required for encryption
+            if self.wrap_required:
+                request = requests.Request('POST', self.endpoint, data=None)
+                prep_request = self.session.prepare_request(request)
+                self._send_request(prep_request, hostname)
+
+        log.debug("Sending message: %s" % message)
+        # for testing, keep commented out
+        # self._test_messages.append({"request": message.decode('utf-8'),
+        #                             "response": None})
+
+        headers = self.session.headers
+        if self.wrap_required:
+            content_type, payload = self.encryption.wrap_message(message,
+                                                                 hostname)
+            type_header = '%s;protocol="%s";boundary="Encrypted Boundary"' \
+                          % (content_type, self.encryption.protocol)
+            headers.update({
+                'Content-Type': type_header,
+                'Content-Length': str(len(payload)),
+            })
+        else:
+            payload = message
+            headers['Content-Type'] = "application/soap+xml;charset=UTF-8"
+
+        request = requests.Request('POST', self.endpoint, data=payload,
+                                   headers=headers)
+        prep_request = self.session.prepare_request(request)
+        return self._send_request(prep_request, hostname)
+
+    def _send_request(self, request, hostname):
+        response = self.session.send(request, timeout=self.connection_timeout)
+
+        content_type = response.headers.get('content-type', "")
+        if content_type.startswith("multipart/encrypted;") or \
+                content_type.startswith("multipart/x-multi-encrypted;"):
+            response_content = self.encryption.unwrap_message(response.content,
+                                                              hostname)
+            response_text = to_string(response_content)
+        else:
+            response_content = response.content
+            response_text = response.text if response_content else ''
+
+        log.debug("Received message: %s" % response_text)
+        # for testing, keep commented out
+        # self._test_messages[-1]['response'] = response_text
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as err:
+            response = err.response
+            if response.status_code == 401:
+                raise AuthenticationError("Failed to authenticate the user %s "
+                                          "with %s"
+                                          % (self.username, self.auth))
+            else:
+                code = response.status_code
+                raise WinRMTransportError('http', code, response_text)
+
+        return response_content
+
+    def _build_session(self):
+        log.debug("Building requests session with auth %s" % self.auth)
+        self._suppress_library_warnings()
+
+        session = requests.Session()
+        session.headers['User-Agent'] = "Python PSRP Client"
+
+        # get the env requests settings
+        session.trust_env = True
+        settings = session.merge_environment_settings(url=self.endpoint,
+                                                      proxies={},
+                                                      stream=None,
+                                                      verify=None,
+                                                      cert=None)
+
+        # set the proxy config
+        orig_proxy = session.proxies
+        session.proxies = settings['proxies']
+        if self.proxy is not None:
+            proxy_key = 'https' if self.ssl else 'http'
+            session.proxies = {
+                proxy_key: self.proxy
+            }
+        elif self.no_proxy:
+            session.proxies = orig_proxy
+
+        # set cert validation config
+        session.verify = self.cert_validation
+
+        # if cert_validation is a bool (no path specified), not False and there
+        # are env settings for verification, set those env settings
+        if isinstance(self.cert_validation, bool) and self.cert_validation \
+                and settings['verify'] is not None:
+            session.verify = settings['verify']
+
+        build_auth = getattr(self, "_build_auth_%s" % self.auth)
+        build_auth(session)
+        return session
+
+    def _build_auth_basic(self, session):
+        if self.username is None:
+            raise ValueError("For basic auth, the username must be specified")
+        if self.password is None:
+            raise ValueError("For basic auth, the password must be specified")
+
+        session.auth = requests.auth.HTTPBasicAuth(username=self.username,
+                                                   password=self.password)
+
+    def _build_auth_certificate(self, session):
+        if self.certificate_key_pem is None:
+            raise ValueError("For certificate auth, the path to the "
+                             "certificate key pem file must be specified with "
+                             "certificate_key_pem")
+        if self.certificate_pem is None:
+            raise ValueError("For certificate auth, the path to the "
+                             "certificate pem file must be specified with "
+                             "certificate_pem")
+        if self.ssl is False:
+            raise ValueError("For certificate auth, SSL must be used")
+
+        session.cert = (self.certificate_pem, self.certificate_key_pem)
+        session.headers['Authorization'] = "http://schemas.dmtf.org/wbem/" \
+                                           "wsman/1/wsman/secprofile/" \
+                                           "https/mutual"
+
+    def _build_auth_credssp(self, session):
+        if not HAS_CREDSSP:
+            raise ImportError("Cannot use CredSSP auth as requests-credssp is "
+                              "not installed: %s" % str(CREDSSP_IMP_ERR))
+
+        if self.username is None:
+            raise ValueError("For credssp auth, the username must be "
+                             "specified")
+        if self.password is None:
+            raise ValueError("For credssp auth, the password must be "
+                             "specified")
+
+        kwargs = self._get_auth_kwargs('credssp')
+        session.auth = HttpCredSSPAuth(username=self.username,
+                                       password=self.password,
+                                       **kwargs)
+        self.encryption = WinRMEncryption(
+            session.auth, WinRMEncryption.CREDSSP
+        )
+
+    def _build_auth_kerberos(self, session):
+        self._build_auth_negotiate(session, "kerberos")
+
+    def _build_auth_negotiate(self, session, auth_provider="auto"):
+        kwargs = self._get_auth_kwargs('negotiate')
+
+        session.auth = HTTPNegotiateAuth(username=self.username,
+                                         password=self.password,
+                                         auth_provider=auth_provider,
+                                         wrap_required=self.wrap_required,
+                                         **kwargs)
+        self.encryption = WinRMEncryption(
+            session.auth, WinRMEncryption.SPNEGO
+        )
+
+    def _build_auth_ntlm(self, session):
+        self._build_auth_negotiate(session, "ntlm")
+
+    def _get_auth_kwargs(self, auth_provider):
+        kwargs = {}
+        for kwarg in self.AUTH_KWARGS[auth_provider]:
+            kwarg_value = getattr(self, kwarg, None)
+            if kwarg_value is not None:
+                kwarg_key = kwarg[len(auth_provider) + 1:]
+                kwargs[kwarg_key] = kwarg_value
+
+        return kwargs
+
+    def _suppress_library_warnings(self):
+        # try to suppress known warnings from requests if possible
+        try:
+            from requests.packages.urllib3.exceptions import \
+                InsecurePlatformWarning
+            warnings.simplefilter('ignore', category=InsecurePlatformWarning)
+        except:  # pragma: no cover
+            pass
+
+        try:
+            from requests.packages.urllib3.exceptions import SNIMissingWarning
+            warnings.simplefilter('ignore', category=SNIMissingWarning)
+        except:  # pragma: no cover
+            pass
+
+        # if we're explicitly ignoring validation, try to suppress
+        # InsecureRequestWarning, since the user opted-in
+        if self.cert_validation is False:
+            try:
+                from requests.packages.urllib3.exceptions import \
+                    InsecureRequestWarning
+                warnings.simplefilter('ignore',
+                                      category=InsecureRequestWarning)
+            except:  # pragma: no cover
+                pass

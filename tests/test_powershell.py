@@ -19,7 +19,6 @@ from pypsrp.messages import Destination, Message, MessageType, PipelineInput, \
     RunspacePoolHostCall, RunspacePoolStateMessage, UserEvent
 from pypsrp.powershell import Fragmenter, RunspacePool, PowerShell
 from pypsrp.serializer import Serializer
-from pypsrp.transport import TransportHTTP
 from pypsrp.wsman import WSMan
 
 
@@ -55,12 +54,11 @@ class RSPoolTest(object):
 
 class TestRunspacePool(object):
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_psrp_open_runspace']],
                              indirect=True)
-    def test_psrp_open_runspace(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        runspace_pool = RunspacePool(wsman)
+    def test_psrp_open_runspace(self, wsman_conn):
+        runspace_pool = RunspacePool(wsman_conn)
         assert runspace_pool.state == RunspacePoolState.BEFORE_OPEN
         runspace_pool.open()
         assert runspace_pool.application_private_data is not None
@@ -68,12 +66,11 @@ class TestRunspacePool(object):
         runspace_pool.close()
         assert runspace_pool.state == RunspacePoolState.CLOSED
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_psrp_set_runspaces']],
                              indirect=True)
-    def test_psrp_set_runspaces(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        runspace_pool = RunspacePool(wsman)
+    def test_psrp_set_runspaces(self, wsman_conn):
+        runspace_pool = RunspacePool(wsman_conn)
         assert runspace_pool.min_runspaces == 1
         assert runspace_pool.max_runspaces == 1
 
@@ -115,29 +112,27 @@ class TestRunspacePool(object):
         finally:
             runspace_pool.close()
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # cannot really test in a real life scenario so
                              # rely on pre-built responses with a timeout in
                              # the reply
                              [[False, 'test_psrp_key_exchange_timeout']],
                              indirect=True)
-    def test_psrp_key_exchange_timeout(self, winrm_transport, monkeypatch):
+    def test_psrp_key_exchange_timeout(self, wsman_conn, monkeypatch):
         monkeypatch.setattr('cryptography.hazmat.primitives.asymmetric.rsa.'
                             'generate_private_key', gen_rsa_keypair)
-        wsman = WSMan(winrm_transport)
-        with RunspacePool(wsman, session_key_timeout_ms=500) as pool:
+        with RunspacePool(wsman_conn, session_key_timeout_ms=500) as pool:
             with pytest.raises(InvalidPSRPOperation) as exc:
                 pool.exchange_keys()
             assert str(exc.value) == "Timeout while waiting for key exchange"
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # due to tests sometimes leaving pools open
                              # we are going to mock the data for this one
                              [[False, 'test_psrp_disconnect_runspaces']],
                              indirect=True)
-    def test_psrp_disconnect_runspaces(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        runspace_pool = RunspacePool(wsman)
+    def test_psrp_disconnect_runspaces(self, wsman_conn):
+        runspace_pool = RunspacePool(wsman_conn)
         runspace_pool.open()
         runspace_pool.disconnect()
         assert runspace_pool.state == RunspacePoolState.DISCONNECTED
@@ -147,11 +142,15 @@ class TestRunspacePool(object):
 
         actual = []
         try:
-            runspace_pool2 = RunspacePool(wsman)
+            runspace_pool2 = RunspacePool(wsman_conn)
             runspace_pool2.open()
             runspace_pool2.disconnect()
 
-            wsman2 = WSMan(winrm_transport)
+            # build a new WSMan object with new unique ID and new requests
+            # session
+            wsman2 = WSMan(wsman_conn.transport.server)
+            wsman2.transport = wsman_conn.transport
+            wsman2.transport.session = None
             actual = RunspacePool.get_runspace_pools(wsman2)
             assert len(actual) == 2
             assert actual[0].id == runspace_pool.id or \
@@ -168,16 +167,15 @@ class TestRunspacePool(object):
                 pool.close()
                 assert pool.state == RunspacePoolState.CLOSED
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_psrp_application_args']],
                              indirect=True)
-    def test_psrp_application_args(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
+    def test_psrp_application_args(self, wsman_conn):
         app_arguments = {
             "test_var": "abcdef12345"
         }
 
-        pool = RunspacePool(wsman)
+        pool = RunspacePool(wsman_conn)
         pool.open(app_arguments)
         try:
             ps = PowerShell(pool)
@@ -187,15 +185,13 @@ class TestRunspacePool(object):
         finally:
             pool.close()
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # the commands on the server could differ based on
                              # each version, used existing responses instead
                              [[False, 'test_psrp_get_command_metadata']],
                              indirect=True)
-    def test_psrp_get_command_metadata(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-
-        with RunspacePool(wsman) as pool:
+    def test_psrp_get_command_metadata(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool:
             actual_full = pool.get_command_metadata("new-pssession*")
             actual_types = pool.get_command_metadata(["new-*"], command_types=CommandType.FUNCTION)
             actual_namespaced = pool.get_command_metadata("Get-*", namespace=["Microsoft.WSMan.Management"])
@@ -223,15 +219,13 @@ class TestRunspacePool(object):
                 assert isinstance(key, text_type)
                 assert isinstance(value, ParameterMetadata)
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # reset was only added in v2.3, use existing
                              # responses for test
                              [[False, 'test_psrp_reset_runspace_state']],
                              indirect=True)
-    def test_psrp_reset_runspace_state(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-
-        with RunspacePool(wsman) as pool:
+    def test_psrp_reset_runspace_state(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool:
             ps = PowerShell(pool)
             ps.add_script("echo hi")
             ps.invoke(add_to_history=True)
@@ -245,14 +239,13 @@ class TestRunspacePool(object):
         # should be empty after clearing history
         assert actual == []
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # reset was only added in v2.3, use existing
                              # responses for test
                              [[False, 'test_psrp_reset_runspace_state_fail']],
                              indirect=True)
-    def test_psrp_reset_runspace_state_fail(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        pool = RunspacePool(wsman)
+    def test_psrp_reset_runspace_state_fail(self, wsman_conn):
+        pool = RunspacePool(wsman_conn)
         pool.open()
 
         try:
@@ -262,14 +255,13 @@ class TestRunspacePool(object):
         finally:
             pool.close()
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # JEA endpoint was configured manually to only
                              # allow Get-Item and access to the WSMan provider
                              [[False, 'test_psrp_with_jea_configuration']],
                              indirect=True)
-    def test_psrp_with_jea_configuration(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        with RunspacePool(wsman, configuration_name="JEARole") as pool:
+    def test_psrp_with_jea_configuration(self, wsman_conn):
+        with RunspacePool(wsman_conn, configuration_name="JEARole") as pool:
             ps = PowerShell(pool)
             ps.add_cmdlet("Get-Item").add_parameter(
                 "Path", "WSMan:\\localhost\\Service\\AllowUnencrypted"
@@ -300,15 +292,13 @@ class TestRunspacePool(object):
             "if the runspace is in no-language mode."
 
     def test_psrp_connect_already_opened(self):
-        transport = TransportHTTP("", 5985, "", "")
-        wsman = WSMan(transport)
+        wsman = WSMan("")
         rs = RunspacePool(wsman)
         rs.state = RunspacePoolState.OPENED
         rs.connect()
 
     def test_psrp_connect_invalid_state(self):
-        transport = TransportHTTP("", 5985, "", "")
-        wsman = WSMan(transport)
+        wsman = WSMan("")
         rs = RunspacePool(wsman)
         with pytest.raises(InvalidRunspacePoolStateError) as err:
             rs.connect()
@@ -320,15 +310,13 @@ class TestRunspacePool(object):
             "current state 'BeforeOpen', expecting state(s): 'Disconnected'"
 
     def test_psrp_disconnect_already_disconnected(self):
-        transport = TransportHTTP("", 5985, "", "")
-        wsman = WSMan(transport)
+        wsman = WSMan("")
         rs = RunspacePool(wsman)
         rs.state = RunspacePoolState.DISCONNECTED
         rs.disconnect()
 
     def test_psrp_disconnect_invalid_state(self):
-        transport = TransportHTTP("", 5985, "", "")
-        wsman = WSMan(transport)
+        wsman = WSMan("")
         rs = RunspacePool(wsman)
         with pytest.raises(InvalidRunspacePoolStateError) as err:
             rs.disconnect()
@@ -340,8 +328,7 @@ class TestRunspacePool(object):
             "current state 'BeforeOpen', expecting state(s): 'Opened'"
 
     def test_psrp_get_command_meta_invalid_state(self):
-        transport = TransportHTTP("", 5985, "", "")
-        wsman = WSMan(transport)
+        wsman = WSMan("")
         rs = RunspacePool(wsman)
         with pytest.raises(InvalidRunspacePoolStateError) as err:
             rs.get_command_metadata("")
@@ -353,8 +340,7 @@ class TestRunspacePool(object):
             "'BeforeOpen', expecting state(s): 'Opened'"
 
     def test_psrp_open_invalid_state(self):
-        transport = TransportHTTP("", 5985, "", "")
-        wsman = WSMan(transport)
+        wsman = WSMan("")
         rs = RunspacePool(wsman)
         rs.state = RunspacePoolState.DISCONNECTED
         with pytest.raises(InvalidRunspacePoolStateError) as err:
@@ -367,8 +353,7 @@ class TestRunspacePool(object):
             "'Disconnected', expecting state(s): 'BeforeOpen'"
 
     def test_psrp_parse_state_failure(self):
-        transport = TransportHTTP("", 5985, "", "")
-        wsman = WSMan(transport)
+        wsman = WSMan("")
         rs = RunspacePool(wsman)
         empty_uuid = "00000000-0000-0000-0000-000000000000"
 
@@ -387,8 +372,7 @@ class TestRunspacePool(object):
                                  "message: error msg"
 
     def test_psrp_reset_state_failure(self):
-        transport = TransportHTTP("", 5985, "", "")
-        wsman = WSMan(transport)
+        wsman = WSMan("")
         rs = RunspacePool(wsman)
 
         # before connecting this should just return None
@@ -415,8 +399,7 @@ class TestRunspacePool(object):
             "2.3, actual: 2.2"
 
     def test_psrp_runspace_host_call_no_host(self):
-        transport = TransportHTTP("", 5985, "", "")
-        wsman = WSMan(transport)
+        wsman = WSMan("")
         rs = RunspacePool(wsman)
 
         msg = Message(Destination.CLIENT, None, None, RunspacePoolHostCall(),
@@ -425,8 +408,7 @@ class TestRunspacePool(object):
         assert actual == msg.data
 
     def test_psrp_process_user_event(self):
-        transport = TransportHTTP("", 5985, "", "")
-        wsman = WSMan(transport)
+        wsman = WSMan("")
         rs = RunspacePool(wsman)
 
         msg = Message(Destination.CLIENT, None, None, UserEvent(), None)
@@ -437,15 +419,14 @@ class TestRunspacePool(object):
 
 class TestPSRPScenarios(object):
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_psrp_multiple_commands']],
                              indirect=True)
-    def test_psrp_multiple_commands(self, winrm_transport, monkeypatch):
+    def test_psrp_multiple_commands(self, wsman_conn, monkeypatch):
         monkeypatch.setattr('cryptography.hazmat.primitives.asymmetric.rsa.'
                             'generate_private_key', gen_rsa_keypair)
 
-        wsman = WSMan(winrm_transport)
-        with RunspacePool(wsman) as pool:
+        with RunspacePool(wsman_conn) as pool:
             assert pool.state == RunspacePoolState.OPENED
             # verify we can still manually call open on an opened pool
             pool.open()
@@ -510,10 +491,10 @@ class TestPSRPScenarios(object):
         assert output[2] == string_value
         assert output[3] == u"hi\""
         # this result differs on whether this is mocked or not
-        if type(winrm_transport).__name__ == "TransportFake":
+        if type(wsman_conn.transport).__name__ == "TransportFake":
             assert output[4] == "win-nnmu24vvkj0\\vagrant"
         else:
-            assert winrm_transport.username.lower() in output[4].lower()
+            assert wsman_conn.transport.username.lower() in output[4].lower()
         assert output[5] == 123
         assert isinstance(output[6], GenericComplexObject)
         assert str(output[6]) == "winrm"
@@ -522,7 +503,7 @@ class TestPSRPScenarios(object):
         assert output[6].adapted_properties['ServiceName'] == 'winrm'
         assert output[6].extended_properties['Name'] == 'winrm'
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # because we are seeing how the client handles
                              # different server protocol versions, we want to
                              # use existing responses
@@ -532,11 +513,11 @@ class TestPSRPScenarios(object):
                                  [False, 'test_psrp_run_protocol_version_2.3'],
                              ],
                              indirect=True)
-    def test_psrp_run_protocol_version(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        with RunspacePool(wsman) as pool:
-            if type(winrm_transport).__name__ == "TransportFake":
-                expected_version = winrm_transport._test_name.split("_")[-1]
+    def test_psrp_run_protocol_version(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool:
+            if type(wsman_conn.transport).__name__ == "TransportFake":
+                expected_version = \
+                    wsman_conn.transport._test_name.split("_")[-1]
                 actual_version = pool.protocol_version
                 assert actual_version == expected_version
 
@@ -569,12 +550,11 @@ end {
             assert str(ps.streams.debug[0]) == "Start Block"
             assert str(ps.streams.debug[1]) == "End Block"
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_psrp_nested_command']],
                              indirect=True)
-    def test_psrp_nested_command(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        with RunspacePool(wsman) as pool:
+    def test_psrp_nested_command(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool:
             ps = PowerShell(pool)
             ps.add_script("$i = 0; while ($true) { $i++ }")
             ps.begin_invoke()
@@ -587,14 +567,13 @@ end {
 
         assert actual[0].adapted_properties['Value'] > 0
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # information stream is not available on all hosts
                              # so we just use existing messages
                              [[False, 'test_psrp_stream_output_invocation']],
                              indirect=True)
-    def test_psrp_stream_output_invocation(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        with RunspacePool(wsman) as pool:
+    def test_psrp_stream_output_invocation(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool:
             ps = PowerShell(pool)
 
             script = '''$DebugPreference = 'Continue'
@@ -631,14 +610,13 @@ end {
         assert str(ps.streams.warning[0]) == "warning stream"
         assert ps.streams.warning[0].invocation
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # information stream is not available on all hosts
                              # so we just use existing messages
                              [[False, 'test_psrp_stream_no_output_invocation']],
                              indirect=True)
-    def test_psrp_stream_no_output_invocation(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        with RunspacePool(wsman) as pool:
+    def test_psrp_stream_no_output_invocation(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool:
             ps = PowerShell(pool)
 
             script = '''$DebugPreference = 'Continue'
@@ -675,15 +653,14 @@ end {
         assert str(ps.streams.warning[0]) == "warning stream"
         assert ps.streams.warning[0].invocation is False
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # due to sending the information stream we need
                              # to use existing responses as not all servers
                              # support this
                              [[False, 'test_psrp_merge_commands']],
                              indirect=True)
-    def test_psrp_merge_commands(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        with RunspacePool(wsman) as pool:
+    def test_psrp_merge_commands(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool:
             ps = PowerShell(pool)
 
             script = '''$DebugPreference = 'Continue'
@@ -725,12 +702,10 @@ end {
             # the 2nd statement should only have the output stream
             assert str(actual[6]) == "output stream"
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_psrp_error_failed']], indirect=True)
-    def test_psrp_error_failed(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-
-        with RunspacePool(wsman) as pool:
+    def test_psrp_error_failed(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool:
             ps = PowerShell(pool)
             ps.add_script("$ErrorActionPreference = 'Stop'; "
                           "Write-Output before; "
@@ -743,13 +718,11 @@ end {
         assert len(ps.streams.error) == 1
         assert str(ps.streams.error[0]) == "error"
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_psrp_with_history']],
                              indirect=True)
-    def test_psrp_with_history(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-
-        with RunspacePool(wsman) as pool:
+    def test_psrp_with_history(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool:
             ps = PowerShell(pool)
             ps.add_script("Write-Output 1; Write-Output 2")
             ps.invoke(add_to_history=True)
@@ -761,13 +734,11 @@ end {
             "Write-Output 1; Write-Output 2"
         assert actual[0].adapted_properties['ExecutionStatus'] == "Completed"
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_psrp_with_no_history']],
                              indirect=True)
-    def test_psrp_with_no_history(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-
-        with RunspacePool(wsman) as pool:
+    def test_psrp_with_no_history(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool:
             ps = PowerShell(pool)
             ps.add_script("Write-Output 1; Write-Output 2")
             ps.invoke()
@@ -776,13 +747,11 @@ end {
             actual = ps_hist.invoke()
         assert actual == []
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_psrp_with_input']],
                              indirect=True)
-    def test_psrp_with_input(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-
-        with RunspacePool(wsman) as pool:
+    def test_psrp_with_input(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool:
             ps = PowerShell(pool)
             ps.add_script('''begin {
                 $DebugPreference = 'Continue'
@@ -805,22 +774,20 @@ end {
         assert str(ps.streams.debug[0]) == "Start Block"
         assert str(ps.streams.debug[1]) == "End Block"
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # the message size can differ from hosts, we will
                              # just use existing responses to get the same
                              # scenario each time
                              [[False, 'test_psrp_small_msg_size']],
                              indirect=True)
-    def test_psrp_small_msg_size(self, winrm_transport):
+    def test_psrp_small_msg_size(self, wsman_conn):
         # we need to set the endpoint for the fake tests to the same length as
         # the one that created the message. This is so the max payload size is
         # the same
-        winrm_transport.endpoint = "https://127.0.0.1:55986/wsman"
+        wsman_conn.transport.endpoint = "https://127.0.0.1:55986/wsman"
+        wsman_conn.update_max_payload_size()
 
-        wsman = WSMan(winrm_transport)
-        wsman.update_max_payload_size()
-
-        with RunspacePool(wsman) as pool:
+        with RunspacePool(wsman_conn) as pool:
             ps = PowerShell(pool)
             # there seems to be a bug in the PSRP implementation, I cannot get
             # it to response with a fragment larger than the max allowed so
@@ -838,28 +805,26 @@ end {
         assert actual[1] == u"a" * 20000
         assert actual[2] == u"a" * 10000
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # so we don't wait 10 seconds in a test we use
                              # pre-built responses
                              [[False, 'test_psrp_long_running_cmdlet']],
                              indirect=True)
-    def test_psrp_long_running_cmdlet(self, winrm_transport):
-        wsman = WSMan(winrm_transport, operation_timeout=5)
+    def test_psrp_long_running_cmdlet(self, wsman_conn):
+        wsman_conn.operation_timeout = 5
 
-        with RunspacePool(wsman) as pool:
+        with RunspacePool(wsman_conn) as pool:
             ps = PowerShell(pool)
             ps.add_cmdlet("Start-Sleep").add_parameter("Seconds", 10)
             ps.add_statement().add_script("echo hi")
             actual = ps.invoke()
         assert actual[0] == u"hi"
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_psrp_clear_commands']],
                              indirect=True)
-    def test_psrp_clear_command(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-
-        with RunspacePool(wsman) as pool:
+    def test_psrp_clear_command(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool:
             ps = PowerShell(pool)
             ps.add_script("echo original")
             ps.clear_commands()
@@ -867,13 +832,11 @@ end {
             actual = ps.invoke()
         assert actual[0] == u"new"
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_psrp_receive_failure']],
                              indirect=True)
-    def test_psrp_receive_failure(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-
-        with RunspacePool(wsman) as pool:
+    def test_psrp_receive_failure(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool:
             ps = PowerShell(pool)
             ps.state = PSInvocationState.RUNNING
             ps._command_id = ps.id
@@ -886,33 +849,31 @@ end {
                 "Either the command has completed execution or the client " \
                 "specified an invalid command identifier."
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # due to tests sometimes leaving pools open
                              # we are going to mock the data for this one
                              [[False, 'test_psrp_disconnected_commands']],
                              indirect=True)
-    def test_psrp_disconnected_commands(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-
+    def test_psrp_disconnected_commands(self, wsman_conn):
         pools = None
         try:
             script = "Write-Output 'a'; Start-Sleep -Seconds 5; " \
                      "Write-Output 'b'"
-            pool1 = RunspacePool(wsman)
+            pool1 = RunspacePool(wsman_conn)
             pool1.open()
             ps1 = PowerShell(pool1)
             ps1.add_script(script)
             ps1.begin_invoke()
             pool1.disconnect()
 
-            pool2 = RunspacePool(wsman)
+            pool2 = RunspacePool(wsman_conn)
             pool2.open()
             ps2 = PowerShell(pool2)
             ps2.add_script(script)
             ps2.begin_invoke()
             pool2.disconnect()
 
-            pools = RunspacePool.get_runspace_pools(wsman)
+            pools = RunspacePool.get_runspace_pools(wsman_conn)
             assert len(pools) == 2
             assert len(pools[0].pipelines.keys()) == 1
             assert len(pools[1].pipelines.keys()) == 1
@@ -935,7 +896,7 @@ end {
                     assert actual == ["a", "b"]
         finally:
             if pools is None:
-                pools = RunspacePool.get_runspace_pools(wsman)
+                pools = RunspacePool.get_runspace_pools(wsman_conn)
             for pool in pools:
                 pool.connect()
                 pool.close()

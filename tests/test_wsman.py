@@ -1,10 +1,23 @@
+import os
+import requests
 import sys
 import uuid
 
 import pytest
 
-from pypsrp.exceptions import WinRMError, WinRMTransportError, WSManFaultError
-from pypsrp.wsman import OptionSet, SelectorSet, WSMan, WSManAction, NAMESPACES
+import pypsrp.wsman as pypsrp_wsman
+
+from pypsrp.encryption import WinRMEncryption
+from pypsrp.exceptions import AuthenticationError, WinRMError, \
+    WinRMTransportError, WSManFaultError
+from pypsrp.negotiate import HTTPNegotiateAuth
+from pypsrp.wsman import OptionSet, SelectorSet, WSMan, WSManAction, \
+    NAMESPACES, _TransportHTTP
+
+try:
+    from unittest.mock import MagicMock
+except ImportError:
+    from mock import MagicMock
 
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
     # ElementTree in Python 2.6 does not support namespaces so we need to use
@@ -12,6 +25,16 @@ if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
     from lxml import etree as ET
 else:  # pragma: no cover
     import xml.etree.ElementTree as ET
+
+
+@pytest.fixture('function')
+def reset_imports():
+    # ensure the changes to these globals aren't persisted after each test
+    orig_has_credssp = pypsrp_wsman.HAS_CREDSSP
+    orig_credssp_imp_err = pypsrp_wsman.CREDSSP_IMP_ERR
+    yield None
+    pypsrp_wsman.HAS_CREDSSP = orig_has_credssp
+    pypsrp_wsman.CREDSSP_IMP_ERR = orig_credssp_imp_err
 
 
 class _TransportTest(object):
@@ -60,9 +83,9 @@ class _TransportTest(object):
 class TestWSMan(object):
 
     def test_wsman_defaults(self):
-        actual = WSMan(_TransportTest())
+        actual = WSMan("")
         assert actual.max_envelope_size == 153600
-        assert actual._max_payload_size < actual.max_envelope_size
+        assert actual.max_payload_size < actual.max_envelope_size
         assert actual.operation_timeout == 20
         assert isinstance(actual.session_id, str)
 
@@ -71,9 +94,9 @@ class TestWSMan(object):
         assert actual.session_id != new_wsman.session_id
 
     def test_override_default(self):
-        actual = WSMan(_TransportTest(), 8192, 30)
+        actual = WSMan("", 8192, 30)
         assert actual.max_envelope_size == 8192
-        assert actual._max_payload_size < actual.max_envelope_size
+        assert actual.max_payload_size < actual.max_envelope_size
         assert actual.operation_timeout == 30
 
     def test_invoke_command(self, monkeypatch):
@@ -81,7 +104,8 @@ class TestWSMan(object):
             return uuid.UUID("00000000-0000-0000-0000-000000000000")
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
 
-        wsman = WSMan(_TransportTest(WSManAction.COMMAND))
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.COMMAND)
         actual = wsman.command("", None)
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
@@ -91,7 +115,8 @@ class TestWSMan(object):
             return uuid.UUID("00000000-0000-0000-0000-000000000000")
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
 
-        wsman = WSMan(_TransportTest(WSManAction.CONNECT))
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.CONNECT)
         actual = wsman.connect("", None)
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
@@ -101,7 +126,8 @@ class TestWSMan(object):
             return uuid.UUID("00000000-0000-0000-0000-000000000000")
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
 
-        wsman = WSMan(_TransportTest(WSManAction.CREATE))
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.CREATE)
         actual = wsman.create("", None)
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
@@ -111,7 +137,8 @@ class TestWSMan(object):
             return uuid.UUID("00000000-0000-0000-0000-000000000000")
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
 
-        wsman = WSMan(_TransportTest(WSManAction.DISCONNECT))
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.DISCONNECT)
         actual = wsman.disconnect("", None)
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
@@ -121,7 +148,8 @@ class TestWSMan(object):
             return uuid.UUID("00000000-0000-0000-0000-000000000000")
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
 
-        wsman = WSMan(_TransportTest(WSManAction.ENUMERATE))
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.ENUMERATE)
         actual = wsman.enumerate("", None)
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
@@ -131,7 +159,8 @@ class TestWSMan(object):
             return uuid.UUID("00000000-0000-0000-0000-000000000000")
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
 
-        wsman = WSMan(_TransportTest(WSManAction.DELETE))
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.DELETE)
         actual = wsman.delete("", None)
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
@@ -141,7 +170,8 @@ class TestWSMan(object):
             return uuid.UUID("00000000-0000-0000-0000-000000000000")
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
 
-        wsman = WSMan(_TransportTest(WSManAction.GET))
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.GET)
         actual = wsman.get("", None)
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
@@ -151,7 +181,8 @@ class TestWSMan(object):
             return uuid.UUID("00000000-0000-0000-0000-000000000000")
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
 
-        wsman = WSMan(_TransportTest(WSManAction.RECEIVE))
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.RECEIVE)
         actual = wsman.receive("", None)
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
@@ -161,7 +192,8 @@ class TestWSMan(object):
             return uuid.UUID("00000000-0000-0000-0000-000000000000")
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
 
-        wsman = WSMan(_TransportTest(WSManAction.RECONNECT))
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.RECONNECT)
         actual = wsman.reconnect("", None)
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
@@ -171,7 +203,8 @@ class TestWSMan(object):
             return uuid.UUID("00000000-0000-0000-0000-000000000000")
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
 
-        wsman = WSMan(_TransportTest(WSManAction.SEND))
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.SEND)
         actual = wsman.send("", None)
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
@@ -181,7 +214,8 @@ class TestWSMan(object):
             return uuid.UUID("00000000-0000-0000-0000-000000000000")
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
 
-        wsman = WSMan(_TransportTest(WSManAction.SIGNAL))
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.SIGNAL)
         actual = wsman.signal("", None)
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
@@ -191,7 +225,8 @@ class TestWSMan(object):
             return uuid.UUID("00000000-0000-0000-0000-000000000001")
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
 
-        wsman = WSMan(_TransportTest(WSManAction.SEND))
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.SEND)
         with pytest.raises(WinRMError) as exc:
             wsman.send("", None)
         assert str(exc.value) == \
@@ -200,7 +235,8 @@ class TestWSMan(object):
             "uuid:00000000-0000-0000-0000-000000000000"
 
     def test_invoke_transport_error(self):
-        wsman = WSMan(_TransportTest())
+        wsman = WSMan("")
+        wsman.transport = _TransportTest()
         with pytest.raises(WinRMTransportError) as exc:
             wsman.send("", None)
         error_msg = "Bad HTTP response returned from the server. Code: 401, " \
@@ -214,7 +250,8 @@ class TestWSMan(object):
     def test_invoke_wsman_fault(self):
         # we set Create and send Send to cause the test transport to fire the
         # error we want
-        wsman = WSMan(_TransportTest(WSManAction.CREATE))
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.CREATE)
         with pytest.raises(WSManFaultError) as exc:
             wsman.send("", None)
         error_msg = \
@@ -380,44 +417,41 @@ class TestWSMan(object):
             "packet contains an element Argument that is invalid. Retry the " \
             "request with the correct XML element."
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # we just want to validate against different env
                              # set on a server
                              [[False, 'test_wsman_update_envelope_size_150']],
                              indirect=True)
-    def test_wsman_update_envelope_size_150(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        wsman.update_max_payload_size()
-        assert wsman.max_envelope_size == 153600
+    def test_wsman_update_envelope_size_150(self, wsman_conn):
+        wsman_conn.update_max_payload_size()
+        assert wsman_conn.max_envelope_size == 153600
         # this next value is dependent on a lot of things such as python
         # version and rounding differences, we will just assert against a range
-        assert 113574 <= wsman._max_payload_size <= 113952
+        assert 113574 <= wsman_conn.max_payload_size <= 113952
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # we just want to validate against different env
                              # set on a server
                              [[False, 'test_wsman_update_envelope_size_500']],
                              indirect=True)
-    def test_wsman_update_envelope_size_500(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        wsman.update_max_payload_size()
-        assert wsman.max_envelope_size == 512000
+    def test_wsman_update_envelope_size_500(self, wsman_conn):
+        wsman_conn.update_max_payload_size()
+        assert wsman_conn.max_envelope_size == 512000
         # this next value is dependent on a lot of things such as python
         # version and rounding differences, we will just assert against a range
-        assert 382374 <= wsman._max_payload_size <= 382752
+        assert 382374 <= wsman_conn.max_payload_size <= 382752
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # we just want to validate against different env
                              # set on a server
                              [[False, 'test_wsman_update_envelope_size_4096']],
                              indirect=True)
-    def test_wsman_update_envelope_size_4096(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        wsman.update_max_payload_size()
-        assert wsman.max_envelope_size == 4194304
+    def test_wsman_update_envelope_size_4096(self, wsman_conn):
+        wsman_conn.update_max_payload_size()
+        assert wsman_conn.max_envelope_size == 4194304
         # this next value is dependent on a lot of things such as python
         # version and rounding differences, we will just assert against a range
-        assert 3144102 <= wsman._max_payload_size <= 3144480
+        assert 3144102 <= wsman_conn.max_payload_size <= 3144480
 
 
 class TestOptionSet(object):
@@ -578,3 +612,590 @@ class TestSelectorSet(object):
         assert children[1].text == "value2"
 
         assert str(selector_set) == "{'key1': 'value1', 'key2': 'value2'}"
+
+
+class TestTransportHTTP(object):
+
+    def test_not_supported_auth(self):
+        with pytest.raises(ValueError) as err:
+            _TransportHTTP("", "", auth="fake")
+        assert str(err.value) == \
+            "The specified auth 'fake' is not supported, please select one " \
+            "of 'basic, certificate, credssp, kerberos, negotiate, ntlm'"
+
+    def test_invalid_encryption_value(self):
+        with pytest.raises(ValueError) as err:
+            _TransportHTTP("", "", encryption="fake")
+        assert str(err.value) == \
+            "The encryption value 'fake' must be auto, always, or never"
+
+    def test_encryption_always_not_valid_auth_ssl(self):
+        with pytest.raises(ValueError) as err:
+            _TransportHTTP("", "", auth="basic", encryption="always", ssl=True)
+        assert str(err.value) == \
+            "Cannot use message encryption with auth 'basic', either set " \
+            "encryption='auto' or use one of the following auth providers: " \
+            "credssp, kerberos, negotiate, ntlm"
+
+    def test_encryption_auto_not_valid_auth_no_ssl(self):
+        with pytest.raises(ValueError) as err:
+            _TransportHTTP("", "", auth="basic", encryption="auto", ssl=False)
+        assert str(err.value) == \
+            "Cannot use message encryption with auth 'basic', either set " \
+            "encryption='never', use ssl=True or use one of the following " \
+            "auth providers: credssp, kerberos, negotiate, ntlm"
+
+    def test_build_basic_no_username(self):
+        transport = _TransportHTTP("")
+        with pytest.raises(ValueError) as err:
+            transport._build_auth_basic(None)
+        assert str(err.value) == \
+            "For basic auth, the username must be specified"
+
+    def test_build_basic_no_password(self):
+        transport = _TransportHTTP("", username="user")
+        with pytest.raises(ValueError) as err:
+            transport._build_auth_basic(None)
+        assert str(err.value) == \
+            "For basic auth, the password must be specified"
+
+    def test_build_basic(self):
+        transport = _TransportHTTP("", username="user", password="pass",
+                                   auth="basic")
+        session = transport._build_session()
+        assert transport.encryption is None
+        assert isinstance(session.auth, requests.auth.HTTPBasicAuth)
+        assert session.auth.username == "user"
+        assert session.auth.password == "pass"
+
+    def test_build_certificate_no_key_pem(self):
+        transport = _TransportHTTP("")
+        with pytest.raises(ValueError) as err:
+            transport._build_auth_certificate(None)
+        assert str(err.value) == \
+            "For certificate auth, the path to the certificate key pem file " \
+            "must be specified with certificate_key_pem"
+
+    def test_build_certificate_no_pem(self):
+        transport = _TransportHTTP("", certificate_key_pem="path")
+        with pytest.raises(ValueError) as err:
+            transport._build_auth_certificate(None)
+        assert str(err.value) == \
+            "For certificate auth, the path to the certificate pem file " \
+            "must be specified with certificate_pem"
+
+    def test_build_certificate_not_ssl(self):
+        transport = _TransportHTTP("", certificate_key_pem="path",
+                                   certificate_pem="path", ssl=False)
+        with pytest.raises(ValueError) as err:
+            transport._build_auth_certificate(None)
+        assert str(err.value) == "For certificate auth, SSL must be used"
+
+    def test_build_certificate(self):
+        transport = _TransportHTTP("", auth="certificate",
+                                   certificate_key_pem="key_pem",
+                                   certificate_pem="pem")
+        session = transport._build_session()
+        assert transport.encryption is None
+        assert session.auth is None
+        assert session.cert == ("pem", "key_pem")
+        assert session.headers['Authorization'] == \
+            "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/" \
+            "https/mutual"
+
+    def test_build_credssp_not_imported(self, reset_imports):
+        pypsrp_wsman.HAS_CREDSSP = False
+        pypsrp_wsman.CREDSSP_IMP_ERR = "import failed"
+        transport = _TransportHTTP("")
+        with pytest.raises(ImportError) as err:
+            transport._build_auth_credssp(None)
+        assert str(err.value) == \
+            "Cannot use CredSSP auth as requests-credssp is not " \
+            "installed: import failed"
+
+    def test_build_credssp_no_username(self, reset_imports):
+        pypsrp_wsman.HAS_CREDSSP = True
+        transport = _TransportHTTP("")
+        with pytest.raises(ValueError) as err:
+            transport._build_auth_credssp(None)
+        assert str(err.value) == \
+            "For credssp auth, the username must be specified"
+
+    def test_build_credssp_no_password(self, reset_imports):
+        pypsrp_wsman.HAS_CREDSSP = True
+        transport = _TransportHTTP("", username="user")
+        with pytest.raises(ValueError) as err:
+            transport._build_auth_credssp(None)
+        assert str(err.value) == \
+            "For credssp auth, the password must be specified"
+
+    def test_build_credssp_no_kwargs(self):
+        credssp = pytest.importorskip("requests_credssp")
+
+        transport = _TransportHTTP("", username="user", password="pass",
+                                   auth="credssp")
+        session = transport._build_session()
+        assert isinstance(transport.encryption, WinRMEncryption)
+        assert transport.encryption.protocol == WinRMEncryption.CREDSSP
+        assert isinstance(session.auth, credssp.HttpCredSSPAuth)
+        assert session.auth.auth_mechanism == 'auto'
+        assert session.auth.disable_tlsv1_2 is False
+        assert session.auth.minimum_version == 2
+        assert session.auth.password == 'pass'
+        assert session.auth.username == 'user'
+
+    def test_build_credssp_with_kwargs(self):
+        credssp = pytest.importorskip("requests_credssp")
+
+        transport = _TransportHTTP("", username="user", password="pass",
+                                   auth="credssp",
+                                   credssp_auth_mechanism="kerberos",
+                                   credssp_disable_tlsv1_2=True,
+                                   credssp_minimum_version=5)
+
+        session = transport._build_session()
+        assert isinstance(transport.encryption, WinRMEncryption)
+        assert transport.encryption.protocol == WinRMEncryption.CREDSSP
+        assert isinstance(session.auth, credssp.HttpCredSSPAuth)
+        assert session.auth.auth_mechanism == 'kerberos'
+        assert session.auth.disable_tlsv1_2 is True
+        assert session.auth.minimum_version == 5
+        assert session.auth.password == 'pass'
+        assert session.auth.username == 'user'
+
+    def test_build_kerberos(self):
+        transport = _TransportHTTP("", auth="kerberos")
+        session = transport._build_session()
+        assert isinstance(transport.encryption, WinRMEncryption)
+        assert transport.encryption.protocol == WinRMEncryption.SPNEGO
+        assert isinstance(session.auth, HTTPNegotiateAuth)
+        assert session.auth.auth_provider == "kerberos"
+        assert session.auth.delegate is False
+        assert session.auth.hostname_override is None
+        assert session.auth.password is None
+        assert session.auth.send_cbt is True
+        assert session.auth.service == 'WSMAN'
+        assert session.auth.username is None
+        assert session.auth.wrap_required is False
+
+    def test_build_kerberos_with_kwargs(self):
+        transport = _TransportHTTP("", auth="kerberos", username="user",
+                                   ssl=False, password="pass",
+                                   negotiate_delegate=True,
+                                   negotiate_hostname_override="host",
+                                   negotiate_send_cbt=False,
+                                   negotiate_service="HTTP")
+        session = transport._build_session()
+        assert isinstance(transport.encryption, WinRMEncryption)
+        assert transport.encryption.protocol == WinRMEncryption.SPNEGO
+        assert isinstance(session.auth, HTTPNegotiateAuth)
+        assert session.auth.auth_provider == "kerberos"
+        assert session.auth.delegate is True
+        assert session.auth.hostname_override == "host"
+        assert session.auth.password == "pass"
+        assert session.auth.send_cbt is False
+        assert session.auth.service == 'HTTP'
+        assert session.auth.username == "user"
+        assert session.auth.wrap_required is True
+
+    def test_build_negotiate(self):
+        transport = _TransportHTTP("")
+        session = transport._build_session()
+        assert isinstance(transport.encryption, WinRMEncryption)
+        assert transport.encryption.protocol == WinRMEncryption.SPNEGO
+        assert isinstance(session.auth, HTTPNegotiateAuth)
+        assert session.auth.auth_provider == "auto"
+        assert session.auth.delegate is False
+        assert session.auth.hostname_override is None
+        assert session.auth.password is None
+        assert session.auth.send_cbt is True
+        assert session.auth.service == 'WSMAN'
+        assert session.auth.username is None
+        assert session.auth.wrap_required is False
+
+    def test_build_negotiate_with_kwargs(self):
+        transport = _TransportHTTP("", auth="negotiate", username="user",
+                                   ssl=False, password="pass",
+                                   negotiate_delegate=True,
+                                   negotiate_hostname_override="host",
+                                   negotiate_send_cbt=False,
+                                   negotiate_service="HTTP")
+        session = transport._build_session()
+        assert isinstance(transport.encryption, WinRMEncryption)
+        assert transport.encryption.protocol == WinRMEncryption.SPNEGO
+        assert isinstance(session.auth, HTTPNegotiateAuth)
+        assert session.auth.auth_provider == "auto"
+        assert session.auth.delegate is True
+        assert session.auth.hostname_override == "host"
+        assert session.auth.password == "pass"
+        assert session.auth.send_cbt is False
+        assert session.auth.service == 'HTTP'
+        assert session.auth.username == "user"
+        assert session.auth.wrap_required is True
+
+    def test_build_ntlm(self):
+        transport = _TransportHTTP("", auth="ntlm")
+        session = transport._build_session()
+        assert isinstance(transport.encryption, WinRMEncryption)
+        assert transport.encryption.protocol == WinRMEncryption.SPNEGO
+        assert isinstance(session.auth, HTTPNegotiateAuth)
+        assert session.auth.auth_provider == "ntlm"
+        assert session.auth.delegate is False
+        assert session.auth.hostname_override is None
+        assert session.auth.password is None
+        assert session.auth.send_cbt is True
+        assert session.auth.service == 'WSMAN'
+        assert session.auth.username is None
+        assert session.auth.wrap_required is False
+
+    def test_build_ntlm_with_kwargs(self):
+        transport = _TransportHTTP("", auth="ntlm", username="user",
+                                   ssl=False, password="pass",
+                                   negotiate_delegate=True,
+                                   negotiate_hostname_override="host",
+                                   negotiate_send_cbt=False,
+                                   negotiate_service="HTTP",
+                                   cert_validation=False)
+        session = transport._build_session()
+        assert isinstance(transport.encryption, WinRMEncryption)
+        assert transport.encryption.protocol == WinRMEncryption.SPNEGO
+        assert isinstance(session.auth, HTTPNegotiateAuth)
+        assert session.auth.auth_provider == "ntlm"
+        assert session.auth.delegate is True
+        assert session.auth.hostname_override == "host"
+        assert session.auth.password == "pass"
+        assert session.auth.send_cbt is False
+        assert session.auth.service == 'HTTP'
+        assert session.auth.username == "user"
+        assert session.auth.wrap_required is True
+
+    def test_build_session_default(self):
+        transport = _TransportHTTP("")
+        session = transport._build_session()
+        assert session.headers['User-Agent'] == "Python PSRP Client"
+        assert session.trust_env is True
+        assert isinstance(session.auth, HTTPNegotiateAuth)
+        assert session.proxies == {}
+        assert session.verify is True
+
+    def test_build_session_cert_validate(self):
+        transport = _TransportHTTP("", cert_validation=True)
+        session = transport._build_session()
+        assert session.verify is True
+
+    def test_build_session_cert_validate_env(self):
+        transport = _TransportHTTP("", cert_validation=True)
+        os.environ['REQUESTS_CA_BUNDLE'] = 'path_to_REQUESTS_CA_CERT'
+        try:
+            session = transport._build_session()
+        finally:
+            del os.environ['REQUESTS_CA_BUNDLE']
+        assert session.verify == 'path_to_REQUESTS_CA_CERT'
+
+    def test_build_session_cert_validate_path_override_env(self):
+        transport = _TransportHTTP("", cert_validation="kwarg_path")
+        os.environ['REQUESTS_CA_BUNDLE'] = 'path_to_REQUESTS_CA_CERT'
+        try:
+            session = transport._build_session()
+        finally:
+            del os.environ['REQUESTS_CA_BUNDLE']
+        assert session.verify == 'kwarg_path'
+
+    def test_build_session_cert_no_validate(self):
+        transport = _TransportHTTP("", cert_validation=False)
+        session = transport._build_session()
+        assert session.verify is False
+
+    def test_build_session_cert_no_validate_override_env(self):
+        transport = _TransportHTTP("", cert_validation=False)
+        os.environ['REQUESTS_CA_BUNDLE'] = 'path_to_REQUESTS_CA_CERT'
+        try:
+            session = transport._build_session()
+        finally:
+            del os.environ['REQUESTS_CA_BUNDLE']
+        assert session.verify is False
+
+    def test_build_session_proxies_default(self):
+        transport = _TransportHTTP("")
+        session = transport._build_session()
+        assert session.proxies == {}
+
+    def test_build_session_proxies_env(self):
+        transport = _TransportHTTP("")
+        os.environ['https_proxy'] = "https://envproxy"
+        try:
+            session = transport._build_session()
+        finally:
+            del os.environ['https_proxy']
+        assert session.proxies == {"https": "https://envproxy"}
+
+    def test_build_session_proxies_kwarg(self):
+        transport = _TransportHTTP("", proxy="https://kwargproxy")
+        session = transport._build_session()
+        assert session.proxies == {"https": "https://kwargproxy"}
+
+    def test_build_session_proxies_kwarg_non_ssl(self):
+        transport = _TransportHTTP("", proxy="http://kwargproxy", ssl=False)
+        session = transport._build_session()
+        assert session.proxies == {"http": "http://kwargproxy"}
+
+    def test_build_session_proxies_env_kwarg_override(self):
+        transport = _TransportHTTP("", proxy="https://kwargproxy")
+        os.environ['https_proxy'] = "https://envproxy"
+        try:
+            session = transport._build_session()
+        finally:
+            del os.environ['https_proxy']
+        assert session.proxies == {"https": "https://kwargproxy"}
+
+    def test_build_session_proxies_env_no_proxy_override(self):
+        transport = _TransportHTTP("", no_proxy=True)
+        os.environ['https_proxy'] = "https://envproxy"
+        try:
+            session = transport._build_session()
+        finally:
+            del os.environ['https_proxy']
+        assert session.proxies == {}
+
+    def test_build_session_proxies_kwarg_ignore_no_proxy(self):
+        transport = _TransportHTTP("", proxy="https://kwargproxy",
+                                   no_proxy=True)
+        session = transport._build_session()
+        assert session.proxies == {"https": "https://kwargproxy"}
+
+    def test_send_without_encryption(self, monkeypatch):
+        send_mock = MagicMock()
+
+        monkeypatch.setattr(_TransportHTTP, "_send_request", send_mock)
+
+        transport = _TransportHTTP("server")
+        transport.send(b"message")
+
+        assert send_mock.call_count == 1
+        actual_request, actual_hostname = send_mock.call_args[0]
+
+        assert actual_request.body == b"message"
+        assert actual_request.url == "https://server:5986/wsman"
+        assert actual_request.headers['content-type'] == \
+            "application/soap+xml;charset=UTF-8"
+        assert actual_hostname == "server"
+
+    def test_send_with_encryption(self, monkeypatch):
+        send_mock = MagicMock()
+        wrap_mock = MagicMock()
+        wrap_mock.return_value = "multipart/encrypted", b"wrapped"
+
+        monkeypatch.setattr(_TransportHTTP, "_send_request", send_mock)
+        monkeypatch.setattr(WinRMEncryption, "wrap_message", wrap_mock)
+
+        transport = _TransportHTTP("server", ssl=False)
+        transport.send(b"message")
+        transport.send(b"message 2")
+
+        assert send_mock.call_count == 3
+        actual_request1, actual_hostname1 = send_mock.call_args_list[0][0]
+        actual_request2, actual_hostname2 = send_mock.call_args_list[1][0]
+        actual_request3, actual_hostname3 = send_mock.call_args_list[2][0]
+
+        assert actual_hostname1 == "server"
+        assert actual_hostname2 == "server"
+        assert actual_hostname3 == "server"
+
+        assert actual_request1.body is None
+        assert actual_request1.url == "http://server:5985/wsman"
+
+        assert actual_request2.body == b"wrapped"
+        assert actual_request2.headers['content-type'] == \
+            'multipart/encrypted;protocol="application/' \
+            'HTTP-SPNEGO-session-encrypted";boundary="Encrypted Boundary"'
+        assert actual_request2.url == "http://server:5985/wsman"
+
+        assert actual_request3.body == b"wrapped"
+        assert actual_request3.headers['content-type'] == \
+            'multipart/encrypted;protocol="application/' \
+            'HTTP-SPNEGO-session-encrypted";boundary="Encrypted Boundary"'
+        assert actual_request3.url == "http://server:5985/wsman"
+
+        assert wrap_mock.call_count == 2
+        assert wrap_mock.call_args_list[0][0][0] == b"message"
+        assert wrap_mock.call_args_list[0][0][1] == "server"
+        assert wrap_mock.call_args_list[1][0][0] == b"message 2"
+        assert wrap_mock.call_args_list[1][0][1] == "server"
+
+    def test_send_default(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b"content"
+        response.headers['content-type'] = "application/soap+xml;charset=UTF-8"
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+
+        transport = _TransportHTTP("server", ssl=True)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        actual = transport._send_request(prep_request, "server")
+        assert actual == b"content"
+        assert send_mock.call_count == 1
+        assert send_mock.call_args[0] == (prep_request,)
+        assert send_mock.call_args[1]['timeout'] == 30
+
+    def test_send_timeout_kwargs(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b"content"
+        response.headers['content-type'] = "application/soap+xml;charset=UTF-8"
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+
+        transport = _TransportHTTP("server", ssl=True, connection_timeout=20)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        actual = transport._send_request(prep_request, "server")
+        assert actual == b"content"
+        assert send_mock.call_count == 1
+        assert send_mock.call_args[0] == (prep_request,)
+        assert send_mock.call_args[1]['timeout'] == 20
+
+    def test_send_auth_error(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 401
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+
+        transport = _TransportHTTP("server", ssl=True)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        with pytest.raises(AuthenticationError) as err:
+            transport._send_request(prep_request, "server")
+        assert str(err.value) == "Failed to authenticate the user None with " \
+                                 "negotiate"
+
+    def test_send_winrm_error_blank(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 500
+        response._content = b""
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+
+        transport = _TransportHTTP("server", ssl=True)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        with pytest.raises(WinRMTransportError) as err:
+            transport._send_request(prep_request, "server")
+        assert str(err.value) == "Bad HTTP response returned from the " \
+                                 "server. Code: 500, Content: ''"
+        assert err.value.code == 500
+        assert err.value.protocol == 'http'
+        assert err.value.response_text == ''
+
+    def test_send_winrm_error_content(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 500
+        response._content = b"error msg"
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+
+        transport = _TransportHTTP("server", ssl=True)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        with pytest.raises(WinRMTransportError) as err:
+            transport._send_request(prep_request, "server")
+        assert str(err.value) == "Bad HTTP response returned from the " \
+                                 "server. Code: 500, Content: 'error msg'"
+        assert err.value.code == 500
+        assert err.value.protocol == 'http'
+        assert err.value.response_text == 'error msg'
+
+    def test_send_winrm_encrypted_single(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b"content"
+        response.headers['content-type'] = \
+            'multipart/encrypted;protocol="application/HTTP-SPNEGO-session-' \
+            'encrypted";boundary="Encrypted Boundary"'
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+        unwrap_mock = MagicMock()
+        unwrap_mock.return_value = b"unwrapped content"
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+        monkeypatch.setattr(WinRMEncryption, "unwrap_message", unwrap_mock)
+
+        transport = _TransportHTTP("server", ssl=False)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        actual = transport._send_request(prep_request, "server")
+        assert actual == b"unwrapped content"
+        assert send_mock.call_count == 1
+        assert send_mock.call_args[0] == (prep_request,)
+        assert send_mock.call_args[1]['timeout'] == 30
+
+        assert unwrap_mock.call_count == 1
+        assert unwrap_mock.call_args[0] == (b"content", "server")
+        assert unwrap_mock.call_args[1] == {}
+
+    def test_send_winrm_encrypted_multiple(self, monkeypatch):
+        response = requests.Response()
+        response.status_code = 200
+        response._content = b"content"
+        response.headers['content-type'] = \
+            'multipart/x-multi-encrypted;protocol="application/HTTP-CredSSP-' \
+            'session-encrypted";boundary="Encrypted Boundary'
+
+        send_mock = MagicMock()
+        send_mock.return_value = response
+        unwrap_mock = MagicMock()
+        unwrap_mock.return_value = b"unwrapped content"
+
+        monkeypatch.setattr(requests.Session, "send", send_mock)
+        monkeypatch.setattr(WinRMEncryption, "unwrap_message", unwrap_mock)
+
+        transport = _TransportHTTP("server", ssl=False)
+        session = transport._build_session()
+        transport.session = session
+        request = requests.Request('POST', transport.endpoint, data=b"data")
+        prep_request = session.prepare_request(request)
+
+        actual = transport._send_request(prep_request, "server")
+        assert actual == b"unwrapped content"
+        assert send_mock.call_count == 1
+        assert send_mock.call_args[0] == (prep_request,)
+        assert send_mock.call_args[1]['timeout'] == 30
+
+        assert unwrap_mock.call_count == 1
+        assert unwrap_mock.call_args[0] == (b"content", "server")
+        assert unwrap_mock.call_args[1] == {}

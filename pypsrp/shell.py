@@ -55,7 +55,7 @@ class WinRS(object):
         A WinRS shell instance. This is used by Process to spawn a new command/
         process on the raw WinRS shell.
 
-        :param wsman: The WSMan instance to send commands over
+        :param wsman: The pypsrp.wsman.WSMan instance to send commands over
         :param resource_uri: The resource URI of the shell, defaults to the
             WinRS cmd shell
         :param id: The ID of the shell, if not specified a dynamic ID will be

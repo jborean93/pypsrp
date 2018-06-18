@@ -16,7 +16,6 @@ from pypsrp.exceptions import WinRMError
 from pypsrp.powershell import PowerShell, RunspacePool
 from pypsrp.serializer import Serializer
 from pypsrp.shell import Process, SignalCode, WinRS
-from pypsrp.transport import TransportHTTP
 from pypsrp.wsman import WSMan
 from pypsrp._utils import to_bytes, to_string, to_unicode
 
@@ -47,11 +46,10 @@ class Client(object):
         functions as a reference implementation for your own functions.
 
         :param server: The server/host to connect to
-        :param kwargs: The various TransportHTTP args to control the transport
-            mechanism, see pypsrp.transport.TransportHTTP for these args
+        :param kwargs: The various WSMan args to control the transport
+            mechanism, see pypsrp.wsman.WSMan for these args
         """
-        transport = TransportHTTP(server, **kwargs)
-        self.wsman = WSMan(transport)
+        self.wsman = WSMan(server, **kwargs)
 
     def copy(self, src, dest):
         """
@@ -102,12 +100,12 @@ class Client(object):
         # the max size from the server, we only check in this case to save on a
         # round trip if the file is small enough to fit in 2 msg's, otherwise
         # we want to get the largest size possible
-        buffer_size = int(self.wsman._max_payload_size / 4 * 3)
+        buffer_size = int(self.wsman.max_payload_size / 4 * 3)
         if src_size > (buffer_size * 2) and \
                 self.wsman.max_envelope_size == 153600:
             log.debug("Updating the max WSMan envelope size")
             self.wsman.update_max_payload_size()
-            buffer_size = int(self.wsman._max_payload_size / 4 * 3)
+            buffer_size = int(self.wsman.max_payload_size / 4 * 3)
         log.info("Creating file reader with a buffer size of %d" % buffer_size)
         read_gen = read_buffer(b_src, buffer_size)
 

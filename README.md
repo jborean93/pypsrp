@@ -154,31 +154,32 @@ dnf install gcc python-devel
 
 ## How to Use
 
-There are 4 main components that are in use within this library;
+There are 3 main components that are in use within this library;
 
 * `Transport`: Handles the raw transport of messages to and from the server
-* `Connection`: Handles the protocol connection details and how to interact with the transport, used by the Shell to issue commands
-* `Shell`: Handles the WSMV or PSRP protocol details used to create the remote shell that processes are run on
+* `Shell`: Handles the WSMV or PSRP protocol details used to create the remote shell that processes are run on, uses `Connection` to send the details
 * `Process`: Runs the process or script within a shell
 
-### Transport
+### Connection
 
-Currently only the transport that is supported is the HTTP protocol through
-`pypsrp.transport.TransportHTTP` and offers mostly all the same features in
-the WSMV spec including;
+Currently only the connection that is supported is the WSMan protocol over HTTP
+through `pypsrp.wsman.WSMan` and offers mostly all the same features in the
+WSMV spec including;
 
 * Basic, Certificate, Negotiate, Kerberos, and CredSSP authentication
 * TLS encryption
 * Message encryption with Negotiate, Kerberos, and CredSSP authentication
 * Definable proxy
 
-These are the options that can be used to setup `TransportHTTP`;
+These are the options that can be used to setup `WSMan`;
 
 * `server`: The hostname or IP address of the host to connect to
+* `max_envelope_size`: The maximum envelope size, in bytes, that can be sent to the server, default is `153600`
+* `operation_timeout`: The operation timeout, in seconds, of each WSMan operation, default is `20`
 * `port`: The port to connect to, default is `5986` if `ssl=True` else `5985`
 * `username`: The username to connect with, required for all auths except `certificate` and optionally required for `negotiate/kerberos`
 * `password`: The password for `username`
-* `ssl`: Whether to connect over `https` or `http`, default is `True`
+* `ssl`: Whether to connect over `https` or `https`, default is `True`
 * `path`: The WinRM path to connect to, default is `wsman`
 * `auth`: The authentication protocol to use, default is `negotiate`, choices are `basic`, `certificate`, `negotiate`, `ntlm`, `kerberos`, `credssp`
 * `cert_validation`: Whether to validate the server's SSL certificate, default is `True`. Can be `False` to not validate or a path to a PEM file of trusted certificates
@@ -200,21 +201,9 @@ When running over HTTP, this library will enforce encryption by default but if
 that is not supported (Basic auth) or isn't available on the host then either
 use HTTPS or disable encryption with `encryption="never"`.
 
-There are plans to add support for SSH as a transport but this still needs to
-be implemented.
-
-### Connection
-
-The connection object is used by each shell to issue commands to the remote
-host. Currently only `pypsrp.wsman.WSMan` is supported. These are the options
-when used to setup `WSMan`;
-
-* `transport`: The transport object to send the messages over
-* `max_envelope_size`: The maximum envelope size, in bytes, that can be sent to the server, default is `153600`
-* `operation_timeout`: The operation timeout, in seconds, of each WSMan operation, default is `20`
-
-There are plans to add support for an SSH connection object but this still
-needs to be implemented.
+There are plans to add support for SSH as a connection but this still needs to
+be implemented. SSH will work on hosts that are running PowerShell Core but
+not the standard PowerShell.
 
 ### Shell
 
@@ -244,7 +233,7 @@ close implementation of the .NET
 class. The methods and properties are similar and can mostly do the same thing.
 Here are the options that can be used to configure a `RunspacePool` shell;
 
-* `connection`: The connection object used by the RunspacePool to send commands to the remote server
+* `connection`: The connection object used by the RunspacePool to send commands to the remote server, currently only supports `WSMan`
 * `apartment_state`: The int value of `pypsrp.complex_objects.ApartmentState` for the remote thread, default is `UNKNOWN`
 * `thread_options`: The int value of `pypsrp.complex_objects.ThreadOptions` that specifies the type of thread to create, default is `DEFAULT`
 * `host`: The local host info implementation, default is no host
@@ -300,7 +289,7 @@ How to use the high level client API
 ```python
 from pypsrp.client import Client
 
-# this takes in the same kwargs as the TransportHTTP object
+# this takes in the same kwargs as the WSMan object
 client = Client("server", username="user", password="password")
 
 # execute a cmd command
@@ -329,14 +318,11 @@ How to use WinRS/Process to execute a command
 
 ```python
 from pypsrp.shell import Process, SignalCode, WinRS
-from pypsrp.transport import TransportHTTP
 from pypsrp.wsman import WSMan
 
 # creates a http connection with no encryption and basic auth
-transport = TransportHTTP("server", ssl=False, auth="basic",
-                          encryption="never", username="vagrant",
-                          password="vagrant")
-wsman = WSMan(transport)
+wsman = WSMan("server", ssl=False, auth="basic", encryption="never",
+              username="vagrant", password="vagrant")
 
 with WinRS(wsman) as shell:
     process = Process(shell, "dir")
@@ -355,12 +341,10 @@ How to use RunspacePool/PowerShell to execute a PowerShell script/command
 
 ```python
 from pypsrp.powershell import PowerShell, RunspacePool
-from pypsrp.transport import TransportHTTP
 from pypsrp.wsman import WSMan
 
 # creates a https connection with explicit kerberos auth and implicit credentials
-transport = TransportHTTP("server", auth="kerberos", cert_validation=False)
-wsman = WSMan(transport)
+wsman = WSMan("server", auth="kerberos", cert_validation=False))
 
 with RunspacePool(wsman) as pool:
     # execute 'Get-Process | Select-Object Name'

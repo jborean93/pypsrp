@@ -14,13 +14,11 @@ except ImportError:  # pragma: no cover
 
 class TestWinRS(object):
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_winrs_standard']],
                              indirect=True)
-    def test_winrs_standard(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-
-        with WinRS(wsman) as shell:
+    def test_winrs_standard(self, wsman_conn):
+        with WinRS(wsman_conn) as shell:
             process = Process(shell, "cmd.exe", ["/c", "echo", "hi"])
             process.invoke()
             process.signal(SignalCode.CTRL_C)
@@ -28,7 +26,7 @@ class TestWinRS(object):
             assert process.stdout == b"hi\r\n"
             assert process.stderr == b""
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[
                                  # no_shell only works on older hosts, rely on
                                  # pre-canned responses from actual test
@@ -36,10 +34,8 @@ class TestWinRS(object):
                                  'test_winrs_no_cmd_shell'
                              ]],
                              indirect=True)
-    def test_winrs_no_cmd_shell(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-
-        with WinRS(wsman) as shell:
+    def test_winrs_no_cmd_shell(self, wsman_conn):
+        with WinRS(wsman_conn) as shell:
             process = Process(shell, "powershell.exe", ["Write-Host", "hi"],
                               no_shell=True)
 
@@ -61,7 +57,7 @@ class TestWinRS(object):
             assert process.stdout == b"hi\n"
             assert process.stderr == b""
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[
                                  # to save on test runtime, only run with
                                  # pre-canned responses
@@ -69,9 +65,9 @@ class TestWinRS(object):
                                  'test_winrs_operation_timeout'
                              ]],
                              indirect=True)
-    def test_winrs_operation_timeout(self, winrm_transport):
-        wsman = WSMan(winrm_transport, operation_timeout=10)
-        with WinRS(wsman) as shell:
+    def test_winrs_operation_timeout(self, wsman_conn):
+        wsman_conn.operation_timeout = 10
+        with WinRS(wsman_conn) as shell:
             process = Process(shell, "powershell.exe", ['Write-Host hi; '
                                                         'Start-Sleep 30; '
                                                         'Write-Host hi again'])
@@ -81,11 +77,10 @@ class TestWinRS(object):
             assert process.stdout == b"hi\nhi again\n"
             assert process.stderr == b""
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_winrs_stderr_rc']], indirect=True)
-    def test_winrs_stderr_rc(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        with WinRS(wsman) as shell:
+    def test_winrs_stderr_rc(self, wsman_conn):
+        with WinRS(wsman_conn) as shell:
             process = Process(shell, "cmd.exe", ["/c echo out && echo "
                                                  "err>&2 && exit 1"])
             process.invoke()
@@ -94,11 +89,10 @@ class TestWinRS(object):
             assert process.stdout == b"out \r\n"
             assert process.stderr == b"err \r\n"
 
-    @pytest.mark.parametrize('winrm_transport', [[True, 'test_winrs_send']],
+    @pytest.mark.parametrize('wsman_conn', [[True, 'test_winrs_send']],
                              indirect=True)
-    def test_winrs_send(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        with WinRS(wsman) as shell:
+    def test_winrs_send(self, wsman_conn):
+        with WinRS(wsman_conn) as shell:
             process = Process(shell, "powershell.exe", ["-"])
             process.begin_invoke()
             process.send(b"Write-Host \"output 1\";", end=False)
@@ -109,9 +103,9 @@ class TestWinRS(object):
             assert process.stdout == b"output 1\noutput 2\n"
             assert process.stderr == b""
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_winrs_environment']], indirect=True)
-    def test_winrs_environment(self, winrm_transport):
+    def test_winrs_environment(self, wsman_conn):
         complex_chars = '_-(){}[]<>*+-/\?"''!@#$^&|;:i,.`~0'
         env_block = OrderedDict([
             ('env1', 'var1'),
@@ -119,8 +113,7 @@ class TestWinRS(object):
             (complex_chars, complex_chars),
         ])
 
-        wsman = WSMan(winrm_transport)
-        with WinRS(wsman, environment=env_block) as shell:
+        with WinRS(wsman_conn, environment=env_block) as shell:
             process = Process(shell, "cmd.exe", ["/c", "set"])
             process.invoke()
             process.signal(SignalCode.CTRL_C)
@@ -131,11 +124,10 @@ class TestWinRS(object):
             assert "%s=%s" % (complex_chars, complex_chars) in env_list
             assert process.stderr == b""
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_winrs_extra_opts']], indirect=True)
-    def test_winrs_extra_opts(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        with WinRS(wsman, name="shell 1", lifetime=60, idle_time_out=60,
+    def test_winrs_extra_opts(self, wsman_conn):
+        with WinRS(wsman_conn, name="shell 1", lifetime=60, idle_time_out=60,
                    working_directory="C:\\Windows") as shell:
             assert shell.name == "shell 1"
             assert shell.lifetime == 60
@@ -149,11 +141,10 @@ class TestWinRS(object):
             assert process.stdout == b"C:\\Windows\r\n"
             assert process.stderr == b""
 
-    @pytest.mark.parametrize('winrm_transport', [[True, 'test_winrs_unicode']],
+    @pytest.mark.parametrize('wsman_conn', [[True, 'test_winrs_unicode']],
                              indirect=True)
-    def test_winrs_unicode(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        with WinRS(wsman, codepage=65001) as shell:
+    def test_winrs_unicode(self, wsman_conn):
+        with WinRS(wsman_conn, codepage=65001) as shell:
             process = Process(shell, "powershell.exe",
                               [u"Write-Host こんにちは"])
             process.invoke()
@@ -162,13 +153,12 @@ class TestWinRS(object):
             assert process.stdout.decode('utf-8') == u"こんにちは\n"
             assert process.stderr == b""
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # not all hosts respect the no_profile, we will
                              # just validate the message against a fake host
                              [[False, 'test_winrs_noprofile']], indirect=True)
-    def test_winrs_noprofile(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        with WinRS(wsman, no_profile=True) as shell:
+    def test_winrs_noprofile(self, wsman_conn):
+        with WinRS(wsman_conn, no_profile=True) as shell:
             process = Process(shell, "cmd.exe", ["/c", "set"])
             process.invoke()
             process.signal(SignalCode.CTRL_C)
@@ -177,21 +167,19 @@ class TestWinRS(object):
                    process.stdout.decode('utf-8').splitlines()
             assert process.stderr == b""
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_winrs_open_already_opened']],
                              indirect=True)
-    def test_winrs_open_already_opened(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        with WinRS(wsman) as shell:
+    def test_winrs_open_already_opened(self, wsman_conn):
+        with WinRS(wsman_conn) as shell:
             shell.open()
         shell.close()
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_winrs_fail_poll_process']],
                              indirect=True)
-    def test_winrs_fail_poll_process(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
-        with WinRS(wsman) as shell:
+    def test_winrs_fail_poll_process(self, wsman_conn):
+        with WinRS(wsman_conn) as shell:
             process = Process(shell, "cmd.exe", ["/c", "echo", "hi"])
 
             # if I poll before beginning it should fail

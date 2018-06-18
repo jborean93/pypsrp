@@ -11,7 +11,6 @@ from pypsrp.complex_objects import Color, ControlKeyState, Coordinates, \
 from pypsrp.host import PSHost, PSHostRawUserInterface, PSHostUserInterface
 from pypsrp.messages import ProgressRecord
 from pypsrp.powershell import PowerShell, RunspacePool
-from pypsrp.transport import TransportHTTP
 from pypsrp.wsman import WSMan
 
 try:
@@ -46,15 +45,14 @@ def gen_rsa_keypair(public_exponent, key_size, backend):
 
 class TestPSHost(object):
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # The actual culture can vary from host to host
                              [[True, 'test_psrp_pshost_methods']],
                              indirect=True)
-    def test_psrp_pshost_methods(self, winrm_transport):
-        wsman = WSMan(winrm_transport)
+    def test_psrp_pshost_methods(self, wsman_conn):
         host = PSHost(None, None, False, "host name", None, None, "1.0")
 
-        with RunspacePool(wsman, host=host) as pool:
+        with RunspacePool(wsman_conn, host=host) as pool:
             ps = PowerShell(pool)
             # SetShouldExit is really the only one that seems to work so
             # we will just test that
@@ -73,7 +71,7 @@ class TestPSHost(object):
             host.ExitNestedPrompt(None, None)
 
     def test_pshost_methods(self):
-        wsman = WSMan(TransportHTTP("server"))
+        wsman = WSMan("server")
         runspace = RunspacePool(wsman)
         host = PSHost(CultureInfo(), CultureInfo(), True, "name", None, None,
                       "1.0")
@@ -96,16 +94,14 @@ class TestPSHost(object):
 
 class TestPSHostUserInterface(object):
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_psrp_pshost_ui_mocked_methods']],
                              indirect=True)
-    def test_psrp_pshost_ui_mocked_methods(self, winrm_transport, monkeypatch):
+    def test_psrp_pshost_ui_mocked_methods(self, wsman_conn, monkeypatch):
         # This tests that the args from an actual host call match up with our
         # definitions
         monkeypatch.setattr('cryptography.hazmat.primitives.asymmetric.rsa.'
                             'generate_private_key', gen_rsa_keypair)
-
-        wsman = WSMan(winrm_transport)
 
         mock_read_line = MagicMock(return_value="ReadLine response")
         mock_read_line_as_ss = MagicMock()
@@ -145,7 +141,7 @@ class TestPSHostUserInterface(object):
 
         host = PSHost(None, None, False, None, None, host_ui, None)
 
-        with RunspacePool(wsman, host=host) as pool:
+        with RunspacePool(wsman_conn, host=host) as pool:
             pool.exchange_keys()
             mock_read_line_as_ss.return_value = pool.serialize(
                 u"ReadLineAsSecureString response", ObjectMeta("SS")
@@ -372,20 +368,16 @@ $host.UI.PromptForChoice("PromptForChoice caption", "PromptForChoice message", @
 class TestPSHostRawUserInterface(object):
 
     @pytest.mark.parametrize(
-        'winrm_transport', [[True, 'test_psrp_pshost_raw_ui_mocked_methods']],
+        'wsman_conn', [[True, 'test_psrp_pshost_raw_ui_mocked_methods']],
         indirect=True
     )
-    def test_psrp_pshost_raw_ui_mocked_methods(self, winrm_transport,
+    def test_psrp_pshost_raw_ui_mocked_methods(self, wsman_conn,
                                                monkeypatch):
         # in a mocked context the calculated size differs on a few variables
         # we will mock out that call and return the ones used in our existing
         # responses
         mock_calc = MagicMock()
         mock_calc.side_effect = [113955, 382750]
-
-        # This tests that the args from an actual host call match up with our
-        # definitions
-        wsman = WSMan(winrm_transport)
 
         key_info = KeyInfo(code=65, character="a",
                            state=ControlKeyState.CapsLockOn, key_down=True)
@@ -438,7 +430,7 @@ class TestPSHostRawUserInterface(object):
         host_ui = PSHostUserInterface(host_raw_ui)
         host = PSHost(None, None, False, None, None, host_ui, None)
 
-        with RunspacePool(wsman, host=host) as pool:
+        with RunspacePool(wsman_conn, host=host) as pool:
             ps = PowerShell(pool)
             ps.add_script('''$host.UI.RawUI.ForegroundColor
 $host.UI.RawUI.ForegroundColor = [System.ConsoleColor]::Green

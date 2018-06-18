@@ -18,18 +18,18 @@ except ImportError:
 
 class TestClient(object):
 
-    def _get_client(self, transport):
-        # the transport object was already created as part of test fixture
+    def _get_client(self, wsman):
+        # the connection object was already created as part of test fixture
         # we need to apply it to the Client object and set the values so the
         # test will work with existing responses
         client = Client(None)
-        client.wsman.transport = transport
+        client.wsman = wsman
         return client
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[False, 'test_client_copy_file']], indirect=True)
-    def test_client_copy_file(self, winrm_transport):
-        client = self._get_client(winrm_transport)
+    def test_client_copy_file(self, wsman_conn):
+        client = self._get_client(wsman_conn)
         test_string = b"abcdefghijklmnopqrstuvwxyz"
 
         temp_file, path = tempfile.mkstemp()
@@ -54,11 +54,11 @@ class TestClient(object):
         finally:
             client.execute_cmd("powershell Remove-Item -Path '%s'" % actual)
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_client_copy_file_empty']],
                              indirect=True)
-    def test_client_copy_file_empty(self, winrm_transport):
-        client = self._get_client(winrm_transport)
+    def test_client_copy_file_empty(self, wsman_conn):
+        client = self._get_client(wsman_conn)
 
         temp_file, path = tempfile.mkstemp()
         try:
@@ -78,15 +78,15 @@ class TestClient(object):
         finally:
             client.execute_cmd("powershell Remove-Item -Path '%s'" % actual)
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # checks as to whether the correct number of calls
                              # were sent and the remote requirements are too
                              # variable to trust reliable
                              [[False, 'test_client_copy_file_double_payload']],
                              indirect=True)
-    def test_client_copy_file_double_payload(self, winrm_transport):
-        client = self._get_client(winrm_transport)
-        client.wsman._max_payload_size = 113955
+    def test_client_copy_file_double_payload(self, wsman_conn):
+        client = self._get_client(wsman_conn)
+        client.wsman.max_payload_size = 113955
 
         # data sent in 3 packets (2 * data + hash)
         test_string = b"abcdefghijklmnopqrstuvwxyz" * 5000
@@ -102,13 +102,13 @@ class TestClient(object):
         # verify the returned object is the full path
         assert actual == u"C:\\Users\\vagrant\\test_file"
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # checks as to whether the correct number of calls
                              # were sent and the remote requirements are too
                              # variable to trust reliable
                              [[False, 'test_client_copy_file_quad_payload']],
                              indirect=True)
-    def test_client_copy_file_quad_payload(self, winrm_transport, monkeypatch):
+    def test_client_copy_file_quad_payload(self, wsman_conn, monkeypatch):
         # in a mocked context the calculated size differs on a few variables
         # we will mock out that call and return the ones used in our existing
         # responses
@@ -116,7 +116,7 @@ class TestClient(object):
         mock_calc.side_effect = [113955, 382750]
         monkeypatch.setattr(WSMan, "_calc_envelope_size", mock_calc)
 
-        client = self._get_client(winrm_transport)
+        client = self._get_client(wsman_conn)
 
         # data sent in 3 packets (get size + data + hash)
         test_string = b"abcdefghijklmnopqrstuvwxyz" * 10000
@@ -132,13 +132,13 @@ class TestClient(object):
         # verify the returned object is the full path
         assert actual == u"C:\\Users\\vagrant\\test_file"
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # checks as to whether the correct number of calls
                              # were sent and the remote requirements are too
                              # variable to trust reliable
                              [[False, 'test_client_copy_file_really_large']],
                              indirect=True)
-    def test_client_copy_file_really_large(self, winrm_transport, monkeypatch):
+    def test_client_copy_file_really_large(self, wsman_conn, monkeypatch):
         # in a mocked context the calculated size differs on a few variables
         # we will mock out that call and return the ones used in our existing
         # responses
@@ -146,7 +146,7 @@ class TestClient(object):
         mock_calc.side_effect = [113955, 382750]
         monkeypatch.setattr(WSMan, "_calc_envelope_size", mock_calc)
 
-        client = self._get_client(winrm_transport)
+        client = self._get_client(wsman_conn)
 
         # data sent in 4 packets (get size + 2 * data + hash)
         test_string = b"abcdefghijklmnopqrstuvwxyz" * 20000
@@ -162,10 +162,10 @@ class TestClient(object):
         # verify the returned object is the full path
         assert actual == u"C:\\Users\\vagrant\\test_file"
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_client_copy_file_failure']],
                              indirect=True)
-    def test_client_copy_file_failure(self, winrm_transport, monkeypatch):
+    def test_client_copy_file_failure(self, wsman_conn, monkeypatch):
         # set to a hash that is not the actual to verify the script will
         # fail in a hash mismatch scenario
         mock_hash = MagicMock()
@@ -173,7 +173,7 @@ class TestClient(object):
             "c3499c2729730a7f807efb8676a92dcb6f8a3f8f"
         monkeypatch.setattr(hashlib, "sha1", mock_hash)
 
-        client = self._get_client(winrm_transport)
+        client = self._get_client(wsman_conn)
         test_string = b"abcdefghijklmnopqrstuvwxyz"
 
         temp_file, path = tempfile.mkstemp()
@@ -190,11 +190,11 @@ class TestClient(object):
             os.close(temp_file)
             os.remove(path)
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_client_execute_cmd']],
                              indirect=True)
-    def test_client_execute_cmd(self, winrm_transport):
-        client = self._get_client(winrm_transport)
+    def test_client_execute_cmd(self, wsman_conn):
+        client = self._get_client(wsman_conn)
         actual = client.execute_cmd("dir")
         actual_args = client.execute_cmd("echo abc")
 
@@ -206,10 +206,10 @@ class TestClient(object):
         assert actual_args[1] == u""
         assert actual_args[2] == 0
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_client_execute_ps']], indirect=True)
-    def test_client_execute_ps(self, winrm_transport):
-        client = self._get_client(winrm_transport)
+    def test_client_execute_ps(self, wsman_conn):
+        client = self._get_client(wsman_conn)
 
         expected_stdout = u'winrm\nRunning\n\nStatus   Name               ' \
                           u'DisplayName                           \n------' \
@@ -222,11 +222,11 @@ class TestClient(object):
         assert isinstance(actual[1], PSDataStreams)
         assert actual[2] is False
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_client_execute_ps_failure']],
                              indirect=True)
-    def test_client_execute_ps_failure(self, winrm_transport):
-        client = self._get_client(winrm_transport)
+    def test_client_execute_ps_failure(self, wsman_conn):
+        client = self._get_client(wsman_conn)
 
         actual = client.execute_ps("Get-ServiceTypo -Name winrm")
 
@@ -239,11 +239,11 @@ class TestClient(object):
             "the path is correct and try again."
         assert actual[2] is True
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # means we don't need to create files on the
                              # remote side
                              [[False, 'test_client_fetch_file']], indirect=True)
-    def test_client_fetch_file(self, winrm_transport, monkeypatch):
+    def test_client_fetch_file(self, wsman_conn, monkeypatch):
         # in a mocked context the calculated size differs on a few variables
         # we will mock out that call and return the ones used in our existing
         # responses
@@ -251,7 +251,7 @@ class TestClient(object):
         mock_calc.side_effect = [113955, 382750]
         monkeypatch.setattr(WSMan, "_calc_envelope_size", mock_calc)
 
-        client = self._get_client(winrm_transport)
+        client = self._get_client(wsman_conn)
 
         # file was created with
         # Set-Content -Path C:\temp\file.txt -Value ("abc`r`n" * 50000)
@@ -277,10 +277,10 @@ class TestClient(object):
             if os.path.exists(path):
                 os.remove(path)
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_client_fetch_file_fail_dir']],
                              indirect=True)
-    def test_client_fetch_file_fail_dir(self, winrm_transport, monkeypatch):
+    def test_client_fetch_file_fail_dir(self, wsman_conn, monkeypatch):
         # in a mocked context the calculated size differs on a few variables
         # we will mock out that call and return the ones used in our existing
         # responses
@@ -288,17 +288,17 @@ class TestClient(object):
         mock_calc.side_effect = [113955, 382750]
         monkeypatch.setattr(WSMan, "_calc_envelope_size", mock_calc)
 
-        client = self._get_client(winrm_transport)
+        client = self._get_client(wsman_conn)
         with pytest.raises(WinRMError) as err:
             client.fetch("C:\\Windows", "")
         assert str(err.value) == \
             "Failed to fetch file C:\\Windows: The path at 'C:\\Windows' is " \
             "a directory, src must be a file"
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_client_fetch_file_fail_missing']],
                              indirect=True)
-    def test_client_fetch_file_fail_missing(self, winrm_transport,
+    def test_client_fetch_file_fail_missing(self, wsman_conn,
                                             monkeypatch):
         # in a mocked context the calculated size differs on a few variables
         # we will mock out that call and return the ones used in our existing
@@ -307,19 +307,19 @@ class TestClient(object):
         mock_calc.side_effect = [113955, 382750]
         monkeypatch.setattr(WSMan, "_calc_envelope_size", mock_calc)
 
-        client = self._get_client(winrm_transport)
+        client = self._get_client(wsman_conn)
         with pytest.raises(WinRMError) as err:
             client.fetch("C:\\fakefile.txt", "")
         assert str(err.value) == \
             "Failed to fetch file C:\\fakefile.txt: The path at " \
             "'C:\\fakefile.txt' does not exist"
 
-    @pytest.mark.parametrize('winrm_transport',
+    @pytest.mark.parametrize('wsman_conn',
                              # use existing responses so I don't need to create
                              # the file
                              [[False, 'test_client_fetch_file_hash_mismatch']],
                              indirect=True)
-    def test_client_fetch_file_hash_mismatch(self, winrm_transport,
+    def test_client_fetch_file_hash_mismatch(self, wsman_conn,
                                              monkeypatch):
         # set to a hash that is not the actual to verify the script will
         # fail in a hash mismatch scenario
@@ -330,7 +330,7 @@ class TestClient(object):
 
         # file was created with
         # Set-Content -Path C:\temp\file.txt -Value ("abc`r`n" * 5)
-        client = self._get_client(winrm_transport)
+        client = self._get_client(wsman_conn)
         with pytest.raises(WinRMError) as err:
             client.fetch("C:\\temp\\file.txt", "")
         assert str(err.value) == \

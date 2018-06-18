@@ -5,7 +5,6 @@ import pytest
 from pypsrp.complex_objects import ObjectMeta
 from pypsrp.powershell import PowerShell, RunspacePool
 from pypsrp.shell import Process, SignalCode, WinRS
-from pypsrp.transport import TransportHTTP
 from pypsrp.wsman import WSMan
 
 
@@ -60,26 +59,25 @@ def functional_transports():
         cert_pem = None
     auths_ssl.extend(auths)
 
-    transports = []
+    wsmans = []
     for auth in auths:
-        transport = TransportHTTP(server, username=username, password=password,
-                                  ssl=False, auth=auth, port=http_port)
-        transports.append(transport)
+        wsman = WSMan(server, username=username, password=password, ssl=False,
+                      auth=auth, port=http_port)
+        wsmans.append(wsman)
 
     for auth in auths_ssl:
-        transport = TransportHTTP(server, username=username, password=password,
-                                  ssl=True, auth=auth, cert_validation=False,
-                                  certificate_key_pem=cert_key_pem,
-                                  certificate_pem=cert_pem, port=https_port)
-        transports.append(transport)
-    yield transports
+        wsman = WSMan(server, username=username, password=password, ssl=True,
+                      auth=auth, cert_validation=False,
+                      certificate_key_pem=cert_key_pem,
+                      certificate_pem=cert_pem, port=https_port)
+        wsmans.append(wsman)
+    yield wsmans
 
 
 class TestPowerShellFunctional(object):
 
     def test_winrs(self, functional_transports):
-        for transport in functional_transports:
-            wsman = WSMan(transport)
+        for wsman in functional_transports:
             with WinRS(wsman) as shell:
                 process = Process(shell, "echo", ["hi"])
                 process.invoke()
@@ -89,8 +87,7 @@ class TestPowerShellFunctional(object):
                 assert process.stderr == b""
 
     def test_psrp(self, functional_transports):
-        for transport in functional_transports:
-            wsman = WSMan(transport)
+        for wsman in functional_transports:
             with RunspacePool(wsman) as pool:
                 pool.exchange_keys()
                 ps = PowerShell(pool)
@@ -129,8 +126,7 @@ class TestPowerShellFunctional(object):
     @pytest.mark.skip("TODO: fix up appveyor issue (Code: 1359, Machine: "
                       "127.0.0.1, Reason: An internal error occurred.)")
     def test_psrp_jea(self, functional_transports):
-        for transport in functional_transports:
-            wsman = WSMan(transport)
+        for wsman in functional_transports:
             with RunspacePool(wsman, configuration_name="JEARole") as pool:
                 ps = PowerShell(pool)
                 wsman_path = "WSMan:\\localhost\\Service\\AllowUnencrypted"

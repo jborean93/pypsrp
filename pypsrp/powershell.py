@@ -103,7 +103,7 @@ class RunspacePool(object):
         self._min_runspaces = min_runspaces
         self._max_runspaces = max_runspaces
         self._serializer = Serializer()
-        self._fragmenter = Fragmenter(self.connection._max_payload_size,
+        self._fragmenter = Fragmenter(self.connection.max_payload_size,
                                       self._serializer)
         self._exchange_key = None
         self._key_exchanged = False

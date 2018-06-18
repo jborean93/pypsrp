@@ -10,8 +10,7 @@ import yaml
 import pytest
 
 from pypsrp.exceptions import AuthenticationError, WinRMTransportError
-from pypsrp.transport import TransportHTTP
-from pypsrp.wsman import NAMESPACES
+from pypsrp.wsman import NAMESPACES, WSMan
 from pypsrp._utils import to_bytes, to_string
 
 import xml.etree.ElementTree as ETNew
@@ -222,7 +221,7 @@ class TransportFake(object):
 
 
 @pytest.fixture(scope='module')
-def winrm_transport(request, monkeypatch):
+def wsman_conn(request, monkeypatch):
     test_params = request.param
     if not isinstance(test_params, list) or len(test_params) != 2:
         raise Exception("Cannot run winrm_transport fixture without the "
@@ -243,8 +242,8 @@ def winrm_transport(request, monkeypatch):
 
     if allow_real and username is not None and password is not None and \
             server is not None:
-        transport = TransportHTTP(server, port, username, password, ssl,
-                                  auth=auth, cert_validation=False)
+        wsman = WSMan(server, port=port, username=username, password=password,
+                      ssl=ssl, auth=auth, cert_validation=False)
     else:
         # Mock out UUID's so they are not a problem when comparing messages
         def mockuuid():
@@ -252,11 +251,13 @@ def winrm_transport(request, monkeypatch):
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
         transport = TransportFake(test_name, "fakehost", port, "username",
                                   "password", ssl, "wsman", auth)
-    yield transport
+        wsman = WSMan("")
+        wsman.transport = transport
+    yield wsman
 
     # used as an easy way to be results for a test, requires the _test_messages
-    # to be uncommented in pypsrp/transport.py
-    test_messages = getattr(transport, '_test_messages', None)
+    # to be uncommented in pypsrp/wsman.py
+    test_messages = getattr(wsman.transport, '_test_messages', None)
     if test_messages is not None:
         yaml_text = yaml.dump({"messages": test_messages},
                               default_flow_style=False,
