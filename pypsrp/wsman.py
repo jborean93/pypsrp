@@ -32,6 +32,17 @@ else:  # pragma: no cover
 
 log = logging.getLogger(__name__)
 
+SUPPORTED_AUTHS = ["basic", "certificate", "credssp", "kerberos",
+                   "negotiate", "ntlm"]
+
+AUTH_KWARGS = {
+    "certificate": ["certificate_key_pem", "certificate_pem"],
+    "credssp": ["credssp_auth_mechanism", "credssp_disable_tlsv1_2",
+                "credssp_minimum_version"],
+    "negotiate": ["negotiate_delegate", "negotiate_hostname_override",
+                  "negotiate_send_cbt", "negotiate_service"],
+}
+
 # [MS-WSMV] 2.2.1 Namespaces
 # https://msdn.microsoft.com/en-us/library/ee878420.aspx
 NAMESPACES = {
@@ -131,7 +142,7 @@ class WSMan(object):
             can be sent to the server
         :param operation_timeout: Indicates that the client expects a response
             or a fault within the specified time.
-        :param port: THe port to connect to, default is 5986 if ssl=True, else
+        :param port: The port to connect to, default is 5986 if ssl=True, else
             5985
         :param username: The username to connect with
         :param password: The password for the above username
@@ -547,17 +558,6 @@ class SelectorSet(_WSManSet):
 # this should not be used outside of this class
 class _TransportHTTP(object):
 
-    SUPPORTED_AUTHS = ["basic", "certificate", "credssp", "kerberos",
-                       "negotiate", "ntlm"]
-
-    AUTH_KWARGS = {
-        "certificate": ["certificate_key_pem", "certificate_pem"],
-        "credssp": ["credssp_auth_mechanism", "credssp_disable_tlsv1_2",
-                    "credssp_minimum_version"],
-        "negotiate": ["negotiate_delegate", "negotiate_hostname_override",
-                      "negotiate_send_cbt", "negotiate_service"],
-    }
-
     def __init__(self, server, port=None, username=None, password=None,
                  ssl=True, path="wsman", auth="negotiate",
                  cert_validation=True, connection_timeout=30,
@@ -569,10 +569,10 @@ class _TransportHTTP(object):
         self.ssl = ssl
         self.path = path
 
-        if auth not in self.SUPPORTED_AUTHS:
+        if auth not in SUPPORTED_AUTHS:
             raise ValueError("The specified auth '%s' is not supported, "
                              "please select one of '%s'"
-                             % (auth, ", ".join(self.SUPPORTED_AUTHS)))
+                             % (auth, ", ".join(SUPPORTED_AUTHS)))
         self.auth = auth
         self.cert_validation = cert_validation
         self.connection_timeout = connection_timeout
@@ -608,7 +608,7 @@ class _TransportHTTP(object):
         self.proxy = proxy
         self.no_proxy = no_proxy
 
-        for kwarg_list in self.AUTH_KWARGS.values():
+        for kwarg_list in AUTH_KWARGS.values():
             for kwarg in kwarg_list:
                 setattr(self, kwarg, kwargs.get(kwarg, None))
 
@@ -792,7 +792,7 @@ class _TransportHTTP(object):
 
     def _get_auth_kwargs(self, auth_provider):
         kwargs = {}
-        for kwarg in self.AUTH_KWARGS[auth_provider]:
+        for kwarg in AUTH_KWARGS[auth_provider]:
             kwarg_value = getattr(self, kwarg, None)
             if kwarg_value is not None:
                 kwarg_key = kwarg[len(auth_provider) + 1:]

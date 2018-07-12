@@ -149,7 +149,8 @@ class PSHost(object):
         """
         MI: 6
         SHOULD shut down the hosting application and close the current
-        runspace.
+        runspace. The default implementation just sets the rc on the host
+        object and doesn't shutdown the runspace.
         https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.host.pshost.setshouldexit
 
         :param runspace: The runspace the host call relates to
@@ -158,7 +159,6 @@ class PSHost(object):
             Typically after exiting a runspace, a host will also terminate
         """
         self.rc = exit_code
-        runspace.close()
 
     def EnterNestedPrompt(self, runspace, pipeline):
         """
