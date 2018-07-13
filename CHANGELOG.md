@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 - TBD
+## 0.1.0 - 2018-07-13
 
 Initial release of pypsrp, it contains the following features
 
