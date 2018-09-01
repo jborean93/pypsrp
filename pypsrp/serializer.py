@@ -425,7 +425,7 @@ class Serializer(object):
 
         for attr, property_meta in value._property_sets:
             attr_value = getattr(value, attr)
-            self.serialize(attr_value, property_meta, parent=obj, clear=False)
+            self._create_obj(obj, attr_value, meta=property_meta)
 
         def serialize_prop(parent, properties):
             if len(properties) == 0:
@@ -433,8 +433,8 @@ class Serializer(object):
             parent = ET.SubElement(obj, parent)
             for attr, property_meta in properties:
                 attr_value = getattr(value, attr)
-                self.serialize(attr_value, property_meta, parent=parent,
-                               clear=False)
+                self._create_obj(parent, attr_value, meta=property_meta)
+
         serialize_prop("MS", value._extended_properties)
         serialize_prop("Props", value._adapted_properties)
 
@@ -442,6 +442,7 @@ class Serializer(object):
 
     def _serialize_dynamic_obj(self, metadata, value):
         obj = ET.Element("Obj", RefId=self._get_obj_id())
+        self.obj[obj.attrib["RefId"]] = value
 
         if len(value.types) > 0:
             self._create_tn(obj, value.types)
@@ -451,9 +452,7 @@ class Serializer(object):
                 self._serialize_string(value.to_string)
 
         for prop in value.property_sets:
-            metadata = ObjectMeta()
-            self.serialize(prop, metadata=metadata, parent=obj,
-                           clear=False)
+            self._create_obj(obj, prop)
 
         def set_properties(element, prop_name):
             prop_keys = list(getattr(value, prop_name).keys())
@@ -464,9 +463,8 @@ class Serializer(object):
             prop_keys.sort()
             for key in prop_keys:
                 prop = getattr(value, prop_name)[key]
-                metadata = ObjectMeta(name=key)
-                self.serialize(prop, metadata=metadata, parent=parent,
-                               clear=False)
+                self._create_obj(parent, prop, key=key)
+
         set_properties("MS", "extended_properties")
         set_properties("Props", "adapted_properties")
 
@@ -590,6 +588,7 @@ class Serializer(object):
 
     def _deserialize_obj(self, element, metadata):
         obj = metadata.object()
+        self.obj[element.attrib['RefId']] = obj
 
         to_string_value = element.find("ToString")
         if to_string_value is not None:
@@ -597,6 +596,8 @@ class Serializer(object):
 
         def deserialize_property(prop_tag, properties):
             for attr, property_meta in properties:
+                if attr == "invocation_info":
+                    a = ""
                 property_name = "Unknown"
                 property_filter = ""
                 if property_meta.name is not None:
@@ -639,6 +640,7 @@ class Serializer(object):
 
     def _deserialize_dynamic_obj(self, element, metadata):
         obj = metadata.object()
+        self.obj[element.attrib['RefId']] = obj
 
         for obj_property in element:
             if obj_property.tag == "TN":
@@ -789,3 +791,16 @@ class Serializer(object):
                 ET.SubElement(tn, "T").text = type_name
         else:
             ET.SubElement(parent, "TNRef", RefId=str(ref_id))
+
+    def _create_obj(self, parent, obj, key=None, meta=None):
+        if isinstance(obj, ComplexObject):
+            for ref, value in self.obj.items():
+                if value == obj:
+                    sub_element = ET.SubElement(parent, "Ref", RefId=ref)
+                    if key is not None:
+                        sub_element.attrib["N"] = key
+                    return
+
+        if meta is None:
+            meta = ObjectMeta(name=key)
+        self.serialize(obj, metadata=meta, parent=parent, clear=False)
