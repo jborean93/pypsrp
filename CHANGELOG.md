@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1 - TBD
+
+* Fix issue when deserialising a circular reference in a PSRP object
+
+
 ## 0.1.0 - 2018-07-13
 
 Initial release of pypsrp, it contains the following features

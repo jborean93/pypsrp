@@ -25,6 +25,8 @@ environment:
   - PYTHON: Python35-x64
   - PYTHON: Python36
   - PYTHON: Python36-x64
+  - PYTHON: Python37
+  - PYTHON: Python37-x64
 
 init:
 - ps: |
@@ -56,19 +58,20 @@ install:
         -Force
 
     Restart-Service -Name winrm
+- cmd: python -m pip install --upgrade pip
+- cmd: pip install --upgrade setuptools
+- cmd: pip install -r requirements-test.txt
+- cmd: pip install .[credssp]
 
-    pip install pip setuptools --upgrade
-    pip install idna<2.7  # TODO: remove once requests catches up
-    pip install -r requirements-test.txt
-    pip install .
-    pip install .[credssp]
-
-    # test out pywin32 on some matrixes
+# test out pywin32 on some matrixes
+- ps: |
+    $ErrorActionPreference = "SilentlyContinue"
     if ($env:PYTHON -in @("Python27", "Python27-x64", "Python36", "Python36-x64")) {
         pip install .[kerberos]
     }
+    $ErrorActionPreference = "Stop"
 
 build: off  # Do not run MSBuild, build stuff at install step
 
 test_script:
-- ps: py.test -v --instafail --pep8 --cov pypsrp --cov-report term-missing
+- cmd: py.test -v --instafail --pep8 --cov pypsrp --cov-report term-missing

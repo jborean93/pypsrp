@@ -298,3 +298,72 @@ class TestSerializer(object):
             "fake", object=GenericComplexObject
         ))
         assert actual == xml
+
+    @pytest.mark.skipif(sys.version_info < (2, 7),
+                        reason="py26 has extra space in output due to lxml")
+    def test_serialize_circualr_reference(self):
+        serializer = Serializer()
+        obj = GenericComplexObject()
+        obj.types = [
+            "Microsoft.Exchange.Data.Directory.ADObjectId",
+            "Microsoft.Exchange.Data.ObjectId",
+            "System.Object"
+        ]
+        obj.to_string = "com"
+        obj.adapted_properties = {
+            "OrgHierarchyToIgnore": None,
+            "IsDeleted": False,
+            "Parent": None,
+            "Depth": 0,
+            "DistinguishedName": "DC=com",
+            "IsRelativeDn": False,
+            "DomainId": obj,
+            "Name": "com",
+            "SecurityIdentifierString": None
+        }
+        obj.property_sets.append("abc")
+        obj.property_sets.append(obj)
+
+        expected = \
+            '<Obj RefId="0"><TN RefId="0"><T>Microsoft.Exchange.Data.' \
+            'Directory.ADObjectId</T><T>Microsoft.Exchange.Data.ObjectId</T>' \
+            '<T>System.Object</T></TN><ToString>com</ToString><S>abc</S>' \
+            '<Ref RefId="0" /><Props><I32 N="Depth">0</I32>' \
+            '<S N="DistinguishedName">DC=com</S>' \
+            '<Ref N="DomainId" RefId="0" /><B N="IsDeleted">false</B>' \
+            '<B N="IsRelativeDn">false</B><S N="Name">com</S>' \
+            '<Nil N="OrgHierarchyToIgnore" /><Nil N="Parent" />' \
+            '<Nil N="SecurityIdentifierString" /></Props></Obj>'
+        actual = serializer.serialize(obj)
+        actual_xml = to_string(ET.tostring(actual))
+        assert actual_xml == expected
+
+    def test_deserialize_circular_reference(self):
+        serializer = Serializer()
+        xml = '''<Obj N="DomainId" RefId="44">
+    <TN RefId="6">
+        <T>Microsoft.Exchange.Data.Directory.ADObjectId</T>
+        <T>Microsoft.Exchange.Data.ObjectId</T>
+        <T>System.Object</T>
+    </TN>
+    <ToString>com</ToString>
+    <Props>
+        <Nil N="OrgHierarchyToIgnore"/>
+        <B N="IsDeleted">false</B>
+        <Nil N="Parent"/>
+        <I32 N="Depth">0</I32>
+        <S N="DistinguishedName">DC=com</S>
+        <B N="IsRelativeDn">false</B>
+        <Ref N="DomainId" RefId="44"/>
+        <S N="Name">com</S>
+        <Nil N="SecurityIdentifierString"/>
+    </Props>
+</Obj>'''
+        actual = serializer.deserialize(xml)
+        assert str(actual) == "com"
+        assert str(actual.adapted_properties["DomainId"]) == "com"
+        assert actual.adapted_properties["DomainId"].types == [
+            "Microsoft.Exchange.Data.Directory.ADObjectId",
+            "Microsoft.Exchange.Data.ObjectId",
+            "System.Object"
+        ]
