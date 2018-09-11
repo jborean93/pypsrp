@@ -27,9 +27,7 @@ install:
 - pip install -U pip setuptools
 - pip install .
 - pip install -r requirements-test.txt
-- pip install python-coveralls
-# force the install of a new version of coverage https://github.com/z4r/python-coveralls/issues/66
-- pip install -U coverage
+- pip install coveralls
 
 script:
 - py.test -v --instafail --pep8 --cov pypsrp --cov-report term-missing
