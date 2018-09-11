@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 - TBD
+## 0.2.0 - 2018-09-11
 
 * Fix issue when deserialising a circular reference in a PSRP object
 * Added the ability to specify the `Locale` and `DataLocale` values when creating the `WSMan` object
