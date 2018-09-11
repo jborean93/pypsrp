@@ -24,7 +24,7 @@ before_install:
 - sudo mkdir -p /usr/etc/gss
 - sudo sh -c 'echo "ntlmssp_v1       1.3.6.1.4.1.311.2.2.10          /usr/local/lib/gssntlmssp/gssntlmssp.so" > /usr/etc/gss/mech'
 install:
-- pip install -U pip setuptools
+- pip install -U pip setuptools coverage
 - pip install .
 - pip install -r requirements-test.txt
 - pip install python-coveralls
