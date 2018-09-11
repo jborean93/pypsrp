@@ -1,30 +1,27 @@
 language: python
 
-sudo: yes
+# required to install gss-ntlmssp
+sudo: true
 
 python:
-- "2.6"
-- "2.7"
-- "3.4"
-- "3.5"
-- "3.6"
+- 2.6
+- 2.7
+- 3.4
+- 3.5
+- 3.6
+
+# Python 3.7 requires 16.04 (Xenial), this is a hack to get that specific
+# distro running that version until I can swap the rest over officially
+matrix:
+  include:
+  - python: 3.7
+    dist: xenial
 
 before_install:
 # install gss-ntlmssp required for tests
-# change to sudo apt-get install -y gss-ntlmssp when moving to Xenial
-- sudo apt-get update
-- sudo apt-get install -y autoconf automake m4 libtool winbind libwbclient-dev gettext xsltproc libxml2-utils docbook-xml docbook-xsl make libkrb5-dev krb5-user libsasl2-modules-gssapi-mit libunistring-dev libssl-dev doxygen-gui findutils libxml2-dev libxslt1-dev pkg-config
-- git clone https://github.com/simo5/gss-ntlmssp.git
-- cd gss-ntlmssp
-- autoreconf -f -i
-- ./configure
-- sudo make
-- sudo make install
-- cd ..
-- sudo mkdir -p /usr/etc/gss
-- sudo sh -c 'echo "ntlmssp_v1       1.3.6.1.4.1.311.2.2.10          /usr/local/lib/gssntlmssp/gssntlmssp.so" > /usr/etc/gss/mech'
+- sudo ./build-scripts/install_gssntlmssp.sh
 install:
-- pip install -U pip setuptools
+- pip install --upgrade pip setuptools
 - pip install .
 - pip install -r requirements-test.txt
 - pip install coveralls
