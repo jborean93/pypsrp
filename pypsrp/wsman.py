@@ -89,6 +89,9 @@ class WSManAction(object):
     ENUMERATE = "http://schemas.xmlsoap.org/ws/2004/09/enumeration/Enumerate"
     ENUMERATE_RESPONSE = "http://schemas.xmlsoap.org/ws/2004/09/enumeration/" \
                          "EnumerateResponse"
+    PULL = "http://schemas.xmlsoap.org/ws/2004/09/enumeration/Pull"
+    PULL_RESPONSE = "http://schemas.xmlsoap.org/ws/2004/09/enumeration/" \
+                    "PullResponse"
 
     # MS-WSMV URIs
     COMMAND = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command"
@@ -122,7 +125,8 @@ class WSMan(object):
                  port=None, username=None, password=None, ssl=True,
                  path="wsman", auth="negotiate", cert_validation=True,
                  connection_timeout=30, encryption='auto', proxy=None,
-                 no_proxy=False, **kwargs):
+                 no_proxy=False, locale='en-US', data_locale=None,
+                 **kwargs):
         """
         Class that handles WSMan transport over HTTP. This exposes a method per
         action that takes in a resource and the header metadata required by
@@ -159,6 +163,14 @@ class WSMan(object):
         :param proxy: The proxy URL used to connect to the remote host
         :param no_proxy: Whether to ignore any environment proxy vars and
             connect directly to the host endpoint
+        :param locale: The wsmv:Locale value to set on each WSMan request. This
+            specifies the language in which the client wants response text to
+            be translated. The value should be in the format described by
+            RFC 3066, with the default being 'en-US'
+        :param data_locale: The wsmv:DataLocale value to set on each WSMan
+            request. This specifies the format in which numerical data is
+            presented in the reponse text. THe value should be in the format
+            described by RFC 3066, with the default being the value of locale.
         :param kwargs: Dynamic kwargs based on the auth protocol set
             # auth='certificate'
             certificate_key_pem: The path to the cert key pem file
@@ -187,6 +199,10 @@ class WSMan(object):
                  "and operation timeout of %s"
                  % (max_envelope_size, operation_timeout))
         self.session_id = str(uuid.uuid4())
+        self.locale = locale
+        self.data_locale = data_locale
+        if self.data_locale is None:
+            self.data_locale = self.locale
         self.transport = _TransportHTTP(server, port, username, password, ssl,
                                         path, auth, cert_validation,
                                         connection_timeout, encryption, proxy,
@@ -215,77 +231,123 @@ class WSMan(object):
 
     def command(self, resource_uri, resource, option_set=None,
                 selector_set=None, timeout=None):
-        return self._invoke(WSManAction.COMMAND, resource_uri, resource,
-                            option_set, selector_set, timeout)
+        res = self.invoke(WSManAction.COMMAND, resource_uri, resource,
+                          option_set, selector_set, timeout)
+        return res.find("s:Body", namespaces=NAMESPACES)
 
     def connect(self, resource_uri, resource, option_set=None,
                 selector_set=None, timeout=None):
-        return self._invoke(WSManAction.CONNECT, resource_uri, resource,
-                            option_set, selector_set, timeout)
+        res = self.invoke(WSManAction.CONNECT, resource_uri, resource,
+                          option_set, selector_set, timeout)
+        return res.find("s:Body", namespaces=NAMESPACES)
 
     def create(self, resource_uri, resource, option_set=None,
                selector_set=None, timeout=None):
-        return self._invoke(WSManAction.CREATE, resource_uri, resource,
-                            option_set, selector_set, timeout)
+        res = self.invoke(WSManAction.CREATE, resource_uri, resource,
+                          option_set, selector_set, timeout)
+        return res.find("s:Body", namespaces=NAMESPACES)
 
     def disconnect(self, resource_uri, resource, option_set=None,
                    selector_set=None, timeout=None):
-        return self._invoke(WSManAction.DISCONNECT, resource_uri, resource,
-                            option_set, selector_set, timeout)
+        res = self.invoke(WSManAction.DISCONNECT, resource_uri, resource,
+                          option_set, selector_set, timeout)
+        return res.find("s:Body", namespaces=NAMESPACES)
 
     def delete(self, resource_uri, resource=None, option_set=None,
                selector_set=None, timeout=None):
-        return self._invoke(WSManAction.DELETE, resource_uri, resource,
-                            option_set, selector_set, timeout)
+        res = self.invoke(WSManAction.DELETE, resource_uri, resource,
+                          option_set, selector_set, timeout)
+        return res.find("s:Body", namespaces=NAMESPACES)
 
     def enumerate(self, resource_uri, resource=None, option_set=None,
                   selector_set=None, timeout=None):
-        return self._invoke(WSManAction.ENUMERATE, resource_uri, resource,
-                            option_set, selector_set, timeout)
+        res = self.invoke(WSManAction.ENUMERATE, resource_uri, resource,
+                          option_set, selector_set, timeout)
+        return res.find("s:Body", namespaces=NAMESPACES)
 
     def get(self, resource_uri, resource=None, option_set=None,
             selector_set=None, timeout=None):
-        return self._invoke(WSManAction.GET, resource_uri, resource,
-                            option_set, selector_set, timeout)
+        res = self.invoke(WSManAction.GET, resource_uri, resource,
+                          option_set, selector_set, timeout)
+        return res.find("s:Body", namespaces=NAMESPACES)
+
+    def pull(self, resource_uri, resource=None, option_set=None,
+             selector_set=None, timeout=None):
+        res = self.invoke(WSManAction.PULL, resource_uri, resource,
+                          option_set, selector_set, timeout)
+        return res.find("s:Body", namespaces=NAMESPACES)
+
+    def put(self, resource_uri, resource=None, option_set=None,
+            selector_set=None, timeout=None):
+        res = self.invoke(WSManAction.PUT, resource_uri, resource,
+                          option_set, selector_set, timeout)
+        return res.find("s:Body", namespaces=NAMESPACES)
 
     def receive(self, resource_uri, resource, option_set=None,
                 selector_set=None, timeout=None):
-        return self._invoke(WSManAction.RECEIVE, resource_uri, resource,
-                            option_set, selector_set, timeout)
+        res = self.invoke(WSManAction.RECEIVE, resource_uri, resource,
+                          option_set, selector_set, timeout)
+        return res.find("s:Body", namespaces=NAMESPACES)
 
     def reconnect(self, resource_uri, resource=None, option_set=None,
                   selector_set=None, timeout=None):
-        return self._invoke(WSManAction.RECONNECT, resource_uri, resource,
-                            option_set, selector_set, timeout)
+        res = self.invoke(WSManAction.RECONNECT, resource_uri, resource,
+                          option_set, selector_set, timeout)
+        return res.find("s:Body", namespaces=NAMESPACES)
 
     def send(self, resource_uri, resource, option_set=None,
              selector_set=None, timeout=None):
-        return self._invoke(WSManAction.SEND, resource_uri, resource,
-                            option_set, selector_set, timeout)
+        res = self.invoke(WSManAction.SEND, resource_uri, resource,
+                          option_set, selector_set, timeout)
+        return res.find("s:Body", namespaces=NAMESPACES)
 
     def signal(self, resource_uri, resource, option_set=None,
                selector_set=None, timeout=None):
-        return self._invoke(WSManAction.SIGNAL, resource_uri, resource,
-                            option_set, selector_set, timeout)
+        res = self.invoke(WSManAction.SIGNAL, resource_uri, resource,
+                          option_set, selector_set, timeout)
+        return res.find("s:Body", namespaces=NAMESPACES)
 
     def get_server_config(self, uri="config"):
         resource_uri = "http://schemas.microsoft.com/wbem/wsman/1/%s" % uri
         log.info("Getting server config with URI %s" % resource_uri)
         return self.get(resource_uri)
 
-    def update_max_payload_size(self):
-        config = self.get_server_config()
-        max_size_kb = config.find("cfg:Config/"
-                                  "cfg:MaxEnvelopeSizekb",
-                                  namespaces=NAMESPACES).text
+    def update_max_payload_size(self, max_payload_size=None):
+        """
+        Updates the MaxEnvelopeSize set on the current WSMan object for all
+        future requests.
 
-        server_max_size = int(max_size_kb) * 1024
-        max_envelope_size = self._calc_envelope_size(server_max_size)
-        self.max_envelope_size = server_max_size
+        :param max_payload_size: The max size specified in bytes, if not set
+            then the max size if retrieved dynamically from the server
+        """
+        if max_payload_size is None:
+            config = self.get_server_config()
+            max_size_kb = config.find("cfg:Config/"
+                                      "cfg:MaxEnvelopeSizekb",
+                                      namespaces=NAMESPACES).text
+            max_payload_size = int(max_size_kb) * 1024
+
+        max_envelope_size = self._calc_envelope_size(max_payload_size)
+        self.max_envelope_size = max_payload_size
         self.max_payload_size = max_envelope_size
 
-    def _invoke(self, action, resource_uri, resource, option_set=None,
-                selector_set=None, timeout=None):
+    def invoke(self, action, resource_uri, resource, option_set=None,
+               selector_set=None, timeout=None):
+        """
+        Send a generic WSMan request to the host.
+
+        :param action: The action to run, this relates to the wsa:Action header
+            field.
+        :param resource_uri: The resource URI that the action relates to, this
+          relates to the wsman:ResourceURI header field.
+        :param resource: This is an optional xml.etree.ElementTree Element to
+            be added to the s:Body section.
+        :param option_set: a wsman.OptionSet to add to the request
+        :param selector_set: a wsman.SelectorSet to add to the request
+        :param timeout: Override the default wsman:OperationTimeout value for
+            the request, this should be an int in seconds.
+        :return: The ET Element of the response XML from the server
+        """
         s = NAMESPACES['s']
         envelope = ET.Element("{%s}Envelope" % s)
 
@@ -320,9 +382,7 @@ class WSMan(object):
             raise WinRMError("Received related id does not match related "
                              "expected message id: Sent: %s, Received: %s"
                              % (message_id, relates_to))
-
-        response_body = response_xml.find("s:Body", namespaces=NAMESPACES)
-        return response_body
+        return response_xml
 
     def _calc_envelope_size(self, max_envelope_size):
         # get a mock Header which should cover most cases where large fragments
@@ -384,14 +444,14 @@ class WSMan(object):
             header,
             "{%s}DataLocale" % wsmv,
             attrib={"{%s}mustUnderstand" % s: "false",
-                    "{%s}lang" % xml: "en-US"}
+                    "{%s}lang" % xml: self.data_locale}
         )
 
         ET.SubElement(
             header,
             "{%s}Locale" % wsman,
             attrib={"{%s}mustUnderstand" % s: "false",
-                    "{%s}lang" % xml: "en-US"}
+                    "{%s}lang" % xml: self.locale}
         )
 
         ET.SubElement(

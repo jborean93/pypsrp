@@ -717,6 +717,13 @@ class RunspacePool(object):
         self.ps_version = message.data.ps_version
         self.serialization_version = message.data.serialization_version
 
+        # if protocol_version >= 2.2 and the max_envelope_size is still the
+        # default, update the envelope size to 500KiB
+        if version_equal_or_newer(self.protocol_version, "2.2") and \
+                self.connection.max_envelope_size == 153600:
+            self.connection.update_max_payload_size(512000)
+            self._fragmenter.max_size = self.connection.max_payload_size
+
     def _process_runspacepool_init_data(self, message):
         log.debug("Received RunspacePoolInitData with min runspaces: %d and "
                   "max runspaces: %d" % (message.data.min_runspaces,

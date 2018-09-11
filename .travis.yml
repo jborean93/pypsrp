@@ -27,7 +27,7 @@ install:
 - pip install -U pip setuptools
 - pip install .
 - pip install -r requirements-test.txt
-- pip install python-coveralls
+- pip install coveralls
 
 script:
 - py.test -v --instafail --pep8 --cov pypsrp --cov-report term-missing
