@@ -176,7 +176,29 @@ class TestWSMan(object):
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
 
-    def test_invoke_recieve(self, monkeypatch):
+    def test_invoke_pull(self, monkeypatch):
+        def mockuuid():
+            return uuid.UUID("00000000-0000-0000-0000-000000000000")
+        monkeypatch.setattr(uuid, 'uuid4', mockuuid)
+
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.PULL)
+        actual = wsman.pull("", None)
+        assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
+        assert actual.text == "body"
+
+    def test_invoke_put(self, monkeypatch):
+        def mockuuid():
+            return uuid.UUID("00000000-0000-0000-0000-000000000000")
+        monkeypatch.setattr(uuid, 'uuid4', mockuuid)
+
+        wsman = WSMan("")
+        wsman.transport = _TransportTest(WSManAction.PUT)
+        actual = wsman.put("", None)
+        assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
+        assert actual.text == "body"
+
+    def test_invoke_receive(self, monkeypatch):
         def mockuuid():
             return uuid.UUID("00000000-0000-0000-0000-000000000000")
         monkeypatch.setattr(uuid, 'uuid4', mockuuid)
@@ -219,6 +241,46 @@ class TestWSMan(object):
         actual = wsman.signal("", None)
         assert actual.tag == "{http://www.w3.org/2003/05/soap-envelope}Body"
         assert actual.text == "body"
+
+    def test_get_header_no_locale(self):
+        wsman = WSMan("")
+        actual = wsman._create_header("action", "resource", None, None, None)
+        actual_data_locale = actual.find("wsmv:DataLocale", NAMESPACES)
+        actual_locale = actual.find("wsman:Locale", NAMESPACES)
+
+        xml = NAMESPACES['xml']
+        assert actual_data_locale.attrib["{%s}lang" % xml] == "en-US"
+        assert actual_locale.attrib["{%s}lang" % xml] == "en-US"
+
+    def test_get_header_explicit_locale(self):
+        wsman = WSMan("", locale="en-GB")
+        actual = wsman._create_header("action", "resource", None, None, None)
+        actual_data_locale = actual.find("wsmv:DataLocale", NAMESPACES)
+        actual_locale = actual.find("wsman:Locale", NAMESPACES)
+
+        xml = NAMESPACES['xml']
+        assert actual_data_locale.attrib["{%s}lang" % xml] == "en-GB"
+        assert actual_locale.attrib["{%s}lang" % xml] == "en-GB"
+
+    def test_get_header_explicit_data_locale(self):
+        wsman = WSMan("", data_locale="en-GB")
+        actual = wsman._create_header("action", "resource", None, None, None)
+        actual_data_locale = actual.find("wsmv:DataLocale", NAMESPACES)
+        actual_locale = actual.find("wsman:Locale", NAMESPACES)
+
+        xml = NAMESPACES['xml']
+        assert actual_data_locale.attrib["{%s}lang" % xml] == "en-GB"
+        assert actual_locale.attrib["{%s}lang" % xml] == "en-US"
+
+    def test_get_header_explicit_both_locale(self):
+        wsman = WSMan("", locale="en-AU", data_locale="en-GB")
+        actual = wsman._create_header("action", "resource", None, None, None)
+        actual_data_locale = actual.find("wsmv:DataLocale", NAMESPACES)
+        actual_locale = actual.find("wsman:Locale", NAMESPACES)
+
+        xml = NAMESPACES['xml']
+        assert actual_data_locale.attrib["{%s}lang" % xml] == "en-GB"
+        assert actual_locale.attrib["{%s}lang" % xml] == "en-AU"
 
     def test_invoke_mismatch_id(self, monkeypatch):
         def mockuuid():
@@ -416,6 +478,14 @@ class TestWSMan(object):
             "The Windows Remote Shell cannot process the request. The SOAP " \
             "packet contains an element Argument that is invalid. Retry the " \
             "request with the correct XML element."
+
+    def test_wsman_update_envelope_size_explicit(self):
+        wsman = WSMan("")
+        wsman.update_max_payload_size(4096)
+        assert wsman.max_envelope_size == 4096
+        # this next value is dependent on a lot of things such as python
+        # version and rounding differences, we will just assert against a range
+        assert 1450 <= wsman.max_payload_size <= 1835
 
     @pytest.mark.parametrize('wsman_conn',
                              # we just want to validate against different env

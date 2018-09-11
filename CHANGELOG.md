@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.1.1 - TBD
+## 0.2.0 - TBD
 
 * Fix issue when deserialising a circular reference in a PSRP object
+* Added the ability to specify the `Locale` and `DataLocale` values when creating the `WSMan` object
+* Update the max envelope size default if the negotiated version is greater than or equal to `2.2` (PowerShell v3+)
 
 
 ## 0.1.0 - 2018-07-13
