@@ -41,7 +41,7 @@ libraries to be isntalled.
 
 See `How to Install` for more details
 
-* CPython 2.6-2.7, 3.4-3.6
+* CPython 2.6-2.7, 3.4-3.7
 * [cryptography](https://github.com/pyca/cryptography)
 * [requests](https://github.com/requests/requests)
 * [ntlm-auth](https://github.com/jborean93/ntlm-auth)
@@ -49,7 +49,7 @@ See `How to Install` for more details
 
 _Note: while Python 2.6 is supported it may be dropped in the future if it is
 too much work in the future. You should really be using at least Python 2.7 but
-preferably Python 3.5 or 3.6_
+preferably Python 3.5+_
 
 ### Optional Requirements
 
