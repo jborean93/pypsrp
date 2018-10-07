@@ -126,7 +126,8 @@ class WSMan(object):
                  path="wsman", auth="negotiate", cert_validation=True,
                  connection_timeout=30, encryption='auto', proxy=None,
                  no_proxy=False, locale='en-US', data_locale=None,
-                 read_timeout=30, **kwargs):
+                 read_timeout=30, reconnection_retries=4,
+                 reconnection_backoff=2.0, **kwargs):
         """
         Class that handles WSMan transport over HTTP. This exposes a method per
         action that takes in a resource and the header metadata required by
@@ -195,6 +196,11 @@ class WSMan(object):
                 building the server SPN
             negotiate_service: Override the service used when building the
                 server SPN, default='WSMAN'
+        :param int reconnection_retries: Number of retries on connection
+            problems
+        :param float reconnection_backoff: Number of seconds to backoff in
+            between reconnection attempts (first sleeps X, then sleeps 2*X,
+            4*X, 8*X, ...)
         """
         log.info("Initialising WSMan class with maximum envelope size of %d "
                  "and operation timeout of %s"
@@ -207,7 +213,9 @@ class WSMan(object):
         self.transport = _TransportHTTP(server, port, username, password, ssl,
                                         path, auth, cert_validation,
                                         connection_timeout, encryption, proxy,
-                                        no_proxy, read_timeout, **kwargs)
+                                        no_proxy, read_timeout,
+                                        reconnection_retries,
+                                        reconnection_backoff, **kwargs)
         self.max_envelope_size = max_envelope_size
         self.operation_timeout = operation_timeout
 
@@ -623,7 +631,8 @@ class _TransportHTTP(object):
                  ssl=True, path="wsman", auth="negotiate",
                  cert_validation=True, connection_timeout=30,
                  encryption='auto', proxy=None, no_proxy=False,
-                 read_timeout=30, **kwargs):
+                 read_timeout=30, reconnection_retries=4,
+                 reconnection_backoff=2.0, **kwargs):
         self.server = server
         self.port = port if port is not None else (5986 if ssl else 5985)
         self.username = username
@@ -639,6 +648,8 @@ class _TransportHTTP(object):
         self.cert_validation = cert_validation
         self.connection_timeout = connection_timeout
         self.read_timeout = read_timeout
+        self.reconnection_retries = reconnection_retries
+        self.reconnection_backoff = reconnection_backoff
 
         # determine the message encryption logic
         if encryption not in ["auto", "always", "never"]:
@@ -777,6 +788,22 @@ class _TransportHTTP(object):
             }
         elif self.no_proxy:
             session.proxies = orig_proxy
+
+        # Retry on connection errors, with a backoff factor
+        retries = requests.packages.urllib3.util.retry.Retry(
+            total=self.reconnection_retries,
+            connect=self.reconnection_retries,
+            status=self.reconnection_retries,
+            read=0,
+            backoff_factor=self.reconnection_backoff,
+            status_forcelist=(413, 425, 429, 503),
+        )
+        session.mount('http://', requests.adapters.HTTPAdapter(
+            max_retries=retries)
+        )
+        session.mount('https://', requests.adapters.HTTPAdapter(
+            max_retries=retries)
+        )
 
         # set cert validation config
         session.verify = self.cert_validation
