@@ -7,3 +7,4 @@ pytest-pep8
 pytest-instafail
 pyyaml
 requests-credssp>=1.0.0
+pycparser<=2.18; python_version<"2.7"
