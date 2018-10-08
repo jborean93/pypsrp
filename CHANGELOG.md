@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 - TBD
+
+* Added support for PSRP over SSH, can be installed with `pip install pypsrp[ssh]`
+* Removed the `shell` attribute on a `RunspacePool` class, this is only used by WSMan and is not relevant to other transport options
+* Reply to https://github.com/PowerShell/PowerShell/issues/7921#issuecomment-427504126
+#TODO: only show latest exception in WSManFault message https://stackoverflow.com/questions/1350671/inner-exception-with-traceback-in-python
+
 ## 0.2.0 - 2018-09-11
 
 * Fix issue when deserialising a circular reference in a PSRP object

@@ -120,8 +120,10 @@ class Message(object):
 
         data = struct.pack("<I", self.destination)
         data += struct.pack("<I", self.message_type)
-        data += self.rpid.bytes
-        data += self.pid.bytes
+
+        # .NET stores uuids/guids in bytes in the little endian form
+        data += self.rpid.bytes_le
+        data += self.pid.bytes_le
         data += message_data
 
         return data
@@ -130,8 +132,8 @@ class Message(object):
     def unpack(data, serializer):
         destination = struct.unpack("<I", data[0:4])[0]
         message_type = struct.unpack("<I", data[4:8])[0]
-        rpid = str(uuid.UUID(bytes=data[8:24]))
-        pid = str(uuid.UUID(bytes=data[24:40]))
+        rpid = str(uuid.UUID(bytes_le=data[8:24]))
+        pid = str(uuid.UUID(bytes_le=data[24:40]))
 
         if data[40:43] == b"\xEF\xBB\xBF":
             # 40-43 is the UTF-8 BOM which we don't care about

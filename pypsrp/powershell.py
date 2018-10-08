@@ -11,6 +11,7 @@ import uuid
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
+from threading import Event, Lock, Thread
 
 from pypsrp.complex_objects import ApartmentState, Command, CommandMetadata, \
     CommandParameter, CommandType, HostInfo, ObjectMeta, Pipeline, \
@@ -25,8 +26,15 @@ from pypsrp.messages import ConnectRunspacePool, CreatePipeline, Destination, \
     SessionCapability, SetMaxRunspaces, SetMinRunspaces
 from pypsrp.serializer import Serializer
 from pypsrp.shell import SignalCode, WinRS
-from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet
-from pypsrp._utils import version_equal_or_newer
+from pypsrp.ssh import SSH
+from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet, WSMan
+from pypsrp._utils import to_bytes, to_string, to_unicode, \
+    version_equal_or_newer
+
+try:
+    from queue import Queue, Empty
+except ImportError:  # pragma: no cover
+    from Queue import Queue, Empty
 
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
     # ElementTree in Python 2.6 does not support namespaces so we need to use
@@ -46,8 +54,9 @@ class RunspacePool(object):
 
     def __init__(self, connection, apartment_state=ApartmentState.UNKNOWN,
                  thread_options=PSThreadOptions.DEFAULT, host=None,
-                 configuration_name="Microsoft.PowerShell", min_runspaces=1,
-                 max_runspaces=1, session_key_timeout_ms=60000):
+                 configuration_name="Microsoft.PowerShell",
+                 subsystem="powershell", min_runspaces=1, max_runspaces=1,
+                 session_key_timeout_ms=60000):
         """
         Represents a Runspace pool on a remote host. This pool can contain
         one or more running PowerShell instances.
@@ -56,7 +65,8 @@ class RunspacePool(object):
         System.Management.Automation.Runspaces.RunspacePool .NET class
 
         :param connection: The connection object used to send the command over
-            to the remote host. Right now only pypsrp.wsman.WSMan is supported
+            to the remote host. Can either be pypsrp.wsman.WSMan or
+            pypsrp.ssh.SSH.
         :param apartment_state: The ApartmentState enum int values that specify
             the apartment state of the remote thread
         :param thread_options: The ThreadOptions enum int values that specify
@@ -66,7 +76,9 @@ class RunspacePool(object):
         :param configuration_name: The PSRP configuration name to connect to,
             by default this is Microsoft.PowerShell which opens a full
             PowerShell endpoint, use this to specify the JEA configuration to
-            connect to
+            connect to. This is only valid if connection is over WSMan.
+        :param subsystem: The SSH subsystem to connect to that hosts the PSRP
+            server. This is only valid if connection is over SSH.
         :param min_runspaces: The minimum number of runspaces that a pool can
             hold
         :param max_runspaces: The maximum number of runspaces that a pool can
@@ -81,10 +93,20 @@ class RunspacePool(object):
         self.id = str(uuid.uuid4()).upper()
         self.state = RunspacePoolState.BEFORE_OPEN
         self.connection = connection
-        resource_uri = "http://schemas.microsoft.com/powershell/%s" \
-                       % configuration_name
-        self.shell = WinRS(connection, resource_uri=resource_uri, id=self.id,
-                           input_streams='stdin pr', output_streams='stdout')
+
+        # set up the base transport object based on the connection passed
+        # through
+        if isinstance(connection, WSMan):
+            log.debug("Setting up PSRP transport over WSMan")
+            self.transport = _WSManTransport(self, configuration_name)
+            fragment_size = connection.max_payload_size
+        elif isinstance(connection, SSH):
+            log.debug("Setting up PSRP transport over SSH")
+            self.transport = _SSHTransport(self, subsystem)
+            fragment_size = connection.buffer
+        else:
+            raise ValueError("connection must be either a WSMan or SSH object")
+
         self.ci_table = {}
         self.pipelines = {}
         self.session_key_timeout_ms = session_key_timeout_ms
@@ -103,12 +125,13 @@ class RunspacePool(object):
         self._min_runspaces = min_runspaces
         self._max_runspaces = max_runspaces
         self._serializer = Serializer()
-        self._fragmenter = Fragmenter(self.connection.max_payload_size,
-                                      self._serializer)
+        self._fragmenter = Fragmenter(fragment_size, self._serializer)
         self._exchange_key = None
-        self._key_exchanged = False
+        self._key_exchanged = None
         self._new_client = False
         self._ci_counter = 0
+        self._ci_counter_lock = Lock()
+        self._on_state_changed = []
 
     @property
     def application_private_data(self):
@@ -142,17 +165,18 @@ class RunspacePool(object):
             if not response:
                 raise InvalidPSRPOperation("Failed to set minimum runspaces")
             return response
+        event = Event()
 
-        ci = self._ci_counter
-        self._ci_counter += 1
-        self.ci_table[ci] = response_handler
+        with self._ci_counter_lock:
+            ci = self._ci_counter
+            self._ci_counter += 1
+        self.ci_table[ci] = (response_handler, event)
 
         set_min_runspace = SetMinRunspaces(min_runspaces=min_runspaces, ci=ci)
         data = self._fragmenter.fragment(set_min_runspace, self.id)[0]
-        self.shell.send('stdin', data)
+        self.transport.send(data, 'stdin')
 
-        while not isinstance(self.ci_table[ci], bool):
-            self._receive()
+        event.wait()
         self._min_runspaces = min_runspaces
         del self.ci_table[ci]
 
@@ -180,17 +204,18 @@ class RunspacePool(object):
             if not response:
                 raise InvalidPSRPOperation("Failed to set maximum runspaces")
             return response
+        event = Event()
 
-        ci = self._ci_counter
-        self._ci_counter += 1
-        self.ci_table[ci] = response_handler
+        with self._ci_counter_lock:
+            ci = self._ci_counter
+            self._ci_counter += 1
+        self.ci_table[ci] = (response_handler, event)
 
         set_max_runspace = SetMaxRunspaces(max_runspaces=max_runspaces, ci=ci)
         data = self._fragmenter.fragment(set_max_runspace, self.id)[0]
-        self.shell.send('stdin', data)
+        self.transport.send(data, 'stdin')
 
-        while not isinstance(self.ci_table[ci], bool):
-            self._receive()
+        event.wait()
         self._max_runspaces = max_runspaces
         del self.ci_table[ci]
 
@@ -213,8 +238,8 @@ class RunspacePool(object):
                           RunspacePoolState.BROKEN]:
             return
 
-        self.shell.close()
-        self.state = RunspacePoolState.CLOSED
+        self.transport.close()
+        self._set_state(RunspacePoolState.CLOSED)
 
     def connect(self):
         """
@@ -328,21 +353,19 @@ class RunspacePool(object):
         def response_handler(response):
             self._max_runspaces = response
             return response
+        event = Event()
 
-        ci = self._ci_counter
-        self._ci_counter += 1
-        self.ci_table[ci] = response_handler
+        with self._ci_counter_lock:
+            ci = self._ci_counter
+            self._ci_counter += 1
+        self.ci_table[ci] = (response_handler, event)
 
         get_runspaces = GetAvailableRunspaces(ci=ci)
         data = self._fragmenter.fragment(get_runspaces, self.id)[0]
-        self.shell.send('stdin', data)
+        self.transport.send(data, 'stdin')
 
-        avail_runspaces = None
-        while avail_runspaces is None:
-            self._receive()
-            if isinstance(self.ci_table[ci], int):
-                avail_runspaces = self.ci_table[ci]
-
+        event.wait()
+        avail_runspaces = self.ci_table[ci]
         del self.ci_table[ci]
         return avail_runspaces
 
@@ -495,20 +518,14 @@ class RunspacePool(object):
         msgs = [session_capability, init_runspace_pool]
         fragments = self._fragmenter.fragment_multiple(msgs, self.id)
 
-        open_content = ET.Element(
-            "creationXml", xmlns="http://schemas.microsoft.com/powershell"
-        )
-        open_content.text = base64.b64encode(fragments.pop(0)).decode('utf-8')
+        self._set_state(RunspacePoolState.NEGOTIATION_SENT)
 
-        options = OptionSet()
-        options.add_option("protocolversion", PROTOCOL_VERSION,
-                           {"MustComply": "true"})
-        self.shell.open(options, open_content)
-        self.state = RunspacePoolState.NEGOTIATION_SENT
-
-        responses = []
-        while self.state == RunspacePoolState.NEGOTIATION_SENT:
-            responses.extend(self._receive())
+        # create a event to wait until the state has changed from the server
+        state_change = Event()
+        self._on_state_changed.append(state_change)
+        self.transport.open(fragments[0])
+        # TODO: test out multiple fragments (large InitRunspacePool)
+        state_change.wait()
 
     def exchange_keys(self):
         """
@@ -518,7 +535,7 @@ class RunspacePool(object):
         happen.
         """
         log.info("Starting key exchange with remote host")
-        if self._key_exchanged or self._exchange_key is not None:
+        if self._key_exchanged is not None:
             # key is already exchanged or we are still in the processes of
             # exchanging it, no need to run again
             return
@@ -544,16 +561,17 @@ class RunspacePool(object):
 
         msg = PublicKey(public_key=public_key.decode('utf-8'))
         fragments = self._fragmenter.fragment(msg, self.id)
+        self._key_exchanged = Event()
         for fragment in fragments:
-            self.shell.send('stdin', fragment)
+            self.transport.send(fragment, 'stdin')
 
         start = time.time()
-        while not self._key_exchanged:
-            elapsed = int((time.time() - start) * 1000)
-            if elapsed > self.session_key_timeout_ms:
-                raise InvalidPSRPOperation("Timeout while waiting for key "
-                                           "exchange")
-            self._receive()
+        # use return value instead after Python 2.6 is dropped
+        self._key_exchanged.wait(self.session_key_timeout_ms / 1000)
+        elapsed = (time.time() - start) * 1000
+        if elapsed > self.session_key_timeout_ms:
+            raise InvalidPSRPOperation("Timeout while waiting for key "
+                                       "exchange")
 
     def reset_runspace_state(self):
         """
@@ -581,17 +599,18 @@ class RunspacePool(object):
             if not response:
                 raise InvalidPSRPOperation("Failed to reset runspace state")
             return response
+        event = Event()
 
-        ci = self._ci_counter
-        self._ci_counter += 1
-        self.ci_table[ci] = response_handler
+        with self._ci_counter_lock:
+            ci = self._ci_counter
+            self._ci_counter += 1
+        self.ci_table[ci] = (response_handler, event)
 
         reset_state = ResetRunspaceState(ci=ci)
         data = self._fragmenter.fragment(reset_state, self.id)[0]
-        self.shell.send('stdin', data)
+        self.transport.send(data, 'stdin')
 
-        while not isinstance(self.ci_table[ci], bool):
-            self._receive()
+        event.wait()
         del self.ci_table[ci]
 
     def serialize(self, obj, metadata=None):
@@ -609,10 +628,18 @@ class RunspacePool(object):
         """
         return self._serializer.serialize(obj, metadata=metadata)
 
+    def _set_state(self, state):
+        self.state = state
+
+        # set each event that has subscribed to the state change and clear
+        # the event queue so other threads can continue
+        for event in self._on_state_changed:
+            event.set()
+        self._on_state_changed = []
+
     def _receive(self, id=None, timeout=None):
         """
-        Sends a Receive WSMV request to the host and processes the messages
-        that are received from the host (if there are any).
+        Processes any responses from the server (if there are any).
 
         :param id: If the receive is targeted to a Pipeline then this should be
             the ID of that pipeline, if None then the receive is targeted to
@@ -624,18 +651,26 @@ class RunspacePool(object):
             Response: The return object of the response handler function for
                 the message type
         """
-        command_id = None
-
         pipeline = self.pipelines.get(id)
-        if pipeline is not None:
-            command_id = pipeline._command_id
+        responses = self.transport.receive(pipeline, timeout)
 
-        response = self.shell.receive("stdout", command_id=command_id,
-                                      timeout=timeout)[2]['stdout']
-        return self._parse_responses(response, pipeline)
+        parsed_responses = []
+        for response, pipeline_id in responses:
+            # now get the pipeline based on the received message instead of
+            # what was passed into _receive
+            pipeline = None
+            if pipeline_id is not None:
+                pipeline = self.pipelines.get(pipeline_id)
+            parsed_responses.extend(self._parse_response(response, pipeline))
 
-    def _parse_responses(self, responses, pipeline=None):
-        messages = self._fragmenter.defragment(responses)
+        return parsed_responses
+
+    def _parse_response(self, response, id=None):
+        pipeline = None
+        if id is not None:
+            pipeline = self.pipelines.get(id)
+
+        messages = self._fragmenter.defragment(response)
 
         response_functions = {
             # While the docs say we should verify, they are out of date with
@@ -658,9 +693,7 @@ class RunspacePool(object):
 
         if pipeline is not None:
             pipeline_response_functions = {
-                # The Pipeline Output isn't processes and just returned back to
-                # the receive caller
-                MessageType.PIPELINE_OUTPUT: None,
+                MessageType.PIPELINE_OUTPUT: pipeline._process_output_record,
                 MessageType.ERROR_RECORD: pipeline._process_error_record,
                 MessageType.PIPELINE_STATE: pipeline._process_pipeline_state,
                 MessageType.DEBUG_RECORD: pipeline._process_debug_record,
@@ -704,7 +737,7 @@ class RunspacePool(object):
             pid = pipeline.id if pipeline is not None else None
             fragments = self._fragmenter.fragment(msg, self.id, pid)
             for fragment in fragments:
-                self.shell.send('pr', fragment)
+                self.transport.send(fragment, 'pr')
 
         return message.data
 
@@ -718,8 +751,9 @@ class RunspacePool(object):
         self.serialization_version = message.data.serialization_version
 
         # if protocol_version >= 2.2 and the max_envelope_size is still the
-        # default, update the envelope size to 500KiB
+        # default, update the envelope size to 500KiB (WSMan only)
         if version_equal_or_newer(self.protocol_version, "2.2") and \
+                isinstance(self.connection, WSMan) and \
                 self.connection.max_envelope_size == 153600:
             self.connection.update_max_payload_size(512000)
             self._fragmenter.max_size = self.connection.max_payload_size
@@ -734,9 +768,10 @@ class RunspacePool(object):
     def _process_runspacepool_availability(self, message):
         ci = message.data.ci
         response = message.data.response
-        ci_handler = self.ci_table[ci]
+        ci_handler, event = self.ci_table[ci]
         response = ci_handler(response)
         self.ci_table[ci] = response
+        event.set()
         return response
 
     def _process_runspacepool_host_call(self, message):
@@ -745,7 +780,8 @@ class RunspacePool(object):
     def _process_runspacepool_state(self, message):
         log.debug("Received RunspacePoolState with state: %d"
                   % message.data.state)
-        self.state = message.data.state
+        self._set_state(message.data.state)
+
         if self.state == RunspacePoolState.BROKEN:
             raise InvalidPSRPOperation(
                 "Received a broken RunspacePoolState message: %s"
@@ -771,7 +807,7 @@ class RunspacePool(object):
         cipher = Cipher(algorithm, mode, default_backend())
 
         self._serializer.cipher = cipher
-        self._key_exchanged = True
+        self._key_exchanged.set()
         self._exchange_key = None
 
     def _process_user_event(self, message):
@@ -808,6 +844,7 @@ class PowerShell(object):
         # this is not necessarily the same ID as id, this relates to the WSMan
         # CommandID that is created and we need to reference in the WSMan msgs
         self._command_id = None
+        self._exec_complete = Event()
 
         runspace_pool.pipelines[self.id] = self
 
@@ -1041,8 +1078,8 @@ class PowerShell(object):
             )
 
             for fragment in fragments:
-                self.runspace_pool.shell.send('stdin', fragment,
-                                              command_id=self._command_id)
+                self.runspace_pool.transport.send(fragment,
+                                                  id=self._command_id)
 
     def end_invoke(self):
         """
@@ -1051,9 +1088,7 @@ class PowerShell(object):
 
         :return: A list of output objects
         """
-        while self.state == PSInvocationState.RUNNING:
-            self.poll_invoke()
-
+        self._exec_complete.wait()
         return self.output
 
     def invoke(self, input=None, add_to_history=False, apartment_state=None,
@@ -1220,25 +1255,10 @@ class PowerShell(object):
 
     def poll_invoke(self, timeout=None):
         """
-        Poll the running process to update the output streams and the status.
-
-        :param timeout: Override the default WSMan timeout when polling the
-        pipeline.
+        This is a no-op, polling is done in the background in separate threads
+        now.
         """
-        try:
-            responses = self.runspace_pool._receive(self.id,
-                                                    timeout=timeout)
-        except WSManFaultError as err:
-            # operation timeout needs to be ignored and silently tried
-            # again
-            if err.code == 2150858793:
-                responses = []
-            else:
-                raise err
-
-        for response in responses:
-            if response[0] == MessageType.PIPELINE_OUTPUT:
-                self.output.append(response[1].data.data)
+        pass
 
     def stop(self):
         """
@@ -1255,8 +1275,7 @@ class PowerShell(object):
             )
 
         self.state = PSInvocationState.STOPPING
-        self.runspace_pool.shell.signal(SignalCode.PS_CTRL_C,
-                                        str(self.id).upper())
+        self.runspace_pool.transport.signal(id=self.id)
         self.state = PSInvocationState.STOPPED
         del self.runspace_pool.pipelines[self.id]
 
@@ -1266,18 +1285,16 @@ class PowerShell(object):
         )
 
         # send first fragment as Command message
-        first_frag = base64.b64encode(fragments.pop(0)).decode('utf-8')
-        resp = self.runspace_pool.shell.command('', arguments=[first_frag],
-                                                command_id=self.id)
-        cmd_id = resp.find("rsp:CommandResponse/rsp:CommandId", NAMESPACES)
+        first_frag = fragments.pop(0)
+        cmd_id = self.runspace_pool.transport.command(first_frag, self.id)
         if cmd_id is not None:
-            self._command_id = cmd_id.text
+            self._command_id = cmd_id
+        self._exec_complete.clear()
         self.state = PSInvocationState.RUNNING
 
         # send the remaining fragments with the Send message
         for fragment in fragments:
-            self.runspace_pool.shell.send('stdin', fragment,
-                                          command_id=self._command_id)
+            self.runspace_pool.transport.send(fragment, id=self._command_id)
 
     def _set_merge_to(self, merge, to, valid, min_protocol=None):
         valid = valid or ["none", "null", "output"]
@@ -1314,6 +1331,13 @@ class PowerShell(object):
 
         if self.state == PSInvocationState.FAILED:
             self.had_errors = True
+
+        # used so end_invoke() knows when the state has changed
+        if self.state != PSInvocationState.RUNNING:
+            self._exec_complete.set()
+
+    def _process_output_record(self, message):
+        self.output.append(message.data.data)
 
     def _process_debug_record(self, message):
         self.streams.debug.append(message.data)
@@ -1483,3 +1507,214 @@ class Fragment(object):
 
         fragment = Fragment(object_id, fragment_id, fragment_data, start, end)
         return fragment, data[21 + length:]
+
+
+class _BaseTransport(object):
+
+    def __init__(self, runspace):
+        self.runspace = runspace
+
+    def close(self, id=None):
+        """
+        Closes the Pipeline, or RunspacePool and connection.
+
+        :param id: will close the Pipeline based on ID, if not set then the
+            RunspacePool and connection will be closed.
+        """
+        raise NotImplementedError()
+
+    def command(self, data, id):
+        """
+        Creates a Pipeline in the current RunspacePool.
+
+        :param data: The first CreatePipeline fragment with the pipeline def
+        :param id: The ID of the pipeline to create.
+        :return: The ID of the pipeline that was created, this may or may not
+            be different from the ID passed in.
+        """
+        raise NotImplementedError()
+
+    def open(self, data):
+        """
+        Creates a new RunspacePool on the server.
+
+        :param data: The SessionCapability and InitRunspacepool fragments to
+            send.
+        """
+        raise NotImplementedError()
+
+    def send(self, data, stream, id=None):
+        """
+        Send a PSRP fragment(s) to the server
+
+        :param data: THe PSRP fragments to send
+        :param stream:
+        :param id:
+        :return:
+        """
+        raise NotImplementedError()
+
+    def signal(self, id=None):
+        raise NotImplementedError()
+
+
+class _WSManTransport(_BaseTransport):
+
+    def __init__(self, runspace, configuration_name):
+        super(_WSManTransport, self).__init__(runspace)
+        resource_uri = "http://schemas.microsoft.com/powershell/%s" \
+                       % configuration_name
+        self.shell = WinRS(runspace.connection, resource_uri=resource_uri,
+                           id=runspace.id, input_streams='stdin pr',
+                           output_streams='stdout')
+        self._listeners = []
+
+    def close(self, id=None):
+        self.shell.close()
+        for listener, stop_event in self._listeners:
+            stop_event.set()
+            listener.join()
+
+    def command(self, data, id):
+        b64_d = to_string(base64.b64encode(data))
+        resp = self.shell.command('', arguments=[b64_d], command_id=id)
+        cmd_id = resp.find("rsp:CommandResponse/rsp:CommandId", NAMESPACES)
+        if cmd_id is not None:
+            cmd_id = cmd_id.text
+
+        self._create_receive_thread(cmd_id)
+        return cmd_id
+
+    def open(self, data):
+        open_content = ET.Element(
+            "creationXml", xmlns="http://schemas.microsoft.com/powershell"
+        )
+        open_content.text = to_unicode(base64.b64encode(data))
+
+        options = OptionSet()
+        options.add_option("protocolversion", PROTOCOL_VERSION,
+                           {"MustComply": "true"})
+        self.shell.open(options, open_content)
+        self._create_receive_thread()
+
+    def send(self, data, stream, id=None):
+        self.shell.send(stream, data, command_id=id)
+
+    def signal(self, id=None):
+        self.shell.signal(SignalCode.PS_CTRL_C, id)
+
+    def _create_receive_thread(self, id=None):
+        stop_event = Event()
+        listener = Thread(target=self._listen, args=(stop_event, id))
+        self._listeners.append((listener, stop_event))
+        listener.start()
+
+    def _listen(self, stop, id):
+        while True:
+            try:
+                if stop.is_set():
+                    break
+
+                resp = self.shell.receive('stdout', command_id=id)[2]["stdout"]
+            except WSManFaultError as exc:
+                # if a command exceeds the OperationTimeout set, we will get
+                # a WSManFaultError with the code 2150858793. We ignore this
+                # as it just meant no output during that operation.
+                if exc.code == 2150858793:
+                    continue
+                # if the shell is closed we can get different exceptions which
+                # we ignore as the shell was closed by the user
+                # TODO: better handling on this
+                elif exc.code in [995, 2150858843]:
+                    break
+                else:
+                    raise exc
+
+            try:
+                self.runspace._parse_response(resp, id=id)
+            except Exception as e:
+                self.runspace.close()
+                raise e
+
+
+class _SSHTransport(_BaseTransport):
+
+    def __init__(self, runspace, subsystem):
+        super(_SSHTransport, self).__init__(runspace)
+        self.subsystem = subsystem
+        self._channel = None
+
+    def close(self, id=None):
+        payload = self._create_guid_packet("Close")
+        self.runspace.connection.send(payload)
+        if id is None:
+            self._channel.close()
+            self.runspace.transport.close()
+
+    def command(self, data, id):
+        # send the Command packet alongside the Data packet that contains the
+        # PSRP messages
+        command_payload = self._create_guid_packet("Command", id)
+        self.runspace.connection.send(command_payload)
+        self.send(data, "stdout", id)
+        return id
+
+    def open(self, data):
+        self.runspace.connection.open()
+        self._channel = self.runspace.transport.open_session()
+        self._channel.set_name("pypsrp-ssh-channel-%s"
+                               % str(self._channel.get_id()))
+        self._channel.invoke_subsystem(self.subsystem)
+
+        self.send(data, "stdout")
+
+    def receive(self, pipeline):
+        data = self._recv()
+        raw = [ET.fromstring(e) for e in data.split(b"\r\n") if e is not b""]
+        return [(base64.b64decode(e.text), e.attrib.get('PSGuid').upper()) for e in raw if e.tag == "Data"]
+
+    def send(self, data, stream, id=None):
+        stream_type = {"stdout": "Default", "pr": "PromptResponse"}[stream]
+        payload = self._create_data_packet(data, stream_type, id)
+        self._send(payload)
+
+    def signal(self, id=None):
+        payload = self._create_guid_packet("Signal", guid=id)
+        self._send(payload)
+
+    def _create_guid_packet(self, element, guid=None):
+        """
+        Create a generic payload that consists of an empty element and the
+        PSGuid attribute set by the client.
+
+        :param element: The element to set on the XML payload
+        :param guid: The pipeline id if targeted to a pipeline, else the packet
+            is targeted towards the runspace
+        :return: A byte string of the created payload
+        """
+        guid = guid or "00000000-0000-0000-0000-000000000000"
+        return to_bytes("<%s PSGuid='%s' />\n" % (element, guid))
+
+    def _create_data_packet(self, data, stream_type="Default", guid=None):
+        """
+        Create a Data Packet payload to send to the server.
+
+        :param data: The fragment(s) bytes to encapsulate inside the data
+            packet
+        :param stream_type: The priority type of the payload, 'Default' or
+            'PromptResponse'
+        :param guid: A GUID to assign to the payload
+        :return: A byte string of the created payload
+        """
+        guid = guid or "00000000-0000-0000-0000-000000000000"
+        b64_d = to_string(base64.b64encode(data))
+        return to_bytes("<Data Stream='%s' PSGuid='%s'>%s</Data>\n"
+                        % (stream_type, guid, b64_d))
+
+    def _recv(self):
+        return self._channel.recv(self.runspace.transport.buffer)
+
+    def _send(self, data):
+        while data != b"":
+            length = self._channel.send(data)
+            data = data[length:]

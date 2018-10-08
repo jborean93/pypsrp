@@ -14,7 +14,7 @@ except ImportError:
 
 setup(
     name='pypsrp',
-    version='0.2.0',
+    version='0.3.0',
     packages=['pypsrp'],
     install_requires=[
         'cryptography',
@@ -34,6 +34,9 @@ setup(
         ],
         'kerberos:sys_platform!="win32"': [
             'gssapi>=1.5.0'
+        ],
+        'ssh': [
+            'paramiko'
         ]
     },
     author='Jordan Borean',
