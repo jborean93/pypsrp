@@ -126,7 +126,7 @@ class WSMan(object):
                  path="wsman", auth="negotiate", cert_validation=True,
                  connection_timeout=30, encryption='auto', proxy=None,
                  no_proxy=False, locale='en-US', data_locale=None,
-                 **kwargs):
+                 read_timeout=30, **kwargs):
         """
         Class that handles WSMan transport over HTTP. This exposes a method per
         action that takes in a resource and the header metadata required by
@@ -158,6 +158,7 @@ class WSMan(object):
         :param cert_validation: Whether to validate the server's SSL cert
         :param connection_timeout: The timeout for connecting to the HTTP
             endpoint
+        :param read_timeout: The timeout for receiving from the HTTP endpoint
         :param encryption: Controls the encryption setting, default is auto
             but can be set to always or never
         :param proxy: The proxy URL used to connect to the remote host
@@ -206,7 +207,7 @@ class WSMan(object):
         self.transport = _TransportHTTP(server, port, username, password, ssl,
                                         path, auth, cert_validation,
                                         connection_timeout, encryption, proxy,
-                                        no_proxy, **kwargs)
+                                        no_proxy, read_timeout, **kwargs)
         self.max_envelope_size = max_envelope_size
         self.operation_timeout = operation_timeout
 
@@ -310,7 +311,7 @@ class WSMan(object):
     def get_server_config(self, uri="config"):
         resource_uri = "http://schemas.microsoft.com/wbem/wsman/1/%s" % uri
         log.info("Getting server config with URI %s" % resource_uri)
-        return self.get(resource_uri)
+        return self.get(resource_uri, timeout=(self.connection_timeout, self.read_timeout))
 
     def update_max_payload_size(self, max_payload_size=None):
         """
@@ -621,7 +622,8 @@ class _TransportHTTP(object):
     def __init__(self, server, port=None, username=None, password=None,
                  ssl=True, path="wsman", auth="negotiate",
                  cert_validation=True, connection_timeout=30,
-                 encryption='auto', proxy=None, no_proxy=False, **kwargs):
+                 encryption='auto', proxy=None, no_proxy=False,
+                 read_timeout=30, **kwargs):
         self.server = server
         self.port = port if port is not None else (5986 if ssl else 5985)
         self.username = username
@@ -636,6 +638,7 @@ class _TransportHTTP(object):
         self.auth = auth
         self.cert_validation = cert_validation
         self.connection_timeout = connection_timeout
+        self.read_timeout = read_timeout
 
         # determine the message encryption logic
         if encryption not in ["auto", "always", "never"]:
@@ -718,7 +721,7 @@ class _TransportHTTP(object):
         return self._send_request(prep_request, hostname)
 
     def _send_request(self, request, hostname):
-        response = self.session.send(request, timeout=self.connection_timeout)
+        response = self.session.send(request, timeout=(self.connection_timeout, self.read_timeout))
 
         content_type = response.headers.get('content-type', "")
         if content_type.startswith("multipart/encrypted;") or \
