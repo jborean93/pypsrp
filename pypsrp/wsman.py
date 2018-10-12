@@ -311,7 +311,7 @@ class WSMan(object):
     def get_server_config(self, uri="config"):
         resource_uri = "http://schemas.microsoft.com/wbem/wsman/1/%s" % uri
         log.info("Getting server config with URI %s" % resource_uri)
-        return self.get(resource_uri, timeout=(self.connection_timeout, self.read_timeout))
+        return self.get(resource_uri)
 
     def update_max_payload_size(self, max_payload_size=None):
         """
