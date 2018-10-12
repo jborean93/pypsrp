@@ -721,7 +721,9 @@ class _TransportHTTP(object):
         return self._send_request(prep_request, hostname)
 
     def _send_request(self, request, hostname):
-        response = self.session.send(request, timeout=(self.connection_timeout, self.read_timeout))
+        response = self.session.send(request, timeout=(
+            self.connection_timeout, self.read_timeout
+        ))
 
         content_type = response.headers.get('content-type', "")
         if content_type.startswith("multipart/encrypted;") or \
