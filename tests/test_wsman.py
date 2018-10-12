@@ -1113,7 +1113,7 @@ class TestTransportHTTP(object):
         assert actual == b"content"
         assert send_mock.call_count == 1
         assert send_mock.call_args[0] == (prep_request,)
-        assert send_mock.call_args[1]['timeout'] == 30
+        assert send_mock.call_args[1]['timeout'] == (30, 30)
 
     def test_send_timeout_kwargs(self, monkeypatch):
         response = requests.Response()
@@ -1126,7 +1126,7 @@ class TestTransportHTTP(object):
 
         monkeypatch.setattr(requests.Session, "send", send_mock)
 
-        transport = _TransportHTTP("server", ssl=True, connection_timeout=20)
+        transport = _TransportHTTP("server", ssl=True, connection_timeout=20, read_timeout=25)
         session = transport._build_session()
         transport.session = session
         request = requests.Request('POST', transport.endpoint, data=b"data")
@@ -1136,7 +1136,7 @@ class TestTransportHTTP(object):
         assert actual == b"content"
         assert send_mock.call_count == 1
         assert send_mock.call_args[0] == (prep_request,)
-        assert send_mock.call_args[1]['timeout'] == 20
+        assert send_mock.call_args[1]['timeout'] == (20, 25)
 
     def test_send_auth_error(self, monkeypatch):
         response = requests.Response()
@@ -1232,7 +1232,7 @@ class TestTransportHTTP(object):
         assert actual == b"unwrapped content"
         assert send_mock.call_count == 1
         assert send_mock.call_args[0] == (prep_request,)
-        assert send_mock.call_args[1]['timeout'] == 30
+        assert send_mock.call_args[1]['timeout'] == (30, 30)
 
         assert unwrap_mock.call_count == 1
         assert unwrap_mock.call_args[0] == (b"content", "server")
@@ -1264,7 +1264,7 @@ class TestTransportHTTP(object):
         assert actual == b"unwrapped content"
         assert send_mock.call_count == 1
         assert send_mock.call_args[0] == (prep_request,)
-        assert send_mock.call_args[1]['timeout'] == 30
+        assert send_mock.call_args[1]['timeout'] == (30, 30)
 
         assert unwrap_mock.call_count == 1
         assert unwrap_mock.call_args[0] == (b"content", "server")
