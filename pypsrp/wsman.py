@@ -126,7 +126,7 @@ class WSMan(object):
                  path="wsman", auth="negotiate", cert_validation=True,
                  connection_timeout=30, encryption='auto', proxy=None,
                  no_proxy=False, locale='en-US', data_locale=None,
-                 read_timeout=30, reconnection_retries=4,
+                 read_timeout=30, reconnection_retries=0,
                  reconnection_backoff=2.0, **kwargs):
         """
         Class that handles WSMan transport over HTTP. This exposes a method per
@@ -631,7 +631,7 @@ class _TransportHTTP(object):
                  ssl=True, path="wsman", auth="negotiate",
                  cert_validation=True, connection_timeout=30,
                  encryption='auto', proxy=None, no_proxy=False,
-                 read_timeout=30, reconnection_retries=4,
+                 read_timeout=30, reconnection_retries=0,
                  reconnection_backoff=2.0, **kwargs):
         self.server = server
         self.port = port if port is not None else (5986 if ssl else 5985)
