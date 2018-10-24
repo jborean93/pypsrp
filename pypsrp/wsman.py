@@ -379,8 +379,8 @@ class WSMan(object):
                 raise self._parse_wsman_fault(err.response_text)
             except ET.ParseError:
                 # no XML message is present so not a WSManFault error
-                log.warning("Failed to parse WSManFault message on WinRM error"
-                            " response, raising original WinRMTransportError")
+                log.error("Failed to parse WSManFault message on WinRM error"
+                          " response, raising original WinRMTransportError")
                 raise err
 
         response_xml = ET.fromstring(response)
