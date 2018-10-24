@@ -171,8 +171,13 @@ class WSMan(object):
             RFC 3066, with the default being 'en-US'
         :param data_locale: The wsmv:DataLocale value to set on each WSMan
             request. This specifies the format in which numerical data is
-            presented in the reponse text. THe value should be in the format
+            presented in the response text. The value should be in the format
             described by RFC 3066, with the default being the value of locale.
+        :param int reconnection_retries: Number of retries on connection
+            problems
+        :param float reconnection_backoff: Number of seconds to backoff in
+            between reconnection attempts (first sleeps X, then sleeps 2*X,
+            4*X, 8*X, ...)
         :param kwargs: Dynamic kwargs based on the auth protocol set
             # auth='certificate'
             certificate_key_pem: The path to the cert key pem file
@@ -196,11 +201,6 @@ class WSMan(object):
                 building the server SPN
             negotiate_service: Override the service used when building the
                 server SPN, default='WSMAN'
-        :param int reconnection_retries: Number of retries on connection
-            problems
-        :param float reconnection_backoff: Number of seconds to backoff in
-            between reconnection attempts (first sleeps X, then sleeps 2*X,
-            4*X, 8*X, ...)
         """
         log.info("Initialising WSMan class with maximum envelope size of %d "
                  "and operation timeout of %s"
