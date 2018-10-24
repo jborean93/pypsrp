@@ -30,3 +30,11 @@ def _setup_logging(logger):
 
 logger = logging.getLogger(__name__)
 _setup_logging(logger)
+
+# Contains a list of features, used by external libraries to determine whether
+# a new enough pypsrp is installed to support the features it needs
+FEATURES = [
+    'wsman_locale',
+    'wsman_read_timeout',
+    'wsman_reconnections',
+]

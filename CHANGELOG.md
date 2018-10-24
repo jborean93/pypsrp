@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 - TBD
+
+* Added `FEATURE` dict to module to denote whether a feature has been added in installed pypsrp
+* Added `read_timeout` to `pypsrp.wsman.WSMan` to control the timeout when waiting for a HTTP response from the server
+* Added `reconnection_retries` and `reconnection_backoff` to control reconnection attempts on connection failures
+
+
 ## 0.2.0 - 2018-09-11
 
 * Fix issue when deserialising a circular reference in a PSRP object

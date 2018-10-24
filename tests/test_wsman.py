@@ -986,12 +986,12 @@ class TestTransportHTTP(object):
         assert session.verify is False
 
     def test_build_session_proxies_default(self):
-        transport = _TransportHTTP("")
+        transport = _TransportHTTP("server")
         session = transport._build_session()
         assert session.proxies == {}
 
     def test_build_session_proxies_env(self):
-        transport = _TransportHTTP("")
+        transport = _TransportHTTP("server")
         os.environ['https_proxy'] = "https://envproxy"
         try:
             session = transport._build_session()
@@ -1000,17 +1000,18 @@ class TestTransportHTTP(object):
         assert session.proxies == {"https": "https://envproxy"}
 
     def test_build_session_proxies_kwarg(self):
-        transport = _TransportHTTP("", proxy="https://kwargproxy")
+        transport = _TransportHTTP("server", proxy="https://kwargproxy")
         session = transport._build_session()
         assert session.proxies == {"https": "https://kwargproxy"}
 
     def test_build_session_proxies_kwarg_non_ssl(self):
-        transport = _TransportHTTP("", proxy="http://kwargproxy", ssl=False)
+        transport = _TransportHTTP("server", proxy="http://kwargproxy",
+                                   ssl=False)
         session = transport._build_session()
         assert session.proxies == {"http": "http://kwargproxy"}
 
     def test_build_session_proxies_env_kwarg_override(self):
-        transport = _TransportHTTP("", proxy="https://kwargproxy")
+        transport = _TransportHTTP("server", proxy="https://kwargproxy")
         os.environ['https_proxy'] = "https://envproxy"
         try:
             session = transport._build_session()
@@ -1019,7 +1020,7 @@ class TestTransportHTTP(object):
         assert session.proxies == {"https": "https://kwargproxy"}
 
     def test_build_session_proxies_env_no_proxy_override(self):
-        transport = _TransportHTTP("", no_proxy=True)
+        transport = _TransportHTTP("server", no_proxy=True)
         os.environ['https_proxy'] = "https://envproxy"
         try:
             session = transport._build_session()
@@ -1028,7 +1029,7 @@ class TestTransportHTTP(object):
         assert session.proxies == {}
 
     def test_build_session_proxies_kwarg_ignore_no_proxy(self):
-        transport = _TransportHTTP("", proxy="https://kwargproxy",
+        transport = _TransportHTTP("server", proxy="https://kwargproxy",
                                    no_proxy=True)
         session = transport._build_session()
         assert session.proxies == {"https": "https://kwargproxy"}
