@@ -16,7 +16,7 @@ class WinRMEncryption(object):
     SPNEGO = "application/HTTP-SPNEGO-session-encrypted"
 
     def __init__(self, auth, protocol):
-        log.info("Initialising WinRMEncryption helper for protocol %s"
+        log.debug("Initialising WinRMEncryption helper for protocol %s"
                  % protocol)
         self.auth = auth
         self.protocol = protocol
@@ -29,7 +29,7 @@ class WinRMEncryption(object):
             self._unwrap = self._unwrap_credssp
 
     def wrap_message(self, message, hostname):
-        log.info("Wrapping message for host: %s" % hostname)
+        log.debug("Wrapping message for host: %s" % hostname)
         if self.protocol == self.CREDSSP and len(message) > self.SIXTEEN_KB:
             content_type = "multipart/x-multi-encrypted"
             encrypted_msg = b""
@@ -48,7 +48,7 @@ class WinRMEncryption(object):
         return content_type, encrypted_msg
 
     def unwrap_message(self, message, hostname):
-        log.info("Unwrapped message for host: %s" % hostname)
+        log.debug("Unwrapped message for host: %s" % hostname)
         parts = message.split(to_bytes("%s\r\n" % self.MIME_BOUNDARY))
         parts = list(filter(None, parts))
 

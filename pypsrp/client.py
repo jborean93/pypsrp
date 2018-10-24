@@ -157,10 +157,10 @@ class Client(object):
                               ["-NoProfile", "-NonInteractive",
                                "-EncodedCommand", encoded_command])
             process.begin_invoke()
-            log.info("Starting to send file data to remote process")
+            log.debug("Starting to send file data to remote process")
             for input_data, end in read_gen:
                 process.send(input_data, end)
-            log.info("Finished sending file data to remote process")
+            log.debug("Finished sending file data to remote process")
             process.end_invoke()
 
         stderr = self.sanitise_clixml(process.stderr)
@@ -297,9 +297,9 @@ $hash.Replace("-", "").ToLowerInvariant()''' % src
         with RunspacePool(self.wsman) as pool:
             powershell = PowerShell(pool)
             powershell.add_script(script)
-            log.info("Starting remote process to output file data")
+            log.debug("Starting remote process to output file data")
             powershell.invoke()
-            log.info("Finished remote process to output file data")
+            log.debug("Finished remote process to output file data")
 
             if powershell.had_errors:
                 errors = powershell.streams.error
