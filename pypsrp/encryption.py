@@ -17,7 +17,7 @@ class WinRMEncryption(object):
 
     def __init__(self, auth, protocol):
         log.debug("Initialising WinRMEncryption helper for protocol %s"
-                 % protocol)
+                  % protocol)
         self.auth = auth
         self.protocol = protocol
 

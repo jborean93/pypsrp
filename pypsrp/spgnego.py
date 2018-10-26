@@ -118,8 +118,8 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
                 context.init_context()
                 context_gen = context.step()
                 out_token = next(context_gen)
-                log.debug("GSSAPI with mech kerberos is being used as the auth "
-                          "backend")
+                log.debug("GSSAPI with mech kerberos is being used as the "
+                          "auth backend")
             except gssapi.exceptions.GSSError as err:
                 log.warning("Failed to initialise a GSSAPI context, failling "
                             "back to NTLM: %s" % str(err))
