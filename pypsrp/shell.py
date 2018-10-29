@@ -353,8 +353,8 @@ class Process(object):
             bypass it. If True then executable must be the full path to the
             exe. This only works on older OS's before 2012 R2 (not including)
         """
-        log.info("Creating WinRS process for '%s' with arguments '%s'"
-                 % (executable, arguments))
+        log.debug("Creating WinRS process for '%s' with arguments '%s'"
+                  % (executable, arguments))
         self.shell = shell
         self.id = id
         self.no_shell = no_shell

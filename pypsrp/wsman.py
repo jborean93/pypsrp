@@ -202,9 +202,9 @@ class WSMan(object):
             negotiate_service: Override the service used when building the
                 server SPN, default='WSMAN'
         """
-        log.info("Initialising WSMan class with maximum envelope size of %d "
-                 "and operation timeout of %s"
-                 % (max_envelope_size, operation_timeout))
+        log.debug("Initialising WSMan class with maximum envelope size of %d "
+                  "and operation timeout of %s"
+                  % (max_envelope_size, operation_timeout))
         self.session_id = str(uuid.uuid4())
         self.locale = locale
         self.data_locale = data_locale
@@ -318,7 +318,7 @@ class WSMan(object):
 
     def get_server_config(self, uri="config"):
         resource_uri = "http://schemas.microsoft.com/wbem/wsman/1/%s" % uri
-        log.info("Getting server config with URI %s" % resource_uri)
+        log.debug("Getting server config with URI %s" % resource_uri)
         return self.get(resource_uri)
 
     def update_max_payload_size(self, max_payload_size=None):
@@ -379,8 +379,8 @@ class WSMan(object):
                 raise self._parse_wsman_fault(err.response_text)
             except ET.ParseError:
                 # no XML message is present so not a WSManFault error
-                log.warning("Failed to parse WSManFault message on WinRM error"
-                            " response, raising original WinRMTransportError")
+                log.error("Failed to parse WSManFault message on WinRM error"
+                          " response, raising original WinRMTransportError")
                 raise err
 
         response_xml = ET.fromstring(response)
@@ -688,8 +688,8 @@ class _TransportHTTP(object):
 
         self.endpoint = "%s://%s:%d/%s" \
                         % ("https" if ssl else "http", server, self.port, path)
-        log.info("Initialising HTTP transport for endpoint: %s, auth: %s, "
-                 "user: %s" % (self.endpoint, self.username, self.auth))
+        log.debug("Initialising HTTP transport for endpoint: %s, auth: %s, "
+                  "user: %s" % (self.endpoint, self.username, self.auth))
         self.session = None
 
         # used when building tests, keep commented out

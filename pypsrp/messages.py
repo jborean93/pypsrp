@@ -116,7 +116,7 @@ class Message(object):
         if not isinstance(message_data, binary_type):
             message_data = \
                 ET.tostring(message_data, encoding='utf-8', method='xml')
-        log.info("Packing PSRP message: %s" % to_string(message_data))
+        log.debug("Packing PSRP message: %s" % to_string(message_data))
 
         data = struct.pack("<I", self.destination)
         data += struct.pack("<I", self.message_type)
@@ -139,8 +139,8 @@ class Message(object):
         else:
             message_data = to_string(data[40:])
 
-        log.info("Unpacking PSRP message of type %d: %s"
-                 % (message_type, message_data))
+        log.debug("Unpacking PSRP message of type %d: %s"
+                  % (message_type, message_data))
 
         message_obj = {
             MessageType.SESSION_CAPABILITY: SessionCapability,

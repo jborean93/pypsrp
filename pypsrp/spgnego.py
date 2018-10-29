@@ -83,17 +83,17 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
 
     if HAS_SSPI:
         # always use SSPI when available
-        log.info("SSPI is available and will be used as the auth backend")
+        log.debug("SSPI is available and will be used as the auth backend")
         context = SSPIContext(username, password, auth_provider, cbt_app_data,
                               hostname, service, delegate)
     elif HAS_GSSAPI and auth_provider != "ntlm":
-        log.info("GSSAPI is available, determine if it can handle the auth "
-                 "provider specified or whether the NTLM fallback is used")
+        log.debug("GSSAPI is available, determine if it can handle the auth "
+                  "provider specified or whether the NTLM fallback is used")
         mechs_available = GSSAPIContext.get_available_mechs(wrap_required)
 
         if auth_provider in mechs_available:
-            log.info("GSSAPI with mech %s is being used as the auth backend"
-                     % auth_provider)
+            log.debug("GSSAPI with mech %s is being used as the auth backend"
+                      % auth_provider)
             context = GSSAPIContext(username, password, auth_provider,
                                     cbt_app_data, hostname, service, delegate,
                                     wrap_required)
@@ -104,9 +104,9 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
                              "disable encryption, use https or specify "
                              "auto/ntlm")
         elif auth_provider == "auto" and "kerberos" in mechs_available:
-            log.info("GSSAPI is available but SPNEGO/NTLM is not natively "
-                     "supported, try to use Kerberos explicitly and fallback "
-                     "to NTLM with ntlm-auth if that fails")
+            log.debug("GSSAPI is available but SPNEGO/NTLM is not natively "
+                      "supported, try to use Kerberos explicitly and fallback "
+                      "to NTLM with ntlm-auth if that fails")
             # we can't rely on SPNEGO in GSSAPI as NTLM is not available, try
             # and initialise a kerb context and get the first token. If that
             # fails, fallback to NTLM with ntlm-auth
@@ -118,8 +118,8 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
                 context.init_context()
                 context_gen = context.step()
                 out_token = next(context_gen)
-                log.info("GSSAPI with mech kerberos is being used as the auth "
-                         "backend")
+                log.debug("GSSAPI with mech kerberos is being used as the "
+                          "auth backend")
             except gssapi.exceptions.GSSError as err:
                 log.warning("Failed to initialise a GSSAPI context, failling "
                             "back to NTLM: %s" % str(err))
@@ -127,8 +127,8 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
                 out_token = None
                 context = NTLMContext(username, password, cbt_app_data)
         else:
-            log.info("GSSAPI is available but does not support NTLM or "
-                     "Kerberos with encryption, fallback to ntlm-auth")
+            log.debug("GSSAPI is available but does not support NTLM or "
+                      "Kerberos with encryption, fallback to ntlm-auth")
             context = NTLMContext(username, password, cbt_app_data)
     else:
         if auth_provider not in ["auto", "ntlm"]:
@@ -136,8 +136,8 @@ def get_auth_context(username, password, auth_provider, cbt_app_data,
                              "without GSSAPI or SSPI being installed, select "
                              "auto or install GSSAPI or SSPI"
                              % auth_provider)
-        log.info("SSPI or GSSAPI is not available, using ntlm-auth as the "
-                 "auth backend")
+        log.debug("SSPI or GSSAPI is not available, using ntlm-auth as the "
+                  "auth backend")
         context = NTLMContext(username, password, cbt_app_data)
 
     if context_gen is None:
@@ -372,7 +372,7 @@ class GSSAPIContext(AuthContext):
     def step(self):
         in_token = None
         while not self._context.complete:
-            log.info("GSSAPI: Calling gss_init_sec_context()")
+            log.debug("GSSAPI: Calling gss_init_sec_context()")
             out_token = self._context.step(in_token)
             in_token = yield out_token
 
@@ -521,8 +521,8 @@ class NTLMContext(AuthContext):
         log.debug("NTLM Negotiate message: %s" % binascii.hexlify(msg1))
 
         msg2 = yield msg1
-        log.info("NTLM: Parsing Challenge message and generating "
-                 "Authenticate message: %s" % binascii.hexlify(msg2))
+        log.debug("NTLM: Parsing Challenge message and generating "
+                  "Authenticate message: %s" % binascii.hexlify(msg2))
         msg3 = self._context.step(msg2)
 
         yield msg3
