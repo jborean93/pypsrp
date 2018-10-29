@@ -5,6 +5,7 @@
 * Added `FEATURE` dict to module to denote whether a feature has been added in installed pypsrp
 * Added `read_timeout` to `pypsrp.wsman.WSMan` to control the timeout when waiting for a HTTP response from the server
 * Added `reconnection_retries` and `reconnection_backoff` to control reconnection attempts on connection failures
+* Changed a few log entries from `info` to `debug` as some of those log entries were quite verbose
 
 
 ## 0.2.0 - 2018-09-11
