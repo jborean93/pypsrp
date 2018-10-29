@@ -74,8 +74,8 @@ class RunspacePool(object):
         :param session_key_timeout_ms: The maximum time to wait for a session
             key transfer from the server
         """
-        log.debug("Initialising RunspacePool object for configuration %s"
-                  % configuration_name)
+        log.info("Initialising RunspacePool object for configuration %s"
+                 % configuration_name)
         # The below are defined in some way at
         # https://msdn.microsoft.com/en-us/library/ee176015.aspx
         self.id = str(uuid.uuid4()).upper()
@@ -131,7 +131,7 @@ class RunspacePool(object):
 
         :param min_runspaces: The minimum number of runspaces in the pool
         """
-        log.debug("Setting minimum runspaces for pool to %d" % min_runspaces)
+        log.info("Setting minimum runspaces for pool to %d" % min_runspaces)
         if self.state != RunspacePoolState.OPENED:
             self._min_runspaces = min_runspaces
             return
@@ -169,7 +169,7 @@ class RunspacePool(object):
 
         :param max_runspaces: The maximum number of runspaces in the pool
         """
-        log.debug("Setting maximum runspaces for pool to %d" % max_runspaces)
+        log.info("Setting maximum runspaces for pool to %d" % max_runspaces)
         if self.state != RunspacePoolState.OPENED:
             self._max_runspaces = max_runspaces
             return
@@ -208,7 +208,7 @@ class RunspacePool(object):
         operations waiting for a runspace. If the pool is already closed or
         broken or closing, this will just return
         """
-        log.debug("Closing Runspace Pool")
+        log.info("Closing Runspace Pool")
         if self.state in [RunspacePoolState.CLOSED, RunspacePoolState.CLOSING,
                           RunspacePoolState.BROKEN]:
             return
@@ -222,7 +222,7 @@ class RunspacePool(object):
         state. This only supports reconnecting to a runspace pool created by
         the same client with the same SessionId value in the WSMan headers.
         """
-        log.debug("Connecting to Runspace Pool")
+        log.info("Connecting to Runspace Pool")
         if self.state == RunspacePoolState.OPENED:
             return
         elif self.state != RunspacePoolState.DISCONNECTED:
@@ -290,8 +290,8 @@ class RunspacePool(object):
 
         :return: List<PowerShell>: List of disconnected PowerShell objects
         """
-        log.debug("Getting list of disconnected PowerShells for the current "
-                  "Runspace Pool")
+        log.info("Getting list of disconnected PowerShells for the current "
+                 "Runspace Pool")
         return [s for s in self.pipelines.values() if
                 s.state == PSInvocationState.DISCONNECTED]
 
@@ -299,7 +299,7 @@ class RunspacePool(object):
         """
         Disconnects the runspace pool, must be in the Opened state
         """
-        log.debug("Disconnecting from Runspace Pool")
+        log.info("Disconnecting from Runspace Pool")
         if self.state == RunspacePoolState.DISCONNECTED:
             return
         elif self.state != RunspacePoolState.OPENED:
@@ -407,7 +407,7 @@ class RunspacePool(object):
             pypsrp.wsman.WSMan is supported.
         :return: List<RunspacePool> objects each in the Disconnected state
         """
-        log.debug("Getting list of Runspace Pools on remote host")
+        log.info("Getting list of Runspace Pools on remote host")
         wsen = NAMESPACES['wsen']
         wsmn = NAMESPACES['wsman']
 
@@ -474,7 +474,7 @@ class RunspacePool(object):
             runspace host. These can then be accessed in a PowerShell instance
             of the runspace with $PSSenderInfo.ApplicationArguments
         """
-        log.debug("Openning a new Runspace Pool on remote host")
+        log.info("Openning a new Runspace Pool on remote host")
         if self.state == RunspacePoolState.OPENED:
             return
         if self.state != RunspacePoolState.BEFORE_OPEN:
@@ -517,7 +517,7 @@ class RunspacePool(object):
         open and if the key has already been exchanged then nothing will
         happen.
         """
-        log.debug("Starting key exchange with remote host")
+        log.info("Starting key exchange with remote host")
         if self._key_exchanged or self._exchange_key is not None:
             # key is already exchanged or we are still in the processes of
             # exchanging it, no need to run again
@@ -562,7 +562,7 @@ class RunspacePool(object):
         This is only supported for the protocol version 2.3 and above (Server
         2016/Windows 10+)
         """
-        log.debug("Resetting remote Runspace Pool state")
+        log.info("Resetting remote Runspace Pool state")
         if self.state == RunspacePoolState.BEFORE_OPEN:
             # no need to reset if the runspace has not been opened
             return
@@ -791,7 +791,7 @@ class PowerShell(object):
         :param runspace_pool: The RunspacePool that the PowerShell instance
             will run over
         """
-        log.debug("Initialising PowerShell in remote Runspace Pool")
+        log.info("Initialising PowerShell in remote Runspace Pool")
         self.runspace_pool = runspace_pool
         self.state = PSInvocationState.NOT_STARTED
 
@@ -1000,7 +1000,7 @@ class PowerShell(object):
             the various steams, see complex_objects.RemoteStreamOptions for the
             values. Will default to returning the invocation info on all
         """
-        log.debug("Beginning remote Pipeline invocation")
+        log.info("Beginning remote Pipeline invocation")
         if self.state != PSInvocationState.NOT_STARTED:
             raise InvalidPipelineStateError(
                 self.state, PSInvocationState.NOT_STARTED,
@@ -1030,7 +1030,7 @@ class PowerShell(object):
 
         # finally send the input if any was specified
         if input is not None:
-            log.debug("Sending input to remote Pipeline")
+            log.info("Sending input to remote Pipeline")
             if not isinstance(input, list):
                 input = [input]
 
@@ -1244,7 +1244,7 @@ class PowerShell(object):
         """
         Stop the currently running command.
         """
-        log.debug("Stopping remote Pipeline")
+        log.info("Stopping remote Pipeline")
         if self.state in [PSInvocationState.STOPPING,
                           PSInvocationState.STOPPED]:
             return
