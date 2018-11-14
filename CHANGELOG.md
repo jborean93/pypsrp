@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.0 - TBD
+## 0.3.0 - 2018-11-14
 
 * Added `FEATURE` dict to module to denote whether a feature has been added in installed pypsrp
 * Added `read_timeout` to `pypsrp.wsman.WSMan` to control the timeout when waiting for a HTTP response from the server
