@@ -254,6 +254,9 @@ class SSPIContext(AuthContext):
                 sspicon.ISC_REQ_SEQUENCE_DETECT | \
                 sspicon.ISC_REQ_MUTUAL_AUTH
 
+        if self._delegate:
+            flags |= sspicon.ISC_REQ_DELEGATE
+
         self._context = sspi.ClientAuth(
             pkg_name=self.auth_provider,
             auth_info=(self.username, self.domain, self.password),

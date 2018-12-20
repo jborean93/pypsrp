@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 - TBD
+
+* Fix issue where `negotiate_delegate=True` did nothing with `pywin32` on Windows
+
+
 ## 0.3.0 - 2018-11-14
 
 * Added `FEATURE` dict to module to denote whether a feature has been added in installed pypsrp
