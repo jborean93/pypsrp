@@ -24,7 +24,7 @@ setup(
     ],
     extras_require={
         ':python_version<"2.7"': [
-            'lxml',
+            'lxml<4.3.0',  # 4.3.0+ has dropped support for Python 2.6
         ],
         'credssp': [
             'requests-credssp>=1.0.0'

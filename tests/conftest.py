@@ -220,7 +220,7 @@ class TransportFake(object):
         element.text = base64.b64encode(new_value).decode('utf-8')
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='function')
 def wsman_conn(request, monkeypatch):
     test_params = request.param
     if not isinstance(test_params, list) or len(test_params) != 2:
