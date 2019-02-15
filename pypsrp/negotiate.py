@@ -72,7 +72,7 @@ class HTTPNegotiateAuth(AuthBase):
         self.wrap_required = wrap_required
         self.contexts = {}
 
-        self._regex = re.compile('Negotiate\s*([^,]*),?', re.I)
+        self._regex = re.compile(r'Negotiate\s*([^,]*),?', re.I)
 
     def __call__(self, request):
         request.headers['Connection'] = 'Keep-Alive'

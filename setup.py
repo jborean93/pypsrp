@@ -24,7 +24,7 @@ setup(
     ],
     extras_require={
         ':python_version<"2.7"': [
-            'lxml',
+            'lxml<4.3.0',  # 4.3.0+ has dropped support for Python 2.6
         ],
         'credssp': [
             'requests-credssp>=1.0.0'
@@ -43,6 +43,7 @@ setup(
     long_description=long_description,
     keywords='winrm psrp winrs windows',
     license='MIT',
+    python_requires='>=2.6,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*',
     classifiers=[
         'Development Status :: 4 - Beta',
         'License :: OSI Approved :: MIT License',

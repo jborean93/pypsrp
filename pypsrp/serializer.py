@@ -67,7 +67,7 @@ class Serializer(object):
         # to support surrogate UTF-16 pairs we need to use a UTF-16 regex
         # so we can replace the UTF-16 string representation with the actual
         # UTF-16 byte value and then decode that
-        self._deserial_str = re.compile(b"\\x00_\\x00x([\0\w]{8})\\x00_")
+        self._deserial_str = re.compile(b"\\x00_\\x00x([\\0\\w]{8})\\x00_")
 
     def serialize(self, value, metadata=None, parent=None, clear=True):
         """

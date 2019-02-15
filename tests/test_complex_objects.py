@@ -2,6 +2,8 @@ import sys
 
 import pytest
 
+from . import assert_xml_diff
+
 from pypsrp.complex_objects import Array, BufferCell, BufferCellType, Color, \
     Command, CommandParameter, CommandType, Coordinates, HostInfo, \
     ObjectMeta, Pipeline, PipelineResultTypes, PSThreadOptions, \
@@ -209,7 +211,7 @@ class TestHostInfo(object):
 
         actual = serializer.serialize(host_info)
         actual_xml = normalise_xml(ET.tostring(actual))
-        assert expected_xml == actual_xml
+        assert_xml_diff(actual_xml, expected_xml)
 
 
 class TestRemoteStreamOptions(object):
@@ -593,7 +595,7 @@ class TestPipeline(object):
 
         actual = serializer.serialize(pipeline)
         actual_xml = normalise_xml(ET.tostring(actual))
-        assert expected_xml == actual_xml
+        assert_xml_diff(actual_xml, expected_xml)
 
     def test_create_pipeline_multiple(self):
         serializer = Serializer()
@@ -629,7 +631,7 @@ class TestPipeline(object):
 
         actual = serializer.serialize(pipeline)
         actual_xml = normalise_xml(ET.tostring(actual))
-        assert expected_xml == actual_xml
+        assert_xml_diff(actual_xml, expected_xml)
 
     def test_parse_pipeline_single(self):
         serializer = Serializer()
@@ -803,7 +805,7 @@ class TestBufferCell(object):
         actual = serializer.serialize(buffer_cell)
         actual_xml = normalise_xml(ET.tostring(actual))
 
-        assert expected_xml == actual_xml
+        assert_xml_diff(actual_xml, expected_xml)
 
     def test_parse_buffer_cell(self):
         serializer = Serializer()
@@ -949,14 +951,14 @@ class TestArray(object):
         actual = serializer.serialize(array)
         actual_xml = normalise_xml(ET.tostring(actual))
 
-        assert expected_xml == actual_xml
+        assert_xml_diff(actual_xml, expected_xml)
 
         array.array = [4, 5, 6]
         expected_xml = normalise_xml(self.SINGLE_ARRAY2)
         actual = serializer.serialize(array)
         actual_xml = normalise_xml(ET.tostring(actual))
 
-        assert expected_xml == actual_xml
+        assert_xml_diff(actual_xml, expected_xml)
 
     def test_parse_array(self):
         serializer = Serializer()
@@ -976,7 +978,7 @@ class TestArray(object):
         actual = serializer.serialize(array)
         actual_xml = normalise_xml(ET.tostring(actual))
 
-        assert expected_xml == actual_xml
+        assert_xml_diff(actual_xml, expected_xml)
 
     def test_parse_two_dimensional_array(self):
         serializer = Serializer()
@@ -999,7 +1001,7 @@ class TestArray(object):
         actual = serializer.serialize(array)
         actual_xml = normalise_xml(ET.tostring(actual))
 
-        assert expected_xml == actual_xml
+        assert_xml_diff(actual_xml, expected_xml)
 
     def test_parse_three_dimensional_array(self):
         serializer = Serializer()

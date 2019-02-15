@@ -389,7 +389,7 @@ class TestWSMan(object):
         assert exc.value.reason is None
 
     def test_raise_wsman_fault_with_wsman_fault(self):
-        xml_text = '''
+        xml_text = r'''
         <s:Envelope xml:lang="en-US" xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:x="http://schemas.xmlsoap.org/ws/2004/09/transfer" xmlns:e="http://schemas.xmlsoap.org/ws/2004/08/eventing" xmlns:n="http://schemas.xmlsoap.org/ws/2004/09/enumeration" xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd" xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd">
             <s:Header>
                 <a:Action>http://schemas.dmtf.org/wbem/wsman/1/wsman/fault</a:Action>
@@ -434,7 +434,7 @@ class TestWSMan(object):
         assert exc.value.reason == "The parameter is incorrect."
 
     def test_raise_wsman_fault_without_provider(self):
-        xml_text = '''
+        xml_text = r'''
         <s:Envelope xml:lang="en-US" xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:x="http://schemas.xmlsoap.org/ws/2004/09/transfer" xmlns:e="http://schemas.xmlsoap.org/ws/2004/08/eventing" xmlns:n="http://schemas.xmlsoap.org/ws/2004/09/enumeration" xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd" xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd">
             <s:Header>
                 <a:Action>http://schemas.dmtf.org/wbem/wsman/1/wsman/fault</a:Action>
@@ -535,7 +535,7 @@ class TestOptionSet(object):
         assert actual.tag == \
             "{http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd}OptionSet"
         assert actual.text is None
-        assert actual.getchildren() == []
+        assert list(actual) == []
         assert str(option_set) == "{}"
 
     def test_set_one_option(self):
@@ -548,7 +548,7 @@ class TestOptionSet(object):
         assert actual.tag == \
             "{http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd}OptionSet"
         assert actual.text is None
-        children = actual.getchildren()
+        children = list(actual)
         assert len(children) == 1
         assert len(children[0].attrib.keys()) == 1
         assert children[0].attrib['Name'] == "key"
@@ -568,7 +568,7 @@ class TestOptionSet(object):
         assert actual.tag == \
             "{http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd}OptionSet"
         assert actual.text is None
-        children = actual.getchildren()
+        children = list(actual)
         assert len(children) == 1
         assert len(children[0].attrib.keys()) == 3
         assert children[0].attrib['Name'] == "key"
@@ -590,7 +590,7 @@ class TestOptionSet(object):
         assert actual.tag == \
             "{http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd}OptionSet"
         assert actual.text is None
-        children = actual.getchildren()
+        children = list(actual)
         assert len(children) == 2
 
         assert len(children[0].attrib.keys()) == 1
@@ -617,7 +617,7 @@ class TestSelectorSet(object):
         assert actual.tag == \
             "{http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd}SelectorSet"
         assert actual.text is None
-        assert actual.getchildren() == []
+        assert list(actual) == []
         assert str(selector_set) == "{}"
 
     def test_set_one_option(self):
@@ -628,7 +628,7 @@ class TestSelectorSet(object):
         assert actual.tag == \
             "{http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd}SelectorSet"
         assert actual.text is None
-        children = actual.getchildren()
+        children = list(actual)
         assert len(children) == 1
         assert len(children[0].attrib.keys()) == 1
         assert children[0].attrib['Name'] == "key"
@@ -646,7 +646,7 @@ class TestSelectorSet(object):
         assert actual.tag == \
             "{http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd}SelectorSet"
         assert actual.text is None
-        children = actual.getchildren()
+        children = list(actual)
         assert len(children) == 1
         assert len(children[0].attrib.keys()) == 3
         assert children[0].attrib['Name'] == "key"
@@ -666,7 +666,7 @@ class TestSelectorSet(object):
         assert actual.tag == \
             "{http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd}SelectorSet"
         assert actual.text is None
-        children = actual.getchildren()
+        children = list(actual)
         assert len(children) == 2
 
         assert len(children[0].attrib.keys()) == 1
@@ -945,7 +945,8 @@ class TestTransportHTTP(object):
         assert session.headers['User-Agent'] == "Python PSRP Client"
         assert session.trust_env is True
         assert isinstance(session.auth, HTTPNegotiateAuth)
-        assert session.proxies == {}
+        assert 'http' not in session.proxies
+        assert 'https' not in session.proxies
         assert session.verify is True
 
     def test_build_session_cert_validate(self):
@@ -988,7 +989,8 @@ class TestTransportHTTP(object):
     def test_build_session_proxies_default(self):
         transport = _TransportHTTP("server")
         session = transport._build_session()
-        assert session.proxies == {}
+        assert 'http' not in session.proxies
+        assert 'https' not in session.proxies
 
     def test_build_session_proxies_env(self):
         transport = _TransportHTTP("server")
@@ -997,18 +999,21 @@ class TestTransportHTTP(object):
             session = transport._build_session()
         finally:
             del os.environ['https_proxy']
-        assert session.proxies == {"https": "https://envproxy"}
+        assert 'http' not in session.proxies
+        assert session.proxies["https"] == "https://envproxy"
 
     def test_build_session_proxies_kwarg(self):
         transport = _TransportHTTP("server", proxy="https://kwargproxy")
         session = transport._build_session()
-        assert session.proxies == {"https": "https://kwargproxy"}
+        assert 'http' not in session.proxies
+        assert session.proxies["https"] == "https://kwargproxy"
 
     def test_build_session_proxies_kwarg_non_ssl(self):
         transport = _TransportHTTP("server", proxy="http://kwargproxy",
                                    ssl=False)
         session = transport._build_session()
-        assert session.proxies == {"http": "http://kwargproxy"}
+        assert session.proxies["http"] == "http://kwargproxy"
+        assert 'https' not in session.proxies
 
     def test_build_session_proxies_env_kwarg_override(self):
         transport = _TransportHTTP("server", proxy="https://kwargproxy")
@@ -1017,7 +1022,8 @@ class TestTransportHTTP(object):
             session = transport._build_session()
         finally:
             del os.environ['https_proxy']
-        assert session.proxies == {"https": "https://kwargproxy"}
+        assert 'http' not in session.proxies
+        assert session.proxies['https'] == "https://kwargproxy"
 
     def test_build_session_proxies_env_no_proxy_override(self):
         transport = _TransportHTTP("server", no_proxy=True)
@@ -1026,13 +1032,15 @@ class TestTransportHTTP(object):
             session = transport._build_session()
         finally:
             del os.environ['https_proxy']
-        assert session.proxies == {}
+        assert 'http' not in session.proxies
+        assert 'https' not in session.proxies
 
     def test_build_session_proxies_kwarg_ignore_no_proxy(self):
         transport = _TransportHTTP("server", proxy="https://kwargproxy",
                                    no_proxy=True)
         session = transport._build_session()
-        assert session.proxies == {"https": "https://kwargproxy"}
+        assert 'http' not in session.proxies
+        assert session.proxies['https'] == "https://kwargproxy"
 
     def test_send_without_encryption(self, monkeypatch):
         send_mock = MagicMock()
