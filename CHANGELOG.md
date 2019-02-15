@@ -3,7 +3,8 @@
 ## 0.3.1 - TBD
 
 * Fix issue where `negotiate_delegate=True` did nothing with `pywin32` on Windows
-* Fix instances of invalid escape sequences in strings that will break in future Python versions - https://bugs.python.org/issue27364 
+* Fix instances of invalid escape sequences in strings that will break in future Python versions - https://bugs.python.org/issue27364
+* Added warning if requests version is older than 2.14.0 as it does not support status retries. Pypsrp will continue but without supporting status retries.
 
 
 ## 0.3.0 - 2018-11-14

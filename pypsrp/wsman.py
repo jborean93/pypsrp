@@ -9,6 +9,8 @@ import sys
 import uuid
 import warnings
 
+from requests.packages.urllib3.util.retry import Retry
+
 from pypsrp.encryption import WinRMEncryption
 from pypsrp.exceptions import AuthenticationError, WinRMError, \
     WinRMTransportError, WSManFaultError
@@ -790,20 +792,27 @@ class _TransportHTTP(object):
             session.proxies = orig_proxy
 
         # Retry on connection errors, with a backoff factor
-        retries = requests.packages.urllib3.util.retry.Retry(
-            total=self.reconnection_retries,
-            connect=self.reconnection_retries,
-            status=self.reconnection_retries,
-            read=0,
-            backoff_factor=self.reconnection_backoff,
-            status_forcelist=(425, 429, 503),
-        )
-        session.mount('http://', requests.adapters.HTTPAdapter(
-            max_retries=retries)
-        )
-        session.mount('https://', requests.adapters.HTTPAdapter(
-            max_retries=retries)
-        )
+        retry_kwargs = {
+            'total': self.reconnection_retries,
+            'connect': self.reconnection_retries,
+            'status': self.reconnection_retries,
+            'read': 0,
+            'backoff_factor': self.reconnection_backoff,
+            'status_forcelist': (425, 429, 503),
+        }
+        try:
+            retries = Retry(**retry_kwargs)
+        except TypeError:
+            # Status was added in urllib3 >= 1.21 (Requests >= 2.14.0), remove
+            # the status retry counter and try again. The user should upgrade
+            # to a newer version
+            log.warning("Using an older requests version that without support "
+                        "for status retries, ignoring.", exc_info=True)
+            del retry_kwargs['status']
+            retries = Retry(**retry_kwargs)
+
+        session.mount('http://', requests.adapters.HTTPAdapter(max_retries=retries))
+        session.mount('https://', requests.adapters.HTTPAdapter(max_retries=retries))
 
         # set cert validation config
         session.verify = self.cert_validation
