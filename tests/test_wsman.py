@@ -945,7 +945,8 @@ class TestTransportHTTP(object):
         assert session.headers['User-Agent'] == "Python PSRP Client"
         assert session.trust_env is True
         assert isinstance(session.auth, HTTPNegotiateAuth)
-        assert session.proxies == {}
+        assert 'http' not in session.proxies
+        assert 'https' not in session.proxies
         assert session.verify is True
 
     def test_build_session_cert_validate(self):
@@ -988,7 +989,8 @@ class TestTransportHTTP(object):
     def test_build_session_proxies_default(self):
         transport = _TransportHTTP("server")
         session = transport._build_session()
-        assert session.proxies == {}
+        assert 'http' not in session.proxies
+        assert 'https' not in session.proxies
 
     def test_build_session_proxies_env(self):
         transport = _TransportHTTP("server")
@@ -997,18 +999,21 @@ class TestTransportHTTP(object):
             session = transport._build_session()
         finally:
             del os.environ['https_proxy']
-        assert session.proxies == {"https": "https://envproxy"}
+        assert 'http' not in session.proxies
+        assert session.proxies["https"] == "https://envproxy"
 
     def test_build_session_proxies_kwarg(self):
         transport = _TransportHTTP("server", proxy="https://kwargproxy")
         session = transport._build_session()
-        assert session.proxies == {"https": "https://kwargproxy"}
+        assert 'http' not in session.proxies
+        assert session.proxies["https"] == "https://kwargproxy"
 
     def test_build_session_proxies_kwarg_non_ssl(self):
         transport = _TransportHTTP("server", proxy="http://kwargproxy",
                                    ssl=False)
         session = transport._build_session()
-        assert session.proxies == {"http": "http://kwargproxy"}
+        assert session.proxies["http"] == "http://kwargproxy"
+        assert 'https' not in session.proxies
 
     def test_build_session_proxies_env_kwarg_override(self):
         transport = _TransportHTTP("server", proxy="https://kwargproxy")
@@ -1017,7 +1022,8 @@ class TestTransportHTTP(object):
             session = transport._build_session()
         finally:
             del os.environ['https_proxy']
-        assert session.proxies == {"https": "https://kwargproxy"}
+        assert 'http' not in session.proxies
+        assert session.proxies['https'] == "https://kwargproxy"
 
     def test_build_session_proxies_env_no_proxy_override(self):
         transport = _TransportHTTP("server", no_proxy=True)
@@ -1026,13 +1032,15 @@ class TestTransportHTTP(object):
             session = transport._build_session()
         finally:
             del os.environ['https_proxy']
-        assert session.proxies == {}
+        assert 'http' not in session.proxies
+        assert 'https' not in session.proxies
 
     def test_build_session_proxies_kwarg_ignore_no_proxy(self):
         transport = _TransportHTTP("server", proxy="https://kwargproxy",
                                    no_proxy=True)
         session = transport._build_session()
-        assert session.proxies == {"https": "https://kwargproxy"}
+        assert 'http' not in session.proxies
+        assert session.proxies['https'] == "https://kwargproxy"
 
     def test_send_without_encryption(self, monkeypatch):
         send_mock = MagicMock()

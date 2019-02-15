@@ -3,6 +3,8 @@ import uuid
 
 import pytest
 
+from . import assert_xml_diff
+
 from pypsrp.complex_objects import ComplexObject, GenericComplexObject, \
     ListMeta, ObjectMeta, StackMeta
 from pypsrp.exceptions import SerializationError
@@ -336,7 +338,7 @@ class TestSerializer(object):
             '<Nil N="SecurityIdentifierString" /></Props></Obj>'
         actual = serializer.serialize(obj)
         actual_xml = to_string(ET.tostring(actual))
-        assert actual_xml == expected
+        assert_xml_diff(actual_xml, expected)
 
     def test_deserialize_circular_reference(self):
         serializer = Serializer()

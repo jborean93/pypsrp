@@ -133,7 +133,7 @@ class WinRMEncryption(object):
         log.debug("Attempting to get CredSSP trailer length for msg of "
                   "length %d with cipher %s" % (msg_len, cipher_suite))
 
-        if re.match('^.*-GCM-[\w\d]*$', cipher_suite):
+        if re.match(r'^.*-GCM-[\w\d]*$', cipher_suite):
             # GCM has a fixed length of 16 bytes
             trailer_length = 16
         else:

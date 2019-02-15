@@ -43,6 +43,7 @@ setup(
     long_description=long_description,
     keywords='winrm psrp winrs windows',
     license='MIT',
+    python_requires='>=2.6,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*',
     classifiers=[
         'Development Status :: 4 - Beta',
         'License :: OSI Approved :: MIT License',

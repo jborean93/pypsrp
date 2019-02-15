@@ -10,8 +10,11 @@ import yaml
 import pytest
 
 from pypsrp.exceptions import AuthenticationError, WinRMTransportError
+from pypsrp.powershell import Fragment
 from pypsrp.wsman import NAMESPACES, WSMan
 from pypsrp._utils import to_bytes, to_string
+
+from . import assert_xml_diff
 
 import xml.etree.ElementTree as ETNew
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
@@ -54,6 +57,7 @@ class TransportFake(object):
                                         "{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
         self._test_name = test_name
         self._msg_counter = 0
+        self._psrp_fragments = {}  # used to store PSRP fragments as they come in
         meta_path = os.path.join(os.path.dirname(__file__),
                                  'responses/%s.yml' % test_name)
 
@@ -76,17 +80,56 @@ class TransportFake(object):
 
     def send(self, message):
         current_msg = self._test_meta[self._test_msg_key][self._msg_counter]
-        message = self._normalise_xml(message, generify=False)
-        request = self._normalise_xml(
+        actual = self._normalise_xml(message, generify=False,
+                                     psrp_fragment_type='actual')
+        expected = self._normalise_xml(
             current_msg['request'],
-            overrides=current_msg.get('overrides', None)
+            overrides=current_msg.get('overrides', None),
+            psrp_fragment_type='expected'
         )
+        failure_msg = "Message %d request for test %s does not match " \
+                      "expectation\nActual:   %s\nExpected: %s" \
+                      % (self._msg_counter, self._test_name, actual, expected)
+        assert_xml_diff(actual, expected, msg=failure_msg)
+
+        for obj_id in list(self._psrp_fragments.keys()):
+            details = self._psrp_fragments[obj_id]
+            if not details['end']:
+                continue
+
+            fragment_ids = list(details['actual'].keys())
+            fragment_ids.sort()
+
+            actual_obj = b""
+            expected_obj = b""
+            for i in range(0, fragment_ids[-1] + 1):
+                actual_obj += details['actual'][i]
+                expected_obj += details['expected'][i]
+
+            actual_destination = struct.unpack("<I", actual_obj[:4])[0]
+            actual_message_type = struct.unpack("<I", actual_obj[4:8])[0]
+            actual_message = self._normalise_xml(actual_obj[40:],
+                                                 generify=False)
+            expected_destination = struct.unpack("<I", expected_obj[:4])[0]
+            expected_message_type = struct.unpack("<I", expected_obj[4:8])[0]
+            expected_message = self._normalise_xml(expected_obj[40:],
+                                                   generify=False)
+
+            assert actual_destination == expected_destination
+            assert actual_message_type == expected_message_type
+
+            # Only do the XML compare if the message had data, otherwise just
+            # compare the actual values
+            failure_msg = "PSRP Message object %d for test %s does not match " \
+                          "expectation\nActual:    %s\nExpected: %s" \
+                          % (obj_id, self._test_name, actual_message,
+                             expected_message)
+            assert_xml_diff(actual_message, expected_message, msg=failure_msg)
+
+            # Remove the fragments for the obj as we've verified them
+            del self._psrp_fragments[obj_id]
+
         response = self._normalise_xml(current_msg['response'])
-        assert message == request, "Message %d request for test %s does not " \
-                                   "match expectation\nActual:   %s\n" \
-                                   "Expected: %s" % (self._msg_counter,
-                                                     self._test_name,
-                                                     message, request)
         self._msg_counter += 1
 
         # check if test metadata indicates we want to raise an exception here
@@ -105,7 +148,11 @@ class TransportFake(object):
 
         return response
 
-    def _normalise_xml(self, xml, generify=True, overrides=None):
+    def _normalise_xml(self, xml, generify=True, overrides=None,
+                       psrp_fragment_type=None):
+        if not xml:
+            return xml
+
         overrides = overrides if overrides is not None else []
 
         if generify:
@@ -127,26 +174,30 @@ class TransportFake(object):
                 attributes = override.get('attributes', {})
                 for attr_key, attr_value in attributes.items():
                     override_element.attrib[attr_key] = attr_value
+        else:
+            xml_obj = ET.fromstring(to_bytes(xml))
 
-            # PSRP messages contain the runspace and pipeline ID that is
-            # base64 encoded, this needs to be converted back to \x00 * 16
-            # for mock test
+        # PSRP message contain another set of XML messages that have been
+        # base64 encoded. We need to strip these out and compare them
+        # separately once all the fragments have been received.
+        if psrp_fragment_type:
             creation_xml = xml_obj.find("s:Body/rsp:Shell/{http://schemas."
                                         "microsoft.com/powershell}creationXml",
                                         NAMESPACES)
             if creation_xml is not None:
-                self._generify_fragment(creation_xml)
+                creation_xml.text = self._generify_fragment(creation_xml.text,
+                                                            psrp_fragment_type)
 
             connect_xml = xml_obj.find("s:Body/rsp:Connect/pwsh:connectXml",
                                        NAMESPACES)
             if connect_xml is not None:
-                self._generify_fragment(connect_xml)
+                connect_xml.text = self._generify_fragment(connect_xml.text,
+                                                           psrp_fragment_type)
 
             # when resource uri is PowerShell we know the Send/Command messages
             # contain PSRP fragments and we need to generify them
             exp_res_uri = "http://schemas.microsoft.com/powershell/"
-            res_uri = \
-                xml_obj.find("s:Header/wsman:ResourceURI", NAMESPACES)
+            res_uri = xml_obj.find("s:Header/wsman:ResourceURI", NAMESPACES)
             if res_uri is not None:
                 res_uri = res_uri.text
 
@@ -154,15 +205,15 @@ class TransportFake(object):
             if res_uri is not None and res_uri.startswith(exp_res_uri) and \
                     len(streams) > 0:
                 for stream in streams:
-                    self._generify_fragment(stream)
+                    stream.text = self._generify_fragment(stream.text,
+                                                          psrp_fragment_type)
 
             command = xml_obj.find("s:Body/rsp:CommandLine/rsp:Arguments",
                                    NAMESPACES)
             if res_uri is not None and res_uri.startswith(exp_res_uri) and \
                     command is not None:
-                self._generify_fragment(command)
-        else:
-            xml_obj = ET.fromstring(to_bytes(xml))
+                command.text = self._generify_fragment(command.text,
+                                                       psrp_fragment_type)
 
         # convert the string to an XML object, for Python 2.6 (lxml) we need
         # to change the namespace handling to mimic the ElementTree way of
@@ -201,23 +252,36 @@ class TransportFake(object):
 
         return new_element
 
-    def _generify_fragment(self, element):
-        f_data = base64.b64decode(element.text)
+    def _generify_fragment(self, fragment, fragment_type):
+        f_data = base64.b64decode(fragment)
         new_value = b""
-        while len(new_value) != len(f_data):
-            idx = len(new_value)
+        idx = 0
+
+        while idx < len(f_data):
+            frag = Fragment.unpack(f_data[idx:])[0]
+
             length = struct.unpack(">I", f_data[idx + 17:idx + 21])[0]
-            start_end_byte = \
-                struct.unpack("B", f_data[idx + 16:idx + 17])[0]
-            start = start_end_byte & 0x1 == 0x1
             m_data = f_data[idx + 21:idx + length + 21]
 
-            if start:
-                # replace the pid and rpid with \x00 * 16
-                m_data = m_data[0:8] + b"\x00" * 32 + m_data[40:]
+            # We store the fragments for later comparison
+            fragment_buffer = self._psrp_fragments.get(frag.object_id, None)
+            if fragment_buffer is None:
+                fragment_buffer = {
+                    'actual': {},
+                    'expected': {},
+                    'end': False
+                }
+                self._psrp_fragments[frag.object_id] = fragment_buffer
 
-            new_value += f_data[idx:idx + 21] + m_data
-        element.text = base64.b64encode(new_value).decode('utf-8')
+            fragment_buffer[fragment_type][frag.fragment_id] = m_data
+            if frag.end:
+                fragment_buffer['end'] = True
+
+            # We don't add the actual message to make the initial message
+            # comparison easier
+            new_value += f_data[idx:idx + 21]
+            idx += length + 21
+        return base64.b64encode(new_value).decode('utf-8')
 
 
 @pytest.fixture(scope='function')

@@ -3,6 +3,7 @@
 ## 0.3.1 - TBD
 
 * Fix issue where `negotiate_delegate=True` did nothing with `pywin32` on Windows
+* Fix instances of invalid escape sequences in strings that will break in future Python versions - https://bugs.python.org/issue27364 
 
 
 ## 0.3.0 - 2018-11-14

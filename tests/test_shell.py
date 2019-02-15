@@ -106,7 +106,7 @@ class TestWinRS(object):
     @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_winrs_environment']], indirect=True)
     def test_winrs_environment(self, wsman_conn):
-        complex_chars = '_-(){}[]<>*+-/\?"''!@#$^&|;:i,.`~0'
+        complex_chars = r'_-(){}[]<>*+-/\?"''!@#$^&|;:i,.`~0'
         env_block = OrderedDict([
             ('env1', 'var1'),
             (1234, 5678),
