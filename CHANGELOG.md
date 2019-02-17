@@ -5,6 +5,7 @@
 * Fix issue where `negotiate_delegate=True` did nothing with `pywin32` on Windows
 * Fix instances of invalid escape sequences in strings that will break in future Python versions - https://bugs.python.org/issue27364
 * Added warning if requests version is older than 2.14.0 as it does not support status retries. Pypsrp will continue but without supporting status retries.
+* Fix byte orderring for the PID and RPID values of each PSRP message. This should not be an existing issue on normal hosts but it will make the move to SSH easier in the future
 
 
 ## 0.3.0 - 2018-11-14
