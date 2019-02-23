@@ -26,6 +26,9 @@ setup(
         ':python_version<"2.7"': [
             'lxml<4.3.0',  # 4.3.0+ has dropped support for Python 2.6
         ],
+        ':python_version<="2.7"': [
+            'ipaddress',
+        ],
         'credssp': [
             'requests-credssp>=1.0.0'
         ],

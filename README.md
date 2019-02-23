@@ -178,7 +178,7 @@ These are the options that can be used to setup `WSMan`;
 * `operation_timeout`: The operation timeout, in seconds, of each WSMan operation, default is `20`. This should always be lower than `read_timeout`.
 * `port`: The port to connect to, default is `5986` if `ssl=True` else `5985`
 * `username`: The username to connect with, required for all auths except `certificate` and optionally required for `negotiate/kerberos`
-* `password`: The password for `username`
+* `password`: The password for `username`. Due to a bug on MacOS/Heimdal GSSAPI implementations, this will persist in the user's ccache when using Negotiate or Kerberos authentication, run `kdestroy` manually to remove this
 * `ssl`: Whether to connect over `https` or `https`, default is `True`
 * `path`: The WinRM path to connect to, default is `wsman`
 * `auth`: The authentication protocol to use, default is `negotiate`, choices are `basic`, `certificate`, `negotiate`, `ntlm`, `kerberos`, `credssp`

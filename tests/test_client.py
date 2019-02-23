@@ -22,7 +22,7 @@ class TestClient(object):
         # the connection object was already created as part of test fixture
         # we need to apply it to the Client object and set the values so the
         # test will work with existing responses
-        client = Client(None)
+        client = Client("")
         client.wsman = wsman
         return client
 

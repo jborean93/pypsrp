@@ -3,6 +3,7 @@
 
 from __future__ import division
 
+import ipaddress
 import logging
 import requests
 import sys
@@ -15,7 +16,7 @@ from pypsrp.encryption import WinRMEncryption
 from pypsrp.exceptions import AuthenticationError, WinRMError, \
     WinRMTransportError, WSManFaultError
 from pypsrp.negotiate import HTTPNegotiateAuth
-from pypsrp._utils import to_string, get_hostname
+from pypsrp._utils import to_string, to_unicode, get_hostname
 
 HAS_CREDSSP = True
 CREDSSP_IMP_ERR = None
@@ -688,8 +689,8 @@ class _TransportHTTP(object):
             for kwarg in kwarg_list:
                 setattr(self, kwarg, kwargs.get(kwarg, None))
 
-        self.endpoint = "%s://%s:%d/%s" \
-                        % ("https" if ssl else "http", server, self.port, path)
+        self.endpoint = self._create_endpoint(self.ssl, self.server, self.port,
+                                              self.path)
         log.debug("Initialising HTTP transport for endpoint: %s, auth: %s, "
                   "user: %s" % (self.endpoint, self.username, self.auth))
         self.session = None
@@ -926,3 +927,18 @@ class _TransportHTTP(object):
                                       category=InsecureRequestWarning)
             except:  # pragma: no cover
                 pass
+
+    @staticmethod
+    def _create_endpoint(ssl, server, port, path):
+        scheme = "https" if ssl else "http"
+
+        # Check if the server is an IPv6 Address, enclose in [] if it is
+        try:
+            address = ipaddress.IPv6Address(to_unicode(server))
+        except ipaddress.AddressValueError:
+            pass
+        else:
+            server = "[%s]" % address.compressed
+
+        endpoint = "%s://%s:%s/%s" % (scheme, server, port, path)
+        return endpoint

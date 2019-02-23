@@ -90,7 +90,7 @@ class TestWSMan(object):
         assert isinstance(actual.session_id, str)
 
         # verify we get a unique session id each time this is initialised
-        new_wsman = WSMan(_TransportTest())
+        new_wsman = WSMan("")
         assert actual.session_id != new_wsman.session_id
 
     def test_override_default(self):
@@ -1278,3 +1278,23 @@ class TestTransportHTTP(object):
         assert unwrap_mock.call_count == 1
         assert unwrap_mock.call_args[0] == (b"content", "server")
         assert unwrap_mock.call_args[1] == {}
+
+    @pytest.mark.parametrize('ssl, server, port, path, expected', [
+        [True, 'server', 5986, 'wsman', 'https://server:5986/wsman'],
+        [False, 'server', 5985, 'wsman', 'http://server:5985/wsman'],
+        [False, 'server', 5985, 'iis-wsman', 'http://server:5985/iis-wsman'],
+        [True, '127.0.0.1', 443, 'wsman', 'https://127.0.0.1:443/wsman'],
+        [False, '2001:0db8:0a0b:12f0:0000:0000:0000:0001', 80, 'path',
+         'http://[2001:db8:a0b:12f0::1]:80/path'],
+        [False, '2001:db8:a0b:12f0::1', 80, 'path',
+         'http://[2001:db8:a0b:12f0::1]:80/path'],
+        [False, '2001:0db8:0a0b:12f0:0001:0001:0001:0001', 5985, 'wsman',
+         'http://[2001:db8:a0b:12f0:1:1:1:1]:5985/wsman'],
+        [False, 'FE80::0202:B3FF:FE1E:8329', 5985, 'wsman',
+         'http://[fe80::202:b3ff:fe1e:8329]:5985/wsman'],
+        [True, '[2001:0db8:0a0b:12f0:0000:0000:0000:0001]', 5986, 'wsman',
+         'https://[2001:0db8:0a0b:12f0:0000:0000:0000:0001]:5986/wsman'],
+    ])
+    def test_endpoint_forms(self, ssl, server, port, path, expected):
+        actual = _TransportHTTP._create_endpoint(ssl, server, port, path)
+        assert actual == expected

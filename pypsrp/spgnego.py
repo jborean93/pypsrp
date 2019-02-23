@@ -408,11 +408,13 @@ class GSSAPIContext(AuthContext):
             try:
                 cred = gssapi.Credentials(name=username, usage='initiate',
                                           mechs=[mech])
-            except gssapi.exceptions.GSSError as err:
+                # raises ExpiredCredentialsError if it has expired
+                cred.lifetime
+            except gssapi.raw.GSSError:
                 # we can't acquire the cred if no password was supplied
                 if password is None:
-                    raise err
-                pass
+                    raise
+                cred = None
         elif username is None or password is None:
             raise ValueError("Can only use implicit credentials with kerberos "
                              "authentication")
