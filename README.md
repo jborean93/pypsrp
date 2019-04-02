@@ -312,7 +312,7 @@ New-Item -Path $path -ItemType Directory''' % path)
 output, streams, had_errors = client.execute_ps("New-Item -Path C:\\temp\\folder -ItemType Directory")
 
 # copy a file from the local host to the remote host
-client.copy("~/file.txt", "C:\\temp\file.txt")
+client.copy("~/file.txt", "C:\\temp\\file.txt")
 
 # fetch a file from the remote host to the local host
 client.fetch("C:\\temp\\file.txt", "~/file.txt")
