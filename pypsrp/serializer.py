@@ -560,7 +560,10 @@ class Serializer(object):
         # before running the translation we need to make sure _ before x is
         # encoded, normally _ isn't encoded except when preceding x
         string_value = to_unicode(value)
-        string_value = string_value.replace(u"_x", u"_x005F_x")
+
+        # The MS-PSRP docs don't state this but the _x0000_ matcher is case insensitive so we need to make sure we
+        # escape _X as well as _x.
+        string_value = re.sub(u"_(x)", u"_x005F_\\1", string_value, flags=re.IGNORECASE)
         string_value = re.sub(self._serial_str, rplcr, string_value)
 
         return string_value

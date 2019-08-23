@@ -35,7 +35,9 @@ class TestSerializer(object):
          "actual_x005F_x000A_string_x000A_newline"],
         ["treble clef %s" % b"\xd8\x34\xdd\x1e".decode('utf-16-be'),
          "treble clef _xD834__xDD1E_"],
-        [None, None]
+        [None, None],
+        ["upper_X000a_string\nnewline",
+         "upper_x005F_X000a_string_x000A_newline"],
     ])
     def test_serialize_string(self, input_val, expected):
         serializer = Serializer()

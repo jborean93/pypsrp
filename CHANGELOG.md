@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2 - TBD
+
+* Fixed an issue when escaping string in PowerShell that start with `_X`.
+
+
 ## 0.3.1 - 2019-02-26
 
 * Fix issue where `negotiate_delegate=True` did nothing with `pywin32` on Windows
