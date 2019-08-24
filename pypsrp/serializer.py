@@ -563,7 +563,7 @@ class Serializer(object):
 
         # The MS-PSRP docs don't state this but the _x0000_ matcher is case insensitive so we need to make sure we
         # escape _X as well as _x.
-        string_value = re.sub(u"_(x)", u"_x005F_\\1", string_value, flags=re.IGNORECASE)
+        string_value = re.sub(u"(?i)_(x)", u"_x005F_\\1", string_value)
         string_value = re.sub(self._serial_str, rplcr, string_value)
 
         return string_value
