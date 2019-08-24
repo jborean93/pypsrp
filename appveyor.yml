@@ -60,8 +60,8 @@ install:
     Restart-Service -Name winrm
 - cmd: python -m pip install --upgrade pip
 - cmd: pip install --upgrade setuptools
-- cmd: pip install -r requirements-test.txt
-- cmd: pip install .[credssp]
+- cmd: pip install -r requirements-test.txt -c tests\constraints.txt
+- cmd: pip install .[credssp] -c tests\constraints.txt
 
 # test out pywin32 on some matrixes
 - ps: |

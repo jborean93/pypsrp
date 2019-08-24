@@ -29,8 +29,8 @@ before_install:
 - sudo ./build-scripts/install_gssntlmssp.sh
 install:
 - pip install --upgrade pip setuptools
-- pip install -r requirements-test.txt
-- pip install .
+- pip install -r requirements-test.txt -c tests/constraints.txt
+- pip install . -c tests/constraints.txt
 - pip install coveralls
 
 script:
