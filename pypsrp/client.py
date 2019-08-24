@@ -128,7 +128,7 @@ class Client(object):
         $fd.Write($bytes, 0, $bytes.Length)
     }
 } end {
-    $output_path = "%s"
+    $output_path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath('%s')
     $dest = New-Object -TypeName System.IO.FileInfo -ArgumentList $output_path
     $fd.Close()
 
@@ -262,16 +262,15 @@ class Client(object):
         # stream is getting sent in one chunk when in a loop so scratch that
         # idea
         script = '''$ErrorActionPreference = 'Stop'
-$algo = [System.Security.Cryptography.SHA1CryptoServiceProvider]::Create()
-$dir_attr = [System.Int32][System.IO.FileAttributes]::Directory
-
-$src = New-Object -TypeName System.IO.FileInfo -ArgumentList '%s'
-if (([System.Int32]$src.Attributes -band $dir_attr) -eq $dir_attr) {
-    throw "The path at '$($src.FullName)' is a directory, src must be a file"
-} elseif (-not $src.Exists) {
-    throw "The path at '$($src.FullName)' does not exist"
+$src_path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath('%s')
+if (Test-Path -LiteralPath $src_path -PathType Container) {
+    throw "The path at '$src_path' is a directory, src must be a file"
+} elseif (-not (Test-Path -LiteralPath $src_path)) {
+    throw "The path at '$src_path' does not exist"
 }
 
+$algo = [System.Security.Cryptography.SHA1CryptoServiceProvider]::Create()
+$src = New-Object -TypeName System.IO.FileInfo -ArgumentList $src_path
 $buffer_size = 4096
 $offset = 0
 $fs = $src.OpenRead()
