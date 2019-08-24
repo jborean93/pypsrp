@@ -263,8 +263,10 @@ class Client(object):
         # idea
         script = '''$ErrorActionPreference = 'Stop'
 $algo = [System.Security.Cryptography.SHA1CryptoServiceProvider]::Create()
+$dir_attr = [System.Int32][System.IO.FileAttributes]::Directory
+
 $src = New-Object -TypeName System.IO.FileInfo -ArgumentList '%s'
-if ("Directory" -in $src.Attributes.ToString()) {
+if (([System.Int32]$src.Attributes -band $dir_attr) -eq $dir_attr) {
     throw "The path at '$($src.FullName)' is a directory, src must be a file"
 } elseif (-not $src.Exists) {
     throw "The path at '$($src.FullName)' does not exist"
