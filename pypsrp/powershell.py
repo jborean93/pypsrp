@@ -1039,7 +1039,7 @@ class PowerShell(object):
 
             log.info("Sending input to remote Pipeline")
             next_input = next(input)
-            while next_input:
+            while next_input is not None:
                 if not isinstance(next_input, list):
                     next_input = [next_input]
 
@@ -1054,8 +1054,6 @@ class PowerShell(object):
                 fragments = self.runspace_pool._fragmenter.fragment_multiple(
                     input_msgs, self.runspace_pool.id, self.id
                 )
-                if len(fragments) > 2:
-                    raise Exception(len(fragments))
 
                 for fragment in fragments:
                     self.runspace_pool.shell.send('stdin', fragment,

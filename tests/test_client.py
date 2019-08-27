@@ -82,60 +82,6 @@ class TestClient(object):
                              # checks as to whether the correct number of calls
                              # were sent and the remote requirements are too
                              # variable to trust reliable
-                             [[False, 'test_client_copy_file_double_payload']],
-                             indirect=True)
-    def test_client_copy_file_double_payload(self, wsman_conn):
-        client = self._get_client(wsman_conn)
-        client.wsman.max_payload_size = 113955
-
-        # data sent in 3 packets (2 * data + hash)
-        test_string = b"abcdefghijklmnopqrstuvwxyz" * 5000
-
-        temp_file, path = tempfile.mkstemp()
-        try:
-            os.write(temp_file, test_string)
-            actual = client.copy(path, "test_file")
-        finally:
-            os.close(temp_file)
-            os.remove(path)
-
-        # verify the returned object is the full path
-        assert actual == u"C:\\Users\\vagrant\\test_file"
-
-    @pytest.mark.parametrize('wsman_conn',
-                             # checks as to whether the correct number of calls
-                             # were sent and the remote requirements are too
-                             # variable to trust reliable
-                             [[False, 'test_client_copy_file_quad_payload']],
-                             indirect=True)
-    def test_client_copy_file_quad_payload(self, wsman_conn, monkeypatch):
-        # in a mocked context the calculated size differs on a few variables
-        # we will mock out that call and return the ones used in our existing
-        # responses
-        mock_calc = MagicMock()
-        mock_calc.side_effect = [113955, 382750]
-        monkeypatch.setattr(WSMan, "_calc_envelope_size", mock_calc)
-
-        client = self._get_client(wsman_conn)
-
-        # data sent in 3 packets (get size + data + hash)
-        test_string = b"abcdefghijklmnopqrstuvwxyz" * 10000
-
-        temp_file, path = tempfile.mkstemp()
-        try:
-            os.write(temp_file, test_string)
-            actual = client.copy(path, "test_file")
-        finally:
-            os.close(temp_file)
-            os.remove(path)
-
-        # verify the returned object is the full path
-        assert actual == u"C:\\Users\\vagrant\\test_file"
-
-    @pytest.mark.parametrize('wsman_conn',
-                             # checks as to whether the correct number of calls
-                             # were sent and the remote requirements are too
-                             # variable to trust reliable
                              [[False, 'test_client_copy_file_really_large']],
                              indirect=True)
     def test_client_copy_file_really_large(self, wsman_conn, monkeypatch):

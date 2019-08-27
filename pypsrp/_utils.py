@@ -1,6 +1,8 @@
 # Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
+import pkgutil
+
 from six import PY3, text_type, binary_type
 
 try:
@@ -85,3 +87,28 @@ def version_equal_or_newer(version, reference_version):
 
 def get_hostname(url):
     return urlparse(url).hostname
+
+
+def get_pwsh_script(name):
+    """
+    Get the contents of a script stored in pypsrp/pwsh_scripts. Will also strip out any empty lines and comments to
+    reduce the data we send across as much as possible.
+
+    :param name: The filename of the script in pypsrp/pwsh_scripts to get.
+    :return: The script contents.
+    """
+    script = to_unicode(pkgutil.get_data('pypsrp.pwsh_scripts', name))
+
+    block_comment = False
+    new_lines = []
+    for line in script.splitlines():
+
+        line = line.strip()
+        if block_comment:
+            block_comment = not line.endswith('#>')
+        elif line.startswith('<#'):
+            block_comment = True
+        elif line and not line.startswith('#'):
+            new_lines.append(line)
+
+    return '\n'.join(new_lines)
