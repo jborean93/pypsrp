@@ -13,11 +13,11 @@ import tempfile
 import logging
 
 from pypsrp.exceptions import WinRMError
-from pypsrp.powershell import PowerShell, RunspacePool
+from pypsrp.powershell import DEFAULT_CONFIGURATION_NAME, PowerShell, RunspacePool
 from pypsrp.serializer import Serializer
 from pypsrp.shell import Process, SignalCode, WinRS
 from pypsrp.wsman import WSMan
-from pypsrp._utils import to_bytes, to_string, to_unicode
+from pypsrp._utils import to_bytes, to_unicode
 
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
     # ElementTree in Python 2.6 does not support namespaces so we need to use
@@ -51,7 +51,7 @@ class Client(object):
         """
         self.wsman = WSMan(server, **kwargs)
 
-    def copy(self, src, dest):
+    def copy(self, src, dest, configuration_name=DEFAULT_CONFIGURATION_NAME):
         """
         Copies a single file from the current host to the remote Windows host.
         This can be quite slow when it comes to large files due to the
@@ -65,6 +65,8 @@ class Client(object):
 
         :param src: The path to the local file
         :param dest: The path to the destionation file on the Windows host
+        :param configuration_name: The PowerShell configuration endpoint to
+            use when copying the file.
         :return: The absolute path of the file on the Windows host
         """
         def read_buffer(b_path, buffer_size):
@@ -79,16 +81,16 @@ class Client(object):
                     sha1.update(data)
                     b64_data = base64.b64encode(data) + b"\r\n"
 
-                    yield b64_data, False
+                    yield to_unicode(b64_data)
 
                 # the file was empty, return empty buffer
                 if offset == 0:
-                    yield b"", False
+                    yield u""
 
             # the last input is the actual file hash used to verify the
             # transfer was ok
             actual_hash = b"\x00\xffHash: " + to_bytes(sha1.hexdigest())
-            yield base64.b64encode(actual_hash), True
+            yield to_unicode(base64.b64encode(actual_hash))
 
         src = os.path.expanduser(os.path.expandvars(src))
         b_src = to_bytes(src)
@@ -96,19 +98,10 @@ class Client(object):
         log.info("Copying '%s' to '%s' with a total size of %d"
                  % (src, dest, src_size))
 
-        # check if the src size is twice as large as the max payload and fetch
-        # the max size from the server, we only check in this case to save on a
-        # round trip if the file is small enough to fit in 2 msg's, otherwise
-        # we want to get the largest size possible
-        buffer_size = int(self.wsman.max_payload_size / 4 * 3)
-        if src_size > (buffer_size * 2) and \
-                self.wsman.max_envelope_size == 153600:
-            log.debug("Updating the max WSMan envelope size")
-            self.wsman.update_max_payload_size()
-            buffer_size = int(self.wsman.max_payload_size / 4 * 3)
-        log.info("Creating file reader with a buffer size of %d" % buffer_size)
-        read_gen = read_buffer(b_src, buffer_size)
-
+        # MaximumAllowedMemory is required to be set to so we can send input data that exceeds the limit on a PS
+        # Runspace. We use reflection to access/set this property as it is not accessible publicly. This is not ideal
+        # but works on all PowerShell versions I've tested with. We originally used WinRS to send the raw bytes to the
+        # host but this falls flat if someone is using a custom PS configuration name.
         command = u'''begin {
     $ErrorActionPreference = "Stop"
     $path = [System.IO.Path]::GetTempFileName()
@@ -116,6 +109,60 @@ class Client(object):
     $algo = [System.Security.Cryptography.SHA1CryptoServiceProvider]::Create()
     $bytes = @()
     $expected_hash = ""
+
+    $binding_flags = [System.Reflection.BindingFlags]'NonPublic, Instance'
+    Function Get-Property {
+        Param (
+            [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+            [System.Object]
+            $Object,
+
+            [Parameter(Mandatory=$true, Position=1)]
+            [System.String]
+            $Name
+        )
+
+        $Object.GetType().GetProperty($Name, $binding_flags).GetValue($Object, $null)
+    }
+
+    Function Set-Property {
+        Param (
+            [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+            [System.Object]
+            $Object,
+
+            [Parameter(Mandatory=$true, Position=1)]
+            [System.String]
+            $Name,
+
+            [Parameter(Mandatory=$true, Position=2)]
+            [AllowNull()]
+            [System.Object]
+            $Value
+        )
+
+        $Object.GetType().GetProperty($Name, $binding_flags).SetValue($Object, $Value)
+    }
+
+    Function Get-Field {
+        Param (
+            [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+            [System.Object]
+            $Object,
+
+            [Parameter(Mandatory=$true, Position=1)]
+            [System.String]
+            $Name
+        )
+
+        $Object.GetType().GetField($Name, $binding_flags).GetValue($Object)
+    }
+
+    $dc = $Host | Get-Property 'ExternalHost' | `
+        Get-Field '_transportManager' | `
+        Get-Property 'Fragmentor' | `
+        Get-Property 'DeserializationContext' | `
+        Set-Property 'MaximumAllowedMemory' $null
 } process {
     $base64_string = $input
 
@@ -149,29 +196,31 @@ class Client(object):
         [System.IO.File]::Delete($path)
     }
 }''' % to_unicode(dest)
-        encoded_command = to_string(base64.b64encode(to_bytes(command,
-                                                              'utf-16-le')))
 
-        with WinRS(self.wsman) as shell:
-            process = Process(shell, "powershell.exe",
-                              ["-NoProfile", "-NonInteractive",
-                               "-EncodedCommand", encoded_command])
-            process.begin_invoke()
+        with RunspacePool(self.wsman, configuration_name=configuration_name) as pool:
+            # Get the buffer size of each fragment to send, subtract. Adjust to size of the base64 encoded bytes. Also
+            # subtract 82 for the fragment, message, and other header info that PSRP adds
+            buffer_size = int((self.wsman.max_payload_size - 82) / 4 * 3)
+
+            log.info("Creating file reader with a buffer size of %d" % buffer_size)
+            read_gen = read_buffer(b_src, buffer_size)
+
             log.debug("Starting to send file data to remote process")
-            for input_data, end in read_gen:
-                process.send(input_data, end)
+            powershell = PowerShell(pool)
+            powershell.add_script(command)
+            powershell.invoke(input=read_gen)
             log.debug("Finished sending file data to remote process")
-            process.end_invoke()
 
-        stderr = self.sanitise_clixml(process.stderr)
-        if process.rc != 0:
-            raise WinRMError("Failed to copy file: %s" % stderr)
-        output_file = to_unicode(process.stdout).strip()
-        log.info("Completed file transfer of '%s' to '%s'"
-                 % (src, output_file))
+        if powershell.had_errors:
+            errors = powershell.streams.error
+            error = "\n".join([str(err) for err in errors])
+            raise WinRMError("Failed to copy file: %s" % error)
+
+        output_file = to_unicode(powershell.output[0]).strip()
+        log.info("Completed file transfer of '%s' to '%s'" % (src, output_file))
         return output_file
 
-    def execute_cmd(self, command, encoding='437'):
+    def execute_cmd(self, command, encoding='437', environment=None):
         """
         Executes a command in a cmd shell and returns the stdout/stderr/rc of
         that process. This uses the raw WinRS layer and can be used to execute
@@ -182,6 +231,8 @@ class Client(object):
             correlates to the codepage of the host and traditionally en-US
             is 437. This probably doesn't need to be modified unless you are
             running a different codepage on your host
+        :param environment: A dictionary containing environment keys and
+            values to set on the executing process.
         :return: A tuple of
             stdout: A unicode string of the stdout
             stderr: A unicode string of the stderr
@@ -192,7 +243,7 @@ class Client(object):
         set
         """
         log.info("Executing cmd process '%s'" % command)
-        with WinRS(self.wsman) as shell:
+        with WinRS(self.wsman, environment=environment) as shell:
             process = Process(shell, command)
             process.invoke()
             process.signal(SignalCode.CTRL_C)
@@ -200,7 +251,8 @@ class Client(object):
         return to_unicode(process.stdout, encoding), \
             to_unicode(process.stderr, encoding), process.rc
 
-    def execute_ps(self, script):
+    def execute_ps(self, script, configuration_name=DEFAULT_CONFIGURATION_NAME,
+                   environment=None):
         """
         Executes a PowerShell script in a PowerShell runspace pool. This uses
         the PSRP layer and is designed to run a PowerShell script and not a
@@ -213,6 +265,10 @@ class Client(object):
         stdout/stderr/rc, use execute_cmd instead.
 
         :param script: The PowerShell script to run
+        :param configuration_name: The PowerShell configuration endpoint to
+            use when executing the script.
+        :param environment: A dictionary containing environment keys and
+            values to set on the executing script.
         :return: A tuple of
             output: A unicode string of the output stream
             streams: pypsrp.powershell.PSDataStreams containing the other
@@ -221,8 +277,17 @@ class Client(object):
                 during execution
         """
         log.info("Executing PowerShell script '%s'" % script)
-        with RunspacePool(self.wsman) as pool:
+        with RunspacePool(self.wsman, configuration_name=configuration_name) as pool:
             powershell = PowerShell(pool)
+
+            if environment:
+                for env_key, env_value in environment.items():
+                    powershell.add_cmdlet('New-Item').add_parameters({
+                        'Path': "env:",
+                        'Name': env_key,
+                        'Value': env_value,
+                        'Force': True,
+                    }).add_cmdlet('Out-Null').add_statement()
 
             # so the client executes a powershell script and doesn't need to
             # deal with complex PS objects, we run the script in
@@ -237,7 +302,7 @@ class Client(object):
         return "\n".join(powershell.output), powershell.streams, \
                powershell.had_errors
 
-    def fetch(self, src, dest):
+    def fetch(self, src, dest, configuration_name=DEFAULT_CONFIGURATION_NAME):
         """
         Will fetch a single file from the remote Windows host and create a
         local copy. Like copy(), this can be slow when it comes to fetching
@@ -248,6 +313,8 @@ class Client(object):
 
         :param src: The path to the file on the remote host to fetch
         :param dest: The path on the localhost host to store the file as
+        :param configuration_name: The PowerShell configuration endpoint to
+            use when fetching the file.
         """
         dest = os.path.expanduser(os.path.expandvars(dest))
         log.info("Fetching '%s' to '%s'" % (src, dest))
@@ -295,7 +362,7 @@ $algo.TransformFinalBlock($bytes, 0, 0) > $Null
 $hash = [System.BitConverter]::ToString($algo.Hash)
 $hash.Replace("-", "").ToLowerInvariant()''' % src
 
-        with RunspacePool(self.wsman) as pool:
+        with RunspacePool(self.wsman, configuration_name=configuration_name) as pool:
             powershell = PowerShell(pool)
             powershell.add_script(script)
             log.debug("Starting remote process to output file data")

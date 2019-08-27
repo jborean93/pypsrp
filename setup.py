@@ -14,7 +14,7 @@ except ImportError:
 
 setup(
     name='pypsrp',
-    version='0.3.2',
+    version='0.4.0',
     packages=['pypsrp'],
     install_requires=[
         'cryptography',
