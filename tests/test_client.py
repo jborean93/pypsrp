@@ -325,3 +325,37 @@ class TestClient(object):
             "Failed to fetch file C:\\temp\\file.txt, hash mismatch\n" \
             "Source: eec729d9a0fa275513bc44a4cb8d4ee973b81e1a\n" \
             "Fetched: c3499c2729730a7f807efb8676a92dcb6f8a3f8f"
+
+    def test_sanitise_clixml_with_error(self):
+        clixml_path = os.path.join(os.path.dirname(__file__), 'data', 'test_sanitise_clixml_with_error.xml')
+        with open(clixml_path, 'r') as fd:
+            clixml = fd.read()
+
+        expected = "fake : The term 'fake' is not recognized as the name of a cmdlet, function, script file, or operable program. Check \r\n" \
+                   "the spelling of the name, or if a path was included, verify that the path is correct and try again.\r\n" \
+                   "At line:1 char:1\r\n" \
+                   "+ fake cmdlet\r\n" \
+                   "+ ~~~~\r\n" \
+                   "    + CategoryInfo          : ObjectNotFound: (fake:String) [], CommandNotFoundException\r\n" \
+                   "    + FullyQualifiedErrorId : CommandNotFoundException\r\n" \
+                   " \r\n"
+
+        actual = Client.sanitise_clixml(clixml)
+        assert actual == expected
+
+    def test_sanitise_clixml_with_no_errors(self):
+        clixml_path = os.path.join(os.path.dirname(__file__), 'data', 'test_sanitise_clixml_with_no_errors.xml')
+        with open(clixml_path, 'r') as fd:
+            clixml = fd.read()
+
+        expected = ""
+
+        actual = Client.sanitise_clixml(clixml)
+        assert actual == expected
+
+    def test_sanitise_clixml_not_clixml(self):
+        clixml = "stderr line"
+        expected = clixml
+
+        actual = Client.sanitise_clixml(clixml)
+        assert actual == expected

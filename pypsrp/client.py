@@ -273,14 +273,16 @@ class Client(object):
         :return: A unicode code string of the decoded output
         """
         output = to_unicode(clixml)
-        if output.startswith("#< CLIXML\r\n"):
-            serializer = Serializer()
-            output = output[11:]
+        if output.startswith("#< CLIXML"):
+            # Strip off the '#< CLIXML\r\n' by finding the 2nd index of '<'
+            output = output[clixml.index('<', 2):]
             element = ET.fromstring(output)
             namespace = element.tag.replace("Objs", "")[1:-1]
+
             errors = []
             for error in element.findall("{%s}S[@S='Error']" % namespace):
                 errors.append(error.text)
-            output = serializer._deserialize_string("".join(errors))
+
+            output = Serializer()._deserialize_string("".join(errors))
 
         return output
