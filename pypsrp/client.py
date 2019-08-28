@@ -5,12 +5,12 @@ from __future__ import division
 
 import base64
 import hashlib
+import logging
 import os
 import shutil
 import sys
 import tempfile
-
-import logging
+import warnings
 
 from pypsrp.exceptions import WinRMError
 from pypsrp.powershell import DEFAULT_CONFIGURATION_NAME, PowerShell, RunspacePool
@@ -83,13 +83,13 @@ class Client(object):
 
                     result = [to_unicode(b64_data)]
                     if offset == total_size:
-                        result.append(to_unicode(base64.b64encode(sha1.hexdigest())))
+                        result.append(to_unicode(base64.b64encode(to_bytes(sha1.hexdigest()))))
 
                     yield result
 
                 # the file was empty, return empty buffer
                 if offset == 0:
-                    yield [u"", to_unicode(base64.b64encode(sha1.hexdigest()))]
+                    yield [u"", to_unicode(base64.b64encode(to_bytes(sha1.hexdigest())))]
 
         src = os.path.expanduser(os.path.expandvars(src))
         b_src = to_bytes(src)
@@ -112,12 +112,15 @@ class Client(object):
             powershell.invoke(input=read_gen)
             log.debug("Finished sending file data to remote process")
 
+        for warning in powershell.streams.warning:
+            warnings.warn(str(warning))
+
         if powershell.had_errors:
             errors = powershell.streams.error
             error = "\n".join([str(err) for err in errors])
             raise WinRMError("Failed to copy file: %s" % error)
 
-        output_file = to_unicode(powershell.output[0]).strip()
+        output_file = to_unicode(powershell.output[-1]).strip()
         log.info("Completed file transfer of '%s' to '%s'" % (src, output_file))
         return output_file
 
@@ -183,12 +186,14 @@ class Client(object):
 
             if environment:
                 for env_key, env_value in environment.items():
-                    powershell.add_cmdlet('New-Item').add_parameters({
-                        'Path': "env:",
-                        'Name': env_key,
-                        'Value': env_value,
-                        'Force': True,
-                    }).add_cmdlet('Out-Null').add_statement()
+                    # Done like this for easier testing, preserves the param order
+                    log.debug("Setting env var '%s' on PS script execution" % env_key)
+                    powershell.add_cmdlet('New-Item'). \
+                        add_parameter('Path', 'env:'). \
+                        add_parameter('Name', env_key). \
+                        add_parameter('Value', env_value). \
+                        add_parameter('Force', True). \
+                        add_cmdlet('Out-Null').add_statement()
 
             # so the client executes a powershell script and doesn't need to
             # deal with complex PS objects, we run the script in

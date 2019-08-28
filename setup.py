@@ -15,7 +15,8 @@ except ImportError:
 setup(
     name='pypsrp',
     version='0.4.0',
-    packages=['pypsrp'],
+    packages=['pypsrp', 'pypsrp.pwsh_scripts'],
+    include_package_data=True,
     install_requires=[
         'cryptography',
         'ntlm-auth>=1.2.0',

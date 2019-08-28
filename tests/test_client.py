@@ -11,6 +11,11 @@ from pypsrp.wsman import WSMan
 from pypsrp._utils import to_unicode
 
 try:
+    from collections import OrderedDict
+except ImportError:  # pragma: no cover
+    from ordereddict import OrderedDict
+
+try:
     from unittest.mock import MagicMock
 except ImportError:
     from mock import MagicMock
@@ -89,12 +94,11 @@ class TestClient(object):
         # we will mock out that call and return the ones used in our existing
         # responses
         mock_calc = MagicMock()
-        mock_calc.side_effect = [113955, 382750]
+        mock_calc.return_value = 113955
         monkeypatch.setattr(WSMan, "_calc_envelope_size", mock_calc)
 
         client = self._get_client(wsman_conn)
 
-        # data sent in 4 packets (get size + 2 * data + hash)
         test_string = b"abcdefghijklmnopqrstuvwxyz" * 20000
 
         temp_file, path = tempfile.mkstemp()
@@ -106,7 +110,7 @@ class TestClient(object):
             os.remove(path)
 
         # verify the returned object is the full path
-        assert actual == u"C:\\Users\\vagrant\\test_file"
+        assert actual == u"C:\\Users\\vagrant\\Documents\\test_file"
 
     @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_client_copy_file_failure']],
@@ -128,10 +132,29 @@ class TestClient(object):
             with pytest.raises(WinRMError) as err:
                 actual = client.copy(path, "test_file")
             expected_err = \
-                "Failed to copy file: Transport failure, hash mistmatch\r\n" \
+                "Failed to copy file: Transport failure, hash mismatch\r\n" \
                 "Actual: 32d10c7b8cf96570ca04ce37f2a19d84240d3a89\r\n" \
                 "Expected: c3499c2729730a7f807efb8676a92dcb6f8a3f8f"
             assert expected_err in str(err.value)
+        finally:
+            os.close(temp_file)
+            os.remove(path)
+
+    @pytest.mark.parametrize('wsman_conn',
+                             # Requires a specially crafted response to be returned
+                             [[False, 'test_client_copy_file_warning']],
+                             indirect=True)
+    def test_client_copy_file_warning(self, wsman_conn):
+        client = self._get_client(wsman_conn)
+        test_string = b"abcdefghijklmnopqrstuvwxyz"
+
+        temp_file, path = tempfile.mkstemp()
+        try:
+            os.write(temp_file, test_string)
+            with pytest.warns(Warning, match="Failed to disable MaximumAllowedMemory input size: You cannot call a "
+                                             "method on a null-valued expression"):
+                actual = client.copy(path, "test_file")
+            client.execute_cmd("powershell Remove-Item -Path '%s'" % actual)
         finally:
             os.close(temp_file)
             os.remove(path)
@@ -153,6 +176,26 @@ class TestClient(object):
         assert actual_args[2] == 0
 
     @pytest.mark.parametrize('wsman_conn',
+                             [[True, 'test_client_execute_cmd_environment']], indirect=True)
+    def test_client_execute_cmd_environment(self, wsman_conn):
+        client = self._get_client(wsman_conn)
+
+        env = OrderedDict([
+            ('string', 'string value'),
+            ('int', 1234),
+            ('bool', True),
+            ('double_quote', 'double " quote'),
+            ('single_quote', "single ' quote"),
+            ('hyphen - var', 'abc @ 123'),
+        ])
+        actual = client.execute_cmd("set", environment=env)
+        actual_environment = actual[0].splitlines()
+        for env_key, env_value in env.items():
+            actual_env = next((e for e in actual_environment if e.startswith(env_key)), None)
+            assert actual_env is not None
+            assert actual_env == "%s=%s" % (env_key, env_value)
+
+    @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_client_execute_ps']], indirect=True)
     def test_client_execute_ps(self, wsman_conn):
         client = self._get_client(wsman_conn)
@@ -167,6 +210,27 @@ class TestClient(object):
         assert actual[0] == expected_stdout
         assert isinstance(actual[1], PSDataStreams)
         assert actual[2] is False
+
+    @pytest.mark.parametrize('wsman_conn',
+                             [[True, 'test_client_execute_ps_environment']], indirect=True)
+    def test_client_execute_ps_environment(self, wsman_conn):
+        client = self._get_client(wsman_conn)
+
+        env = OrderedDict([
+            ('string', 'string value'),
+            ('int', 1234),
+            ('bool', True),
+            ('double_quote', 'double " quote'),
+            ('single_quote', "single ' quote"),
+            ('hyphen - var', 'abc @ 123'),
+            ('_-(){}[]<>*+-/\\?"''!@#$%^&|;:i,.`~0', '_-(){}[]<>*+-/\\?"''!@#$%^&|;:i,.`~0'),
+        ])
+        actual = client.execute_ps("cmd.exe /c set", environment=env)
+        actual_environment = actual[0].splitlines()
+        for env_key, env_value in env.items():
+            actual_env = next((e for e in actual_environment if e.startswith(env_key)), None)
+            assert actual_env is not None
+            assert actual_env == "%s=%s" % (env_key, env_value)
 
     @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_client_execute_ps_failure']],
@@ -189,14 +253,7 @@ class TestClient(object):
                              # means we don't need to create files on the
                              # remote side
                              [[False, 'test_client_fetch_file']], indirect=True)
-    def test_client_fetch_file(self, wsman_conn, monkeypatch):
-        # in a mocked context the calculated size differs on a few variables
-        # we will mock out that call and return the ones used in our existing
-        # responses
-        mock_calc = MagicMock()
-        mock_calc.side_effect = [113955, 382750]
-        monkeypatch.setattr(WSMan, "_calc_envelope_size", mock_calc)
-
+    def test_client_fetch_file(self, wsman_conn):
         client = self._get_client(wsman_conn)
 
         # file was created with
@@ -226,14 +283,7 @@ class TestClient(object):
     @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_client_fetch_file_fail_dir']],
                              indirect=True)
-    def test_client_fetch_file_fail_dir(self, wsman_conn, monkeypatch):
-        # in a mocked context the calculated size differs on a few variables
-        # we will mock out that call and return the ones used in our existing
-        # responses
-        mock_calc = MagicMock()
-        mock_calc.side_effect = [113955, 382750]
-        monkeypatch.setattr(WSMan, "_calc_envelope_size", mock_calc)
-
+    def test_client_fetch_file_fail_dir(self, wsman_conn):
         client = self._get_client(wsman_conn)
         with pytest.raises(WinRMError) as err:
             client.fetch("C:\\Windows", "")
@@ -244,15 +294,7 @@ class TestClient(object):
     @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_client_fetch_file_fail_missing']],
                              indirect=True)
-    def test_client_fetch_file_fail_missing(self, wsman_conn,
-                                            monkeypatch):
-        # in a mocked context the calculated size differs on a few variables
-        # we will mock out that call and return the ones used in our existing
-        # responses
-        mock_calc = MagicMock()
-        mock_calc.side_effect = [113955, 382750]
-        monkeypatch.setattr(WSMan, "_calc_envelope_size", mock_calc)
-
+    def test_client_fetch_file_fail_missing(self, wsman_conn):
         client = self._get_client(wsman_conn)
         with pytest.raises(WinRMError) as err:
             client.fetch("C:\\fakefile.txt", "")

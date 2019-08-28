@@ -3,7 +3,7 @@
 
 from copy import deepcopy
 
-from pypsrp._utils import version_equal_or_newer
+from pypsrp._utils import to_string, version_equal_or_newer
 
 
 class ObjectMeta(object):
@@ -96,7 +96,7 @@ class ComplexObject(object):
         self._xml = None  # only populated on deserialization
 
     def __str__(self):
-        return self._to_string
+        return to_string(self._to_string)
 
 
 class GenericComplexObject(ComplexObject):
@@ -110,7 +110,7 @@ class GenericComplexObject(ComplexObject):
         self.types = []
 
     def __str__(self):
-        return self.to_string
+        return to_string(self.to_string)
 
 
 class Enum(ComplexObject):

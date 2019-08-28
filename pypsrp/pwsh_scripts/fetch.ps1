@@ -7,7 +7,9 @@
 # in one chunk when in a loop so scratch that idea.
 
 $ErrorActionPreference = 'Stop'
-$src_path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath('%s')
+$raw_src_path = $MyInvocation.UnboundArguments[0]
+$src_path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($raw_src_path)
+
 if (Test-Path -LiteralPath $src_path -PathType Container) {
     throw "The path at '$src_path' is a directory, src must be a file"
 } elseif (-not (Test-Path -LiteralPath $src_path)) {
@@ -16,11 +18,9 @@ if (Test-Path -LiteralPath $src_path -PathType Container) {
 
 $algo = [System.Security.Cryptography.SHA1CryptoServiceProvider]::Create()
 $src = New-Object -TypeName System.IO.FileInfo -ArgumentList $src_path
-$buffer_size = 4096
 $offset = 0
 $fs = $src.OpenRead()
-$total_bytes = $fs.Length
-$bytes_to_read = $total_bytes - $offset
+$bytes_to_read = $fs.Length
 try {
     while ($bytes_to_read -ne 0) {
         $bytes = New-Object -TypeName byte[] -ArgumentList $bytes_to_read
