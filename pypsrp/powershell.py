@@ -6,6 +6,7 @@ import logging
 import struct
 import sys
 import time
+import types
 import uuid
 
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
@@ -40,13 +41,14 @@ log = logging.getLogger(__name__)
 PROTOCOL_VERSION = "2.3"
 PS_VERSION = "2.0"
 SERIALIZATION_VERSION = "1.1.0.1"
+DEFAULT_CONFIGURATION_NAME = "Microsoft.PowerShell"
 
 
 class RunspacePool(object):
 
     def __init__(self, connection, apartment_state=ApartmentState.UNKNOWN,
                  thread_options=PSThreadOptions.DEFAULT, host=None,
-                 configuration_name="Microsoft.PowerShell", min_runspaces=1,
+                 configuration_name=DEFAULT_CONFIGURATION_NAME, min_runspaces=1,
                  max_runspaces=1, session_key_timeout_ms=60000):
         """
         Represents a Runspace pool on a remote host. This pool can contain
@@ -1030,19 +1032,32 @@ class PowerShell(object):
 
         # finally send the input if any was specified
         if input is not None:
+            if not isinstance(input, types.GeneratorType):
+                def input_gen(i):
+                    yield i
+                input = input_gen(input)
+
             log.info("Sending input to remote Pipeline")
-            if not isinstance(input, list):
-                input = [input]
+            next_input = next(input)
+            while next_input is not None:
+                if not isinstance(next_input, list):
+                    next_input = [next_input]
 
-            input_msgs = [PipelineInput(data=d) for d in input]
-            input_msgs.append(EndOfPipelineInput())
-            fragments = self.runspace_pool._fragmenter.fragment_multiple(
-                input_msgs, self.runspace_pool.id, self.id
-            )
+                input_msgs = [PipelineInput(data=d) for d in next_input]
 
-            for fragment in fragments:
-                self.runspace_pool.shell.send('stdin', fragment,
-                                              command_id=self._command_id)
+                try:
+                    next_input = next(input)
+                except StopIteration:
+                    input_msgs.append(EndOfPipelineInput())
+                    next_input = None
+
+                fragments = self.runspace_pool._fragmenter.fragment_multiple(
+                    input_msgs, self.runspace_pool.id, self.id
+                )
+
+                for fragment in fragments:
+                    self.runspace_pool.shell.send('stdin', fragment,
+                                                  command_id=self._command_id)
 
     def end_invoke(self):
         """

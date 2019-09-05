@@ -380,10 +380,17 @@ class GSSAPIContext(AuthContext):
             in_token = yield out_token
 
     def wrap(self, data):
-        iov = IOV(IOVBufferType.header, data, IOVBufferType.padding,
-                  std_layout=False)
-        wrap_iov(self._context, iov, confidential=True)
-        return iov[0].value, iov[1].value + (iov[2].value or b"")
+        if self._context.mech == gssapi.OID.from_int_seq(self._AUTH_PROVIDERS['ntlm']):
+            # NTLM was used, either directly or through SPNEGO and gss-ntlmssp does not support wrap_iov, wrap works
+            # just fine in this scenario though.
+            enc_data = self._context.wrap(data, True).message
+            # NTLM headers are capped at the first 16 bytes of the encrypted payload.
+            return enc_data[:16], enc_data[16:]
+        else:
+            iov = IOV(IOVBufferType.header, data, IOVBufferType.padding,
+                      std_layout=False)
+            wrap_iov(self._context, iov, confidential=True)
+            return iov[0].value, iov[1].value + (iov[2].value or b"")
 
     def unwrap(self, header, data):
         return self._context.unwrap(header + data)[0]

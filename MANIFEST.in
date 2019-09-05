@@ -1,2 +1,3 @@
 include LICENSE
 include CHANGELOG.md
+recursive-include pypsrp/pwsh_scripts *.ps1

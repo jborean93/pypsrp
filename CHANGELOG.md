@@ -1,10 +1,14 @@
 # Changelog
 
-## 0.3.2 - TBD
+## 0.4.0 - TBD
 
 * Fixed an issue when escaping string in PowerShell that start with `_X`.
 * Base relative paths off the PowerShell location and not the process location for file copy and fetch operations.
 * Fixed problem when using `fetch()` on PowerShell v2 hosts.
+* Changed `Client.copy()` to use PSRP instead of WinRS to better support non-admin scenarios.
+* Added explicit `environment` settings for `Client.execute_cmd()` and `Client.execute_ps()`.
+* Added `configuration_name` kwargs on `Client.execute_ps()`, `Client.copy()`, and `Client.fetch()` to configure the configuration endpoint it connects to.
+* Fixed up message encryption with `gss-ntlmssp` on Linux
 
 
 ## 0.3.1 - 2019-02-26

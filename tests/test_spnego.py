@@ -2,12 +2,12 @@ import types
 
 import pytest
 
-import pypsrp.spgnego as spnego
+import pypsrp.spnego as spnego
 
 from ntlm_auth.ntlm import NtlmContext
 from ntlm_auth.session_security import SessionSecurity
 
-from pypsrp.spgnego import get_auth_context, GSSAPIContext, NTLMContext, \
+from pypsrp.spnego import get_auth_context, GSSAPIContext, NTLMContext, \
     SSPIContext
 
 try:

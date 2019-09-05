@@ -15,7 +15,7 @@ from requests.auth import AuthBase
 from requests.packages.urllib3.response import HTTPResponse
 
 from pypsrp.exceptions import AuthenticationError
-from pypsrp.spgnego import get_auth_context
+from pypsrp.spnego import get_auth_context
 from pypsrp._utils import to_bytes, get_hostname
 
 log = logging.getLogger(__name__)
