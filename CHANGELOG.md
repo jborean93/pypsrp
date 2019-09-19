@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 - TBD
+## 0.4.0 - 2019-09-19
 
 * Fixed an issue when escaping string in PowerShell that start with `_X`.
 * Base relative paths off the PowerShell location and not the process location for file copy and fetch operations.
