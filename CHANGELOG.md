@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 - TBD
+
+* Breaking changes
+* Deprecations
+    * The `GenericComplexObject` is being deprecated in favour of just the base `ComplexObject`. This class will be removed in a future release.
+* Fixed issue where `send_cbt=False` would cause a failure.
+
 ## 0.4.0 - 2019-09-19
 
 * Fixed an issue when escaping string in PowerShell that start with `_X`.

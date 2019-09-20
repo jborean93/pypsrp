@@ -1,6 +1,8 @@
 # Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
+import warnings
+
 from copy import deepcopy
 
 from pypsrp._utils import to_string, version_equal_or_newer
@@ -85,64 +87,99 @@ class DictionaryMeta(ObjectMeta):
             self.dict_types = dict_types
 
 
+class PSObject(object):
+
+    def __init__(self, adapted_properties=None, extended_properties=None, type_names=None):
+        self.adapted_properties = adapted_properties or ()
+        self.extended_properties = extended_properties or ()
+        self.type_names = type_names or []
+        self.to_string = None
+        self._xml = None  # only populated on deserialization
+        self._values = []  # raw values in the PSObject that aren't a property or other know attribute.
+
+
 class ComplexObject(object):
 
-    def __init__(self):
-        self._adapted_properties = ()
-        self._extended_properties = ()
-        self._property_sets = ()
-        self._types = []
-        self._to_string = None
-        self._xml = None  # only populated on deserialization
+    def __init__(self, psobject, **kwargs):
+        self.psobject = psobject
+
+        # Make sure all properties have been set to their defaults.
+        for prop_type in ['adapted', 'extended']:
+            properties = getattr(self, '%s_properties' % prop_type)
+            for prop in properties:
+                name = prop[0]
+                default = prop[2] if len(prop) == 3 else None
+
+                setattr(self, name, default)
+
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def __getattr__(self, item):
+        # Favour extended properties over adapted properties
+        return ''
+
+    def __setattr__(self, key, value):
+        a = ''
 
     def __str__(self):
-        return to_string(self._to_string)
+        return to_string(self.psobject.to_string)
 
 
+# This class is deprecated in favour of just the ComplexObject. Ultimately the properties added here will be removed
+# in a future version of pypsrp in favour of a better way of accessing this info in ComplexObject for all object types.
 class GenericComplexObject(ComplexObject):
 
-    def __init__(self):
-        super(GenericComplexObject, self).__init__()
-        self.property_sets = []
-        self.extended_properties = {}
-        self.adapted_properties = {}
-        self.to_string = None
-        self.types = []
+    def __init__(self, psobject):
+        super(GenericComplexObject, self).__init__(psobject)
 
-    def __str__(self):
-        return to_string(self.to_string)
+    @property
+    def extended_properties(self):
+        return self.psobject.extended_properties
+
+    @property
+    def adapted_properties(self):
+        return self.psobject.adapted_properties
+
+    @property
+    def to_string(self):
+        return self.psobject.to_string
+
+    @property
+    def types(self):
+        return self.psobject.type_names
 
 
 class Enum(ComplexObject):
 
-    def __init__(self, enum_type, string_map, **kwargs):
-        super(Enum, self).__init__()
-        self._types = [
+    _STRING_MAP = None
+
+    def __init__(self, enum_type, **kwargs):
+        type_names = [
             "System.Enum",
             "System.ValueType",
-            "System.Object"
+            "System.Object",
         ]
         if enum_type is not None:
-            self._types.insert(0, enum_type)
+            type_names.insert(0, enum_type)
 
-        self._property_sets = (
-            ('value', ObjectMeta("I32")),
+        ps_object = PSObject(
+            # The value is not really an adapted property but is set as a root element of Obj. The serializer checks
+            # if the type is an Enum and handles that accordingly.
+            adapted_properties=('value', ObjectMeta("I32")),
+            type_names=type_names,
         )
-        self._string_map = string_map
+        super(Enum, self).__init__(ps_object, **kwargs)
 
-        self.value = kwargs.get('value')
-
-    @property
-    def _to_string(self):
-        try:
-            return self._string_map[self.value]
-        except KeyError as err:
-            raise KeyError("%s is not a valid enum value for %s, valid values "
-                           "are %s" % (err, self._types[0], self._string_map))
-
-    @_to_string.setter
-    def _to_string(self, value):
-        pass
+    def __str__(self):
+        if self._STRING_MAP:
+            try:
+                return self._STRING_MAP[self.value]
+            except KeyError as err:
+                raise KeyError("%s is not a valid enum value for %s, valid values are %s"
+                               % (err, self.psobject.type_names[0], self._STRING_MAP))
+        else:
+            return str(self)
 
 
 # PSRP Complex Objects - https://msdn.microsoft.com/en-us/library/dd302883.aspx
@@ -156,18 +193,18 @@ class Coordinates(ComplexObject):
         :param x: The X coordinate (0 is the leftmost column)
         :param y: The Y coordinate (0 is the topmost row)
         """
-        super(Coordinates, self).__init__()
-        self._adapted_properties = (
-            ('x', ObjectMeta("I32", name="X")),
-            ('y', ObjectMeta("I32", name="Y")),
+        ps_object = PSObject(
+            adapted_properties=(
+                ('x', ObjectMeta("I32", name="X")),
+                ('y', ObjectMeta("I32", name="Y")),
+            ),
+            type_names=[
+                "System.Management.Automation.Host.Coordinates",
+                "System.ValueType",
+                "System.Object",
+            ],
         )
-        self._types = [
-            "System.Management.Automation.Host.Coordinates",
-            "System.ValueType",
-            "System.Object"
-        ]
-        self.x = kwargs.get('x')
-        self.y = kwargs.get('y')
+        super(Coordinates, self).__init__(ps_object, **kwargs)
 
 
 class Size(ComplexObject):
@@ -180,18 +217,18 @@ class Size(ComplexObject):
         :param width: The width of the size
         :param height: The height of the size
         """
-        super(Size, self).__init__()
-        self._adapted_properties = (
-            ('width', ObjectMeta("I32", name="Width")),
-            ('height', ObjectMeta("I32", name="Height")),
+        ps_object = PSObject(
+            adapted_properties=(
+                ('width', ObjectMeta("I32", name="Width")),
+                ('height', ObjectMeta("I32", name="Height")),
+            ),
+            type_names=[
+                "System.Management.Automation.Host.Size",
+                "System.ValueType",
+                "System.Object",
+            ],
         )
-        self._types = [
-            "System.Management.Automation.Host.Size",
-            "System.ValueType",
-            "System.Object"
-        ]
-        self.width = kwargs.get('width')
-        self.height = kwargs.get('height')
+        super(Size, self).__init__(ps_object, **kwargs)
 
 
 class Color(Enum):
@@ -212,6 +249,25 @@ class Color(Enum):
     YELLOW = 14
     WHITE = 15
 
+    _STRING_MAP = {
+        BLACK: 'Black',
+        DARK_BLUE: "DarkBlue",
+        DARK_GREEN: "DarkGreen",
+        DARK_CYAN: "DarkCyan",
+        DARK_RED: "DarkRed",
+        DARK_MAGENTA: "DarkMagenta",
+        DARK_YELLOW: "DarkYellow",
+        GRAY: "Gray",
+        DARK_GRAY: "DarkGray",
+        BLUE: "Blue",
+        GREEN: "Green",
+        CYAN: "Cyan",
+        RED: "Red",
+        MAGENTA: "Magenta",
+        YELLOW: "Yellow",
+        WHITE: "White",
+    }
+
     def __init__(self, **kwargs):
         """
         [MS-PSRP] 2.2.3.3 Color
@@ -219,26 +275,7 @@ class Color(Enum):
 
         :param value: The enum value for Color
         """
-        string_map = {
-            0: "Black",
-            1: "DarkBlue",
-            2: "DarkGreen",
-            3: "DarkCyan",
-            4: "DarkRed",
-            5: "DarkMagenta",
-            6: "DarkYellow",
-            7: "Gray",
-            8: "DarkGray",
-            9: "Blue",
-            10: "Green",
-            11: "Cyan",
-            12: "Red",
-            13: "Magenta",
-            14: "Yellow",
-            15: "White",
-        }
-        super(Color, self).__init__("System.ConsoleColor", string_map,
-                                    **kwargs)
+        super(Color, self).__init__("System.ConsoleColor", **kwargs)
 
 
 class RunspacePoolState(object):
@@ -317,6 +354,13 @@ class PSThreadOptions(Enum):
     REUSE_THREAD = 2
     USE_CURRENT_THREAD = 3
 
+    _STRING_MAP = {
+        DEFAULT: 'Default',
+        USE_NEW_THREAD: 'UseNewThread',
+        REUSE_THREAD: 'ReuseThread',
+        USE_CURRENT_THREAD: 'UseCurrentThread',
+    }
+
     def __init__(self, **kwargs):
         """
         [MS-PSRP] 2.2.3.6 PSThreadOptions
@@ -324,22 +368,19 @@ class PSThreadOptions(Enum):
 
         :param value: The enum value for PS Thread Options
         """
-        string_map = {
-            0: "Default",
-            1: "UseNewThread",
-            2: "ReuseThread",
-            3: "UseCurrentThread"
-        }
-        super(PSThreadOptions, self).__init__(
-            "System.Management.Automation.Runspaces.PSThreadOptions",
-            string_map, **kwargs
-        )
+        super(PSThreadOptions, self).__init__("System.Management.Automation.Runspaces.PSThreadOptions", **kwargs)
 
 
 class ApartmentState(Enum):
     STA = 0
     MTA = 1
     UNKNOWN = 2
+
+    _STRING_MAP = {
+        STA: 'STA',
+        MTA: 'MTA',
+        UNKNOWN: 'UNKNOWN',
+    }
 
     def __init__(self, **kwargs):
         """
@@ -348,15 +389,7 @@ class ApartmentState(Enum):
 
         :param value: The enum value for Apartment State
         """
-        string_map = {
-            0: 'STA',
-            1: 'MTA',
-            2: 'UNKNOWN'
-        }
-        super(ApartmentState, self).__init__(
-            "System.Management.Automation.Runspaces.ApartmentState",
-            string_map, **kwargs
-        )
+        super(ApartmentState, self).__init__("System.Management.Automation.Runspaces.ApartmentState", **kwargs)
 
 
 class RemoteStreamOptions(Enum):
@@ -373,13 +406,10 @@ class RemoteStreamOptions(Enum):
 
         :param value: The initial RemoteStreamOption to set
         """
-        super(RemoteStreamOptions, self).__init__(
-            "System.Management.Automation.Runspaces.RemoteStreamOptions",
-            {}, **kwargs
-        )
+        super(RemoteStreamOptions, self).__init__("System.Management.Automation.Runspaces.RemoteStreamOptions",
+                                                  **kwargs)
 
-    @property
-    def _to_string(self):
+    def __str__(self):
         if self.value == 15:
             return "AddInvocationInfo"
 
@@ -395,18 +425,13 @@ class RemoteStreamOptions(Enum):
                 values.append(name)
         return ", ".join(values)
 
-    @_to_string.setter
-    def _to_string(self, value):
-        pass
-
 
 class Pipeline(ComplexObject):
 
     class _ExtraCmds(ComplexObject):
         def __init__(self, **kwargs):
             # Used to encapsulate ExtraCmds in the structure required
-            super(Pipeline._ExtraCmds, self).__init__()
-            self._extended_properties = (
+            ps_object = PSObject(extended_properties=(
                 ('cmds', ListMeta(
                     name="Cmds",
                     list_value_meta=ObjectMeta("Obj", object=Command),
@@ -418,8 +443,8 @@ class Pipeline(ComplexObject):
                         "System.Object",
                     ]
                 )),
-            )
-            self.cmds = kwargs.get('cmds')
+            ))
+            super(Pipeline._ExtraCmds, self).__init__(ps_object, **kwargs)
 
     def __init__(self, **kwargs):
         """
@@ -432,7 +457,6 @@ class Pipeline(ComplexObject):
         :param redirect_err_to_out: Whether to redirect the global
             error output pipe to the commands error output pipe.
         """
-        super(Pipeline, self).__init__()
         cmd_types = [
             "System.Collections.Generic.List`1[["
             "System.Management.Automation.PSObject, "
@@ -442,27 +466,38 @@ class Pipeline(ComplexObject):
             "System.Object",
         ]
 
-        self._extended_properties = (
-            ('is_nested', ObjectMeta("B", name="IsNested")),
-            # ExtraCmds isn't in spec but is value and used to send multiple
-            # statements
-            ('_extra_cmds', ListMeta(
-                name="ExtraCmds",
-                list_value_meta=ObjectMeta("Obj", object=self._ExtraCmds),
-                list_types=cmd_types
-            )),
-            ('_cmds', ListMeta(
-                name="Cmds", list_value_meta=ObjectMeta("Obj", object=Command),
-                list_types=cmd_types
-            )),
-            ('history', ObjectMeta("S", name="History")),
-            ('redirect_err_to_out',
-             ObjectMeta("B", name="RedirectShellErrorOutputPipe")),
+        ps_object = PSObject(
+            extended_properties=(
+                ('is_nested', ObjectMeta("B", name="IsNested")),
+                # ExtraCmds isn't in spec but is value and used to send multiple
+                # statements
+                ('_extra_cmds', ListMeta(
+                    name="ExtraCmds",
+                    list_value_meta=ObjectMeta("Obj", object=self._ExtraCmds),
+                    list_types=cmd_types
+                )),
+                ('_cmds', ListMeta(
+                    name="Cmds", list_value_meta=ObjectMeta("Obj", object=Command),
+                    list_types=cmd_types
+                )),
+                ('history', ObjectMeta("S", name="History")),
+                ('redirect_err_to_out',
+                 ObjectMeta("B", name="RedirectShellErrorOutputPipe")),
+            ),
         )
-        self.is_nested = kwargs.get('is_nested')
+        super(Pipeline, self).__init__(ps_object, **kwargs)
+
         self.commands = kwargs.get('cmds')
-        self.history = kwargs.get('history')
-        self.redirect_err_to_out = kwargs.get('redirect_err_to_out')
+
+    @property
+    def commands(self):
+        warnings.warn("The commands property has been deprecated in favour of cmds")
+        return self.cmds
+
+    @commands.setter
+    def commands(self, value):
+        warnings.warn("The commands property has been deprecated in favour of cmds")
+        self.cmds = value
 
     @property
     def _cmds(self):
@@ -552,7 +587,12 @@ class Command(ComplexObject):
         :param end_of_statement: Whether this command is the last in the
             current statement
         """
-        super(Command, self).__init__()
+        self.protocol_version = protocol_version
+
+        # not used in the serialized message but controls how Pipeline is
+        # packed (Cmds/ExtraCmds)
+        self.end_of_statement = kwargs.get("end_of_statement", False)
+
         arg_types = [
             "System.Collections.Generic.List`1[["
             "System.Management.Automation.PSObject, "
@@ -561,76 +601,46 @@ class Command(ComplexObject):
             "PublicKeyToken=31bf3856ad364e35]]",
             "System.Object",
         ]
+
+        none_merge = PipelineResultTypes(value=PipelineResultTypes.NONE)
+
         extended_properties = [
             ('cmd', ObjectMeta("S", name="Cmd")),
             ('is_script', ObjectMeta("B", name="IsScript")),
             ('use_local_scope', ObjectMeta("B", name="UseLocalScope")),
-            ('merge_my_result', ObjectMeta("Obj", name="MergeMyResult",
-                                           object=PipelineResultTypes)),
-            ('merge_to_result', ObjectMeta("Obj", name="MergeToResult",
-                                           object=PipelineResultTypes)),
-            ('merge_previous', ObjectMeta("Obj", name="MergePreviousResults",
-                                          object=PipelineResultTypes)),
+            ('merge_my_result', ObjectMeta("Obj", name="MergeMyResult", object=PipelineResultTypes), none_merge),
+            ('merge_to_result', ObjectMeta("Obj", name="MergeToResult", object=PipelineResultTypes), none_merge),
+            ('merge_previous', ObjectMeta("Obj", name="MergePreviousResults", object=PipelineResultTypes), none_merge),
             ('args', ListMeta(
                 name="Args",
                 list_value_meta=ObjectMeta(object=CommandParameter),
                 list_types=arg_types)
-             ),
+             ), [],
         ]
 
         if version_equal_or_newer(protocol_version, "2.2"):
             extended_properties.extend([
-                ('merge_error', ObjectMeta("Obj", name="MergeError",
-                                           object=PipelineResultTypes,
-                                           optional=True)),
-                ('merge_warning', ObjectMeta("Obj", name="MergeWarning",
-                                             object=PipelineResultTypes,
-                                             optional=True)),
-                ('merge_verbose', ObjectMeta("Obj", name="MergeVerbose",
-                                             object=PipelineResultTypes,
-                                             optional=True)),
-                ('merge_debug', ObjectMeta("Obj", name="MergeDebug",
-                                           object=PipelineResultTypes,
-                                           optional=True)),
+                ('merge_error', ObjectMeta("Obj", name="MergeError", object=PipelineResultTypes, optional=True),
+                 none_merge),
+                ('merge_warning', ObjectMeta("Obj", name="MergeWarning", object=PipelineResultTypes, optional=True),
+                 none_merge),
+                ('merge_verbose', ObjectMeta("Obj", name="MergeVerbose", object=PipelineResultTypes, optional=True),
+                 none_merge),
+                ('merge_debug', ObjectMeta("Obj", name="MergeDebug", object=PipelineResultTypes, optional=True),
+                 none_merge),
             ])
 
         if version_equal_or_newer(protocol_version, "2.3"):
             extended_properties.extend([
-                ('merge_information', ObjectMeta(
-                    "Obj", name="MergeInformation",
-                    object=PipelineResultTypes,
-                    optional=True
-                )),
+                ('merge_information', ObjectMeta("Obj", name="MergeInformation", object=PipelineResultTypes,
+                                                 optional=True),
+                 none_merge),
             ])
-        self._extended_properties = extended_properties
 
-        self.protocol_version = protocol_version
-        self.cmd = kwargs.get("cmd")
-        self.is_script = kwargs.get("is_script")
-        self.use_local_scope = kwargs.get("use_local_scope")
-
-        none_merge = PipelineResultTypes(value=PipelineResultTypes.NONE)
-
-        # valid in all protocols, only really used in 2.1 (PowerShell 2.0)
-        self.merge_my_result = kwargs.get("merge_my_result", none_merge)
-        self.merge_to_result = kwargs.get("merge_to_result", none_merge)
-
-        self.merge_previous = kwargs.get("merge_previous", none_merge)
-
-        # only valid for 2.2+ (PowerShell 3.0+)
-        self.merge_error = kwargs.get("merge_error", none_merge)
-        self.merge_warning = kwargs.get("merge_warning", none_merge)
-        self.merge_verbose = kwargs.get("merge_verbose", none_merge)
-        self.merge_debug = kwargs.get("merge_debug", none_merge)
-
-        # only valid for 2.3+ (PowerShell 5.0+)
-        self.merge_information = kwargs.get("merge_information", none_merge)
-
-        self.args = kwargs.get("args", [])
-
-        # not used in the serialized message but controls how Pipeline is
-        # packed (Cmds/ExtraCmds)
-        self.end_of_statement = kwargs.get("end_of_statement", False)
+        ps_object = PSObject(
+            extended_properties=extended_properties,
+        )
+        super(Command, self).__init__(ps_object, **kwargs)
 
 
 class CommandParameter(ComplexObject):
@@ -644,13 +654,13 @@ class CommandParameter(ComplexObject):
         :param value: The value of the parameter, can be any primitive type
             or Complex Object, Null for no value
         """
-        super(CommandParameter, self).__init__()
-        self._extended_properties = (
-            ('name', ObjectMeta("S", name="N")),
-            ('value', ObjectMeta(name="V")),
+        ps_object = PSObject(
+            extended_properties=(
+                ('name', ObjectMeta("S", name="N")),
+                ('value', ObjectMeta(name="V")),
+            )
         )
-        self.name = kwargs.get('name')
-        self.value = kwargs.get('value')
+        super(CommandParameter, self).__init__(ps_object, **kwargs)
 
 
 # The host default data is serialized quite differently from the normal rules
@@ -660,63 +670,71 @@ class _HostDefaultData(ComplexObject):
     class _DictValue(ComplexObject):
 
         def __init__(self, **kwargs):
-            super(_HostDefaultData._DictValue, self).__init__()
-            self._extended_properties = (
-                ('value_type', ObjectMeta("S", name="T")),
-                ('value', ObjectMeta(name="V")),
+            ps_object = PSObject(
+                extended_properties=(
+                    ('value_type', ObjectMeta("S", name="T")),
+                    ('value', ObjectMeta(name="V")),
+                )
             )
-            self.value_type = kwargs.get('value_type')
-            self.value = kwargs.get('value')
+            super(_HostDefaultData._DictValue, self).__init__(ps_object, **kwargs)
 
     class _Color(ComplexObject):
 
         def __init__(self, color):
-            super(_HostDefaultData._Color, self).__init__()
-            self._extended_properties = (
-                ('type', ObjectMeta("S", name="T")),
-                ('color', ObjectMeta("I32", name="V")),
+            ps_object = PSObject(
+                extended_properties=(
+                    ('type', ObjectMeta("S", name="T"), "System.ConsoleColor"),
+                    ('color', ObjectMeta("I32", name="V"), color.value),
+                )
             )
-            self.type = "System.ConsoleColor"
-            self.color = color.value
+            super(_HostDefaultData._Color, self).__init__(ps_object)
 
     class _Coordinates(ComplexObject):
 
         def __init__(self, coordinates):
-            super(_HostDefaultData._Coordinates, self).__init__()
-            self._extended_properties = (
-                ('type', ObjectMeta("S", name="T")),
-                ('value', ObjectMeta("ObjDynamic", name="V",
-                                     object=GenericComplexObject)),
+            value_object = PSObject(
+                extended_properties=(
+                    ('x', ObjectMeta('I32'), coordinates.x),
+                    ('y', ObjectMeta('I32'), coordinates.y),
+                )
             )
-            self.type = "System.Management.Automation.Host.Coordinates"
-            self.value = GenericComplexObject()
-            self.value.extended_properties['x'] = coordinates.x
-            self.value.extended_properties['y'] = coordinates.y
+
+            ps_object = PSObject(
+                extended_properties=(
+                    ('type', ObjectMeta("S", name="T"), "System.Management.Automation.Host.Coordinates"),
+                    ('value', ObjectMeta("Obj", name="V", object=ComplexObject), ComplexObject(value_object)),
+                )
+            )
+            super(_HostDefaultData._Coordinates, self).__init__(ps_object)
 
     class _Size(ComplexObject):
 
         def __init__(self, size):
-            super(_HostDefaultData._Size, self).__init__()
-            self._extended_properties = (
-                ('type', ObjectMeta("S", name="T")),
-                ('value', ObjectMeta("ObjDynamic", name="V",
-                                     object=GenericComplexObject)),
+            value_object = PSObject(
+                extended_properties=(
+                    ('width', ObjectMeta('I32'), size.width),
+                    ('height', ObjectMeta('I32'), size.height),
+                )
             )
-            self.type = "System.Management.Automation.Host.Size"
-            self.value = GenericComplexObject()
-            self.value.extended_properties['width'] = size.width
-            self.value.extended_properties['height'] = size.height
+
+            ps_object = PSObject(
+                extended_properties=(
+                    ('type', ObjectMeta("S", name="T")),
+                    ('value', ObjectMeta("Obj", name="V", object=ComplexObject), ComplexObject(value_object)),
+                )
+            )
+            super(_HostDefaultData._Size, self).__init__(ps_object)
 
     def __init__(self, **kwargs):
+        self.raw_ui = kwargs.get('raw_ui')
+
         # Used by HostInfo to encapsulate the host info values inside a
         # special object required by PSRP
-        super(_HostDefaultData, self).__init__()
         key_meta = ObjectMeta("I32", name="Key")
-        self._extended_properties = (
-            ('_host_dict', DictionaryMeta(name="data",
-                                          dict_key_meta=key_meta)),
-        )
-        self.raw_ui = kwargs.get('raw_ui')
+        ps_object = PSObject(extended_properties=(
+            ('_host_dict', DictionaryMeta(name="data", dict_key_meta=key_meta)),
+        ))
+        super(_HostDefaultData, self).__init__(ps_object)
 
     @property
     def _host_dict(self):
@@ -746,16 +764,15 @@ class HostInfo(ComplexObject):
         :param host: An implementation of pypsrp.host.PSHost that defines the
             local host
         """
-        super(HostInfo, self).__init__()
-        self._extended_properties = (
-            ('_host_data', ObjectMeta("Obj", name="_hostDefaultData",
-                                      optional=True, object=_HostDefaultData)),
+        self.host = kwargs.get('host', None)
+        ps_object = PSObject(extended_properties=(
+            ('_host_data', ObjectMeta("Obj", name="_hostDefaultData", optional=True, object=_HostDefaultData)),
             ('_is_host_null', ObjectMeta("B", name="_isHostNull")),
             ('_is_host_ui_null', ObjectMeta("B", name="_isHostUINull")),
             ('_is_host_raw_ui_null', ObjectMeta("B", name="_isHostRawUINull")),
             ('_use_runspace_host', ObjectMeta("B", name="_useRunspaceHost")),
-        )
-        self.host = kwargs.get('host', None)
+        ))
+        super(HostInfo, self).__init__(ps_object)
 
     @property
     def _is_host_null(self):

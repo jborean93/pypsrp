@@ -89,6 +89,7 @@ class HTTPNegotiateAuth(AuthBase):
 
     def handle_401(self, response, **kwargs):
         host = get_hostname(response.url)
+        cbt_app_data = None
         if self.send_cbt:
             cbt_app_data = HTTPNegotiateAuth._get_cbt_data(response)
 
