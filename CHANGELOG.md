@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0 - TBD
+
+* Dropped support for Python 2.6 and Python 3.4
+
+
 ## 0.4.0 - 2019-09-19
 
 * Fixed an issue when escaping string in PowerShell that start with `_X`.

@@ -14,7 +14,7 @@ except ImportError:
 
 setup(
     name='pypsrp',
-    version='0.4.0',
+    version='1.0.0',
     packages=['pypsrp', 'pypsrp.pwsh_scripts'],
     include_package_data=True,
     install_requires=[
@@ -24,9 +24,6 @@ setup(
         'six',
     ],
     extras_require={
-        ':python_version<"2.7"': [
-            'lxml<4.3.0',  # 4.3.0+ has dropped support for Python 2.6
-        ],
         ':python_version<="2.7"': [
             'ipaddress',
         ],
@@ -47,17 +44,16 @@ setup(
     long_description=long_description,
     keywords='winrm psrp winrs windows',
     license='MIT',
-    python_requires='>=2.6,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*',
+    python_requires='>=2.7,!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*',
     classifiers=[
         'Development Status :: 4 - Beta',
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 2',
-        'Programming Language :: Python :: 2.6',
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
     ],
 )
