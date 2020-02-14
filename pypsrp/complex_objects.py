@@ -6,6 +6,30 @@ from copy import deepcopy
 from pypsrp._utils import to_string, version_equal_or_newer
 
 
+class PSPropertyInfo:
+
+    def __init__(self):
+        self.is_instance = False  # Looks like is_instance are adapted properties and False is extended properties
+        self.name = None
+
+
+class PSObjectMeta:
+
+    def __init__(self):
+        self.properties = []
+        self.type_names = []
+        self.to_string = None
+
+
+class PSObject:
+
+    def __init__(self):
+        self.psobject = PSObjectMeta()
+
+    def __str__(self):
+        return self.psobject.to_string
+
+
 class ObjectMeta(object):
 
     def __init__(self, tag="*", name=None, optional=False, object=None):

@@ -3,6 +3,7 @@
 
 import base64
 import binascii
+import datetime
 import logging
 import re
 import sys
@@ -18,7 +19,7 @@ from pypsrp.complex_objects import ApartmentState, Color, \
     InformationalRecord, KeyInfoDotNet, ListMeta, ObjectMeta, \
     ParameterMetadata, PipelineResultTypes, ProgressRecordType, PSCredential,\
     PSThreadOptions, QueueMeta, RemoteStreamOptions, \
-    SessionStateEntryVisibility, Size, StackMeta
+    SessionStateEntryVisibility, Size, StackMeta, PSObject, PSPropertyInfo, PSObjectMeta
 from pypsrp.exceptions import SerializationError
 from pypsrp.messages import DebugRecord, ErrorRecord, InformationRecord, \
     VerboseRecord, WarningRecord
@@ -41,7 +42,7 @@ else:  # pragma: no cover
 log = logging.getLogger(__name__)
 
 
-class Serializer(object):
+class _SerializerBase(object):
 
     def __init__(self):
         self.obj_id = 0
@@ -68,6 +69,225 @@ class Serializer(object):
         # so we can replace the UTF-16 string representation with the actual
         # UTF-16 byte value and then decode that
         self._deserial_str = re.compile(b"\\x00_\\x00x([\\0\\w]{8})\\x00_")
+        self._dt_fraction_pattern = re.compile(r'\.(\d+)(.*)')
+
+    def _clear(self):
+        self.obj_id = 0
+        self.obj = {}
+        self.tn = {}
+        self.tn_id = 0
+
+    def _deserialize_datetime(self, value):
+        # DateTime values from PowerShell are in the format 'YYYY-MM-DDTHH:MM-SS[.100's of nanoseconds]Z'.
+        # Unfortunately datetime can only be resolved to microseconds so we need to extract the fraction of seconds
+        # edit it to be microseconds and preserve the nanoseconds ourselves.
+
+        datetime_str = value[:19]
+        fraction_tz_section = value[19:]
+        nanoseconds = 0
+
+        fraction_match = self._dt_fraction_pattern.match(fraction_tz_section)
+        if fraction_match:
+            # We have fractional seconds, need to rewrite as microseconds and keep the nanoseconds ourselves.
+            fractional_seconds = fraction_match.group(1)
+            if len(fractional_seconds) > 6:
+                # .NET should only be showing 100's of nanoseconds but just to be safe we will calculate that based
+                # on the length of the fractional seconds found.
+                nanoseconds = int(fractional_seconds[-1:]) * (10 ** (3 + 6 - len(fractional_seconds)))
+                fractional_seconds = fractional_seconds[:-1]
+
+            timezone_section = fraction_match.group(2)
+
+            datetime_str += '.%s%s' % (fractional_seconds, timezone_section)
+        else:
+            # No fractional seconds, just use strptime on the original value.
+            datetime_str = value
+
+        dt = PowerShellDateTime.strptime(datetime_str, '%Y-%m-%dT%H:%M:%S.%f%z')
+        dt.nanoseconds = nanoseconds
+
+        return dt
+
+    def _deserialize_secure_string(self, value):
+        if self.cipher is None:
+            # cipher is not set up so we can't decrypt the string, just return
+            # the raw element
+            return value
+
+        ss_string = base64.b64decode(value.text)
+        decryptor = self.cipher.decryptor()
+        decrypted_bytes = decryptor.update(ss_string) + decryptor.finalize()
+
+        unpadder = PKCS7(self.cipher.algorithm.block_size).unpadder()
+        unpadded_bytes = unpadder.update(decrypted_bytes) + unpadder.finalize()
+        decrypted_string = to_unicode(unpadded_bytes, 'utf-16-le')
+
+        return decrypted_string
+
+    def _deserialize_string(self, value):
+        if value is None:
+            return ""
+
+        def rplcr(matchobj):
+            # The matched object is the UTF-16 byte representation of the UTF-8
+            # hex string value. We need to decode the byte str to unicode and
+            # then unhexlify that hex string to get the actual bytes of the
+            # _x****_ value, e.g.
+            # group(0) == b"\x00_\x00x\x000\x000\x000\x00A\x00_"
+            # group(1) == b"\x000\x000\x000\x00A"
+            # unicode (from utf-16-be) == u"000A"
+            # returns b"\x00\x0A"
+            match_hex = matchobj.group(1)
+            hex_string = to_unicode(match_hex, encoding='utf-16-be')
+            return binascii.unhexlify(hex_string)
+
+        # need to ensure we start with a unicode representation of the string
+        # so that we can get the actual UTF-16 bytes value from that string
+        unicode_value = to_unicode(value)
+        unicode_bytes = to_bytes(unicode_value, encoding='utf-16-be')
+        bytes_value = re.sub(self._deserial_str, rplcr, unicode_bytes)
+        return to_unicode(bytes_value, encoding='utf-16-be')
+
+    def _serialize_secure_string(self, value):
+        if self.cipher is None:
+            raise SerializationError("Cannot generate secure string as cipher "
+                                     "is not initialised")
+
+        # convert the string to a UTF-16 byte string as that is what is
+        # expected in Windows. If a byte string (native string in Python 2) was
+        # passed in, the sender must make sure it is a valid UTF-16
+        # representation and not UTF-8 or else the server will fail to decrypt
+        # the secure string in most cases
+        string_bytes = to_bytes(value, encoding='utf-16-le')
+
+        padder = PKCS7(self.cipher.algorithm.block_size).padder()
+        padded_data = padder.update(string_bytes) + padder.finalize()
+
+        encryptor = self.cipher.encryptor()
+        ss_value = encryptor.update(padded_data) + encryptor.finalize()
+        ss_string = to_string(base64.b64encode(ss_value))
+
+        return ss_string
+
+    def _serialize_string(self, value):
+        if value is None:
+            return None
+
+        def rplcr(matchobj):
+            surrogate_char = matchobj.group(0)
+            byte_char = to_bytes(surrogate_char, encoding='utf-16-be')
+            hex_char = to_unicode(binascii.hexlify(byte_char)).upper()
+            hex_split = [hex_char[i:i + 4] for i in range(0, len(hex_char), 4)]
+
+            return u"".join([u"_x%s_" % i for i in hex_split])
+
+        # before running the translation we need to make sure _ before x is
+        # encoded, normally _ isn't encoded except when preceding x
+        string_value = to_unicode(value)
+
+        # The MS-PSRP docs don't state this but the _x0000_ matcher is case insensitive so we need to make sure we
+        # escape _X as well as _x.
+        string_value = re.sub(u"(?i)_(x)", u"_x005F_\\1", string_value)
+        string_value = re.sub(self._serial_str, rplcr, string_value)
+
+        return string_value
+
+    def _get_types_from_obj(self, element):
+        obj_types = [e.text for e in element.findall("TN/T")]
+
+        if len(obj_types) > 0:
+            ref_id = element.find("TN").attrib['RefId']
+            self.tn[ref_id] = obj_types
+
+        tn_ref = element.find("TNRef")
+        if tn_ref is not None:
+            ref_id = tn_ref.attrib['RefId']
+            obj_types = self.tn[ref_id]
+
+        return obj_types
+
+
+class PowerShellDateTime(datetime.datetime):
+
+    nanoseconds = 0
+
+
+class SerializerV2(_SerializerBase):
+
+    def __init__(self):
+        super(SerializerV2, self).__init__()
+
+    def deserialize(self, element, clear=True):
+        if clear:
+            self._clear()
+
+        # Get the object types so we store the TN Ref ids for later use.
+        obj_types = self._get_types_from_obj(element)
+
+        if element.tag in ['S', 'ToString', 'URI', 'XD', 'SBK']:
+            return self._deserialize_string(element.text)
+        elif element.tag in ['C']:
+            return chr(int(element.text))
+        elif element.tag in ['B']:
+            return element.text.lower() == "true"
+        elif element.tag == 'DT':
+            return self._deserialize_datetime(element.text)
+        elif element.tag in ['TS', 'D', 'Version']:
+            return element.text
+        elif element.tag == 'Nil':
+            return None
+        elif element.tag in ['By', 'SB', 'U16', 'I16', 'U32', 'I32', 'U64', 'I64', 'Sg', 'Db']:
+            return int(element.text)
+        elif element.tag == 'BA':
+            return base64.b64decode(element.text)
+        elif element.tag == 'G':
+            return uuid.UUID(element.text)
+        elif element.tag == 'SS':
+            return self._deserialize_secure_string(element)
+        elif element.tag == 'Ref':
+            return self.obj[element.attrib['RefId']]
+        elif element.tag == 'Obj':
+            value = PSObject()
+
+            for e in element:
+                if e.tag == 'TN':
+                    value.psobject.type_names = [t.text for t in e]
+                elif e.tag == 'TNRef':
+                    value.psobject.type_names = []  # TODO: lookup reference table
+                elif e.tag in ['Props', 'MS']:
+                    for property in e:
+                        prop_info = PSPropertyInfo()
+                        prop_info.name = property.attrib['N']
+                        prop_info.is_instance = element.tag == 'Props'
+                        setattr(value, prop_info.name, self.deserialize(property, clear=False))
+
+                        value.psobject.properties.append(prop_info)
+                elif e.tag == 'ToString':
+                    value.psobject.to_string = self.deserialize(e, clear=False)
+                elif e.tag == 'DCT':
+                    a = ''
+                elif e.tag == 'STK':
+                    # No stack in Python, just use a list
+                    return [self.deserialize(i) for i in e]
+                elif e.tag == 'QUE':
+                    a = ''
+                elif e.tag in ['LST', 'IE']:
+                    return [self.deserialize(i) for i in e]
+                else:
+                    # TODO: property sets (used in an enum or extended primitive objects)
+                    a = ''
+
+            return value
+        else:
+            raise ValueError("Unknown element found %s" % element.tag)
+
+        a = ''
+
+
+class Serializer(_SerializerBase):
+
+    def __init__(self):
+        super(Serializer, self).__init__()
 
     def serialize(self, value, metadata=None, parent=None, clear=True):
         """
@@ -545,50 +765,6 @@ class Serializer(object):
 
         return obj
 
-    def _serialize_string(self, value):
-        if value is None:
-            return None
-
-        def rplcr(matchobj):
-            surrogate_char = matchobj.group(0)
-            byte_char = to_bytes(surrogate_char, encoding='utf-16-be')
-            hex_char = to_unicode(binascii.hexlify(byte_char)).upper()
-            hex_split = [hex_char[i:i + 4] for i in range(0, len(hex_char), 4)]
-
-            return u"".join([u"_x%s_" % i for i in hex_split])
-
-        # before running the translation we need to make sure _ before x is
-        # encoded, normally _ isn't encoded except when preceding x
-        string_value = to_unicode(value)
-
-        # The MS-PSRP docs don't state this but the _x0000_ matcher is case insensitive so we need to make sure we
-        # escape _X as well as _x.
-        string_value = re.sub(u"(?i)_(x)", u"_x005F_\\1", string_value)
-        string_value = re.sub(self._serial_str, rplcr, string_value)
-
-        return string_value
-
-    def _serialize_secure_string(self, value):
-        if self.cipher is None:
-            raise SerializationError("Cannot generate secure string as cipher "
-                                     "is not initialised")
-
-        # convert the string to a UTF-16 byte string as that is what is
-        # expected in Windows. If a byte string (native string in Python 2) was
-        # passed in, the sender must make sure it is a valid UTF-16
-        # representation and not UTF-8 or else the server will fail to decrypt
-        # the secure string in most cases
-        string_bytes = to_bytes(value, encoding='utf-16-le')
-
-        padder = PKCS7(self.cipher.algorithm.block_size).padder()
-        padded_data = padder.update(string_bytes) + padder.finalize()
-
-        encryptor = self.cipher.encryptor()
-        ss_value = encryptor.update(padded_data) + encryptor.finalize()
-        ss_string = to_string(base64.b64encode(ss_value))
-
-        return ss_string
-
     def _deserialize_obj(self, element, metadata):
         obj = metadata.object()
         self.obj[element.attrib['RefId']] = obj
@@ -716,70 +892,10 @@ class Serializer(object):
 
         return dictionary
 
-    def _deserialize_string(self, value):
-        if value is None:
-            return ""
-
-        def rplcr(matchobj):
-            # The matched object is the UTF-16 byte representation of the UTF-8
-            # hex string value. We need to decode the byte str to unicode and
-            # then unhexlify that hex string to get the actual bytes of the
-            # _x****_ value, e.g.
-            # group(0) == b"\x00_\x00x\x000\x000\x000\x00A\x00_"
-            # group(1) == b"\x000\x000\x000\x00A"
-            # unicode (from utf-16-be) == u"000A"
-            # returns b"\x00\x0A"
-            match_hex = matchobj.group(1)
-            hex_string = to_unicode(match_hex, encoding='utf-16-be')
-            return binascii.unhexlify(hex_string)
-
-        # need to ensure we start with a unicode representation of the string
-        # so that we can get the actual UTF-16 bytes value from that string
-        unicode_value = to_unicode(value)
-        unicode_bytes = to_bytes(unicode_value, encoding='utf-16-be')
-        bytes_value = re.sub(self._deserial_str, rplcr, unicode_bytes)
-        return to_unicode(bytes_value, encoding='utf-16-be')
-
-    def _deserialize_secure_string(self, value):
-        if self.cipher is None:
-            # cipher is not set up so we can't decrypt the string, just return
-            # the raw element
-            return value
-
-        ss_string = base64.b64decode(value.text)
-        decryptor = self.cipher.decryptor()
-        decrypted_bytes = decryptor.update(ss_string) + decryptor.finalize()
-
-        unpadder = PKCS7(self.cipher.algorithm.block_size).unpadder()
-        unpadded_bytes = unpadder.update(decrypted_bytes) + unpadder.finalize()
-        decrypted_string = to_unicode(unpadded_bytes, 'utf-16-le')
-
-        return decrypted_string
-
-    def _clear(self):
-        self.obj_id = 0
-        self.obj = {}
-        self.tn = {}
-        self.tn_id = 0
-
     def _get_obj_id(self):
         ref_id = str(self.obj_id)
         self.obj_id += 1
         return ref_id
-
-    def _get_types_from_obj(self, element):
-        obj_types = [e.text for e in element.findall("TN/T")]
-
-        if len(obj_types) > 0:
-            ref_id = element.find("TN").attrib['RefId']
-            self.tn[ref_id] = obj_types
-
-        tn_ref = element.find("TNRef")
-        if tn_ref is not None:
-            ref_id = tn_ref.attrib['RefId']
-            obj_types = self.tn[ref_id]
-
-        return obj_types
 
     def _create_tn(self, parent, types):
         main_type = types[0]
