@@ -1,8 +1,18 @@
 import xml.etree.ElementTree as ET
 
+from pypsrp.complex_objects import (
+    PSPropertyInfo,
+    PSObjectMeta,
+    PSObject,
+    PSDateTime,
+    PSString,
+    PSInt,
+    PSList,
+)
 from pypsrp.powershell import RunspacePool, PowerShell
 from pypsrp.serializer import Serializer, SerializerV2
 from pypsrp.wsman import WSMan
+
 
 """
 wsman = WSMan('server2019.domain.local', auth='kerberos', cert_validation=False)
@@ -15,6 +25,23 @@ $ErrorActionPreference = 'Stop'
 $obj = [PSCustomObject]@{
     NoteProperty1 = 'note prop 1'
     NoteProperty2 = 'note prop 2'
+    ByteArray = [byte[]]@(1, 60, 61, 62, 65)
+    Uri = [Uri]'https://google.com'
+    Char = [char]'a'
+    Bool = $true
+    Version = [Version]'1.0.0'
+    Guid = [Guid]'ea58451b-8a0d-4210-9074-50b25431f73a'
+    By = [Byte]::MaxValue
+    SB = [SByte]::MaxValue
+    U16 = [UInt16]::MaxValue
+    I16 = [Int16]::MaxValue
+    U32 = [UInt32]::MaxValue
+    I32 = [Int32]::MaxValue
+    U64 = [UInt64]::MaxValue
+    I64 = [Int64]::MaxValue
+    Sg = [Float]::MaxValue
+    Db = [Double]::MaxValue
+    D = [Decimal]::MaxValue
 }
 $obj | Add-Member -MemberType AliasProperty -Name AliasProperty1 -Value NoteProperty1
 $obj | Add-Member -MemberType ScriptProperty -Name ScriptProperty1 -Value { $this.NoteProperty1 } 
@@ -59,16 +86,39 @@ a = ''
 """
 
 ps_custom_obj = '''<Obj RefId="0">
-    <TN RefId="0">
-        <T>System.Management.Automation.PSCustomObject</T>
-        <T>System.Object</T>
-    </TN>
-    <MS>
-        <S N="NoteProperty1">note prop 1</S>
-        <S N="NoteProperty2">note prop 2</S>
-        <S N="AliasProperty1">note prop 1</S>
-        <S N="ScriptProperty1">note prop 1</S>
-    </MS>
+  <TN RefId="0">
+    <T>System.Management.Automation.PSCustomObject</T>
+    <T>System.Object</T>
+  </TN>
+  <MS>
+    <S N="NoteProperty1">note prop 1</S>
+    <S N="NoteProperty2">note prop 2</S>
+    <BA N="ByteArray">ATw9PkE=</BA>
+    <URI N="Uri">https://google.com/</URI>
+    <C N="Char">97</C>
+    <B N="Bool">true</B>
+    <Obj N="BoolExtended" RefId="1">
+      <B>true</B>
+      <MS>
+        <S N="test">abc</S>
+      </MS>
+    </Obj>
+    <Version N="Version">1.0.0</Version>
+    <G N="Guid">ea58451b-8a0d-4210-9074-50b25431f73a</G>
+    <By N="By">255</By>
+    <SB N="SB">127</SB>
+    <U16 N="U16">65535</U16>
+    <I16 N="I16">32767</I16>
+    <U32 N="U32">4294967295</U32>
+    <I32 N="I32">2147483647</I32>
+    <U64 N="U64">18446744073709551615</U64>
+    <I64 N="I64">9223372036854775807</I64>
+    <Sg N="Sg">3.40282347E+38</Sg>
+    <Db N="Db">1.7976931348623157E+308</Db>
+    <D N="D">79228162514264337593543950335</D>
+    <S N="AliasProperty1">note prop 1</S>
+    <S N="ScriptProperty1">note prop 1</S>
+  </MS>
 </Obj>'''
 
 enum_obj = '''<Obj RefId="0">
@@ -237,28 +287,7 @@ Can adapt the following items
 # Props == AdaptedProperties
 
 
-class PSPropertyInfo:
 
-    def __init__(self):
-        self.is_instance = False  # Looks like is_instance are adapted properties and False is extended properties
-        self.name = None
-
-
-class PSObjectMeta:
-
-    def __init__(self):
-        self.properties = []
-        self.type_names = []
-        self.to_string = None
-
-
-class PSObject:
-
-    def __init__(self):
-        self.psobject = PSObjectMeta()
-
-    def __str__(self):
-        return self.psobject.to_string
 
 
 class FileInfo(PSObject):
@@ -266,21 +295,28 @@ class FileInfo(PSObject):
     def __init__(self):
         super(FileInfo, self).__init__()
 
+        self.psobject.type_names = ['System.IO.FileInfo', 'System.IO.FileSystemInfo', 'System.MarshalByRefObject',
+                                    'System.Object']
+        self.psobject.properties = [
+            PSPropertyInfo(name='mode', attribute_name='mode', property_tag='Props', xml_tag='S'),
+        ]
+
         self.mode = None
         self.version_info = None
         self.base_name = None
 
-        type_names = ['System.IO.FileInfo', 'System.IO.FileSystemInfo', 'System.MarshalByRefObject', 'System.Object']
-
-    def __str__(self):
-        return self.psobject._to_string
 
 
 s = SerializerV2()
 
+ps_custom = s.deserialize(ET.fromstring(ps_custom_obj))
 fileinfo = s.deserialize(ET.fromstring(fileinfo_obj))
 array = s.deserialize(ET.fromstring(array_obj))
 list_str = s.deserialize(ET.fromstring(list_str_obj))
-
+extended_str = s.deserialize(ET.fromstring(extended_str_obj))
+hashtable = s.deserialize((ET.fromstring(hashtable_obj)))
+psdict = s.deserialize(ET.fromstring(dict_obj))
+queue = s.deserialize(ET.fromstring(queue_obj))
+stack = s.deserialize(ET.fromstring(stack_obj))
 
 a = ''

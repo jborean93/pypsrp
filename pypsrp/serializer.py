@@ -3,7 +3,6 @@
 
 import base64
 import binascii
-import datetime
 import logging
 import re
 import sys
@@ -13,13 +12,47 @@ from copy import copy
 from cryptography.hazmat.primitives.padding import PKCS7
 from six import string_types
 
-from pypsrp.complex_objects import ApartmentState, Color, \
-    CommandMetadataCount, CommandOrigin, Coordinates, ComplexObject, \
-    CultureInfo, DictionaryMeta, GenericComplexObject, HostMethodIdentifier, \
-    InformationalRecord, KeyInfoDotNet, ListMeta, ObjectMeta, \
-    ParameterMetadata, PipelineResultTypes, ProgressRecordType, PSCredential,\
-    PSThreadOptions, QueueMeta, RemoteStreamOptions, \
-    SessionStateEntryVisibility, Size, StackMeta, PSObject, PSPropertyInfo, PSObjectMeta
+from pypsrp.complex_objects import (
+    ApartmentState,
+    Color,
+    CommandMetadataCount,
+    CommandOrigin,
+    Coordinates,
+    ComplexObject,
+    CultureInfo,
+    DictionaryMeta,
+    GenericComplexObject,
+    HostMethodIdentifier,
+    InformationalRecord,
+    KeyInfoDotNet,
+    ListMeta,
+    ObjectMeta,
+    ParameterMetadata,
+    PipelineResultTypes,
+    ProgressRecordType,
+    PSCredential,
+    PSThreadOptions,
+    QueueMeta,
+    RemoteStreamOptions,
+    SessionStateEntryVisibility,
+    Size,
+    StackMeta,
+
+    PSBytes,
+    PSDateTime,
+    PSDict,
+    PSFloat,
+    PSGuid,
+    PSInt,
+    PSList,
+    PSLong,
+    PSObject,
+    PSPropertyInfo,
+    PSObjectMeta,
+    PSQueue,
+    PSString,
+)
+
 from pypsrp.exceptions import SerializationError
 from pypsrp.messages import DebugRecord, ErrorRecord, InformationRecord, \
     VerboseRecord, WarningRecord
@@ -103,7 +136,7 @@ class _SerializerBase(object):
             # No fractional seconds, just use strptime on the original value.
             datetime_str = value
 
-        dt = PowerShellDateTime.strptime(datetime_str, '%Y-%m-%dT%H:%M:%S.%f%z')
+        dt = PSDateTime.strptime(datetime_str, '%Y-%m-%dT%H:%M:%S.%f%z')
         dt.nanoseconds = nanoseconds
 
         return dt
@@ -207,81 +240,121 @@ class _SerializerBase(object):
         return obj_types
 
 
-class PowerShellDateTime(datetime.datetime):
-
-    nanoseconds = 0
-
-
 class SerializerV2(_SerializerBase):
 
     def __init__(self):
         super(SerializerV2, self).__init__()
 
-    def deserialize(self, element, clear=True):
+    def serialize(self, value, clear=True):
         if clear:
             self._clear()
 
-        # Get the object types so we store the TN Ref ids for later use.
-        obj_types = self._get_types_from_obj(element)
+        return None
 
-        if element.tag in ['S', 'ToString', 'URI', 'XD', 'SBK']:
+    def deserialize(self, element, clear=True):
+        # TODO: pass in reference object to populate.
+        if clear:
+            self._clear()
+
+        # These types are pure primitive types and we don't need to do anything special when deserialising
+        if element.tag == 'ToString':
             return self._deserialize_string(element.text)
-        elif element.tag in ['C']:
-            return chr(int(element.text))
-        elif element.tag in ['B']:
-            return element.text.lower() == "true"
-        elif element.tag == 'DT':
-            return self._deserialize_datetime(element.text)
-        elif element.tag in ['TS', 'D', 'Version']:
-            return element.text
         elif element.tag == 'Nil':
             return None
-        elif element.tag in ['By', 'SB', 'U16', 'I16', 'U32', 'I32', 'U64', 'I64', 'Sg', 'Db']:
-            return int(element.text)
-        elif element.tag == 'BA':
-            return base64.b64decode(element.text)
-        elif element.tag == 'G':
-            return uuid.UUID(element.text)
+        elif element.tag == 'B':
+            # Technically can be an extended primitive but due to limitations in Python we cannot subclass bool.
+            return element.text.lower() == "true"
+
+        psobject = PSObjectMeta()
+        psobject.type_names = self._get_types_from_obj(element)
+        psobject.xml_tag = element.tag
+
+        if element.tag in ['S', 'URI', 'XD', 'SBK']:
+            value = PSString(self._deserialize_string(element.text))
         elif element.tag == 'SS':
-            return self._deserialize_secure_string(element)
+            value = PSString(self._deserialize_secure_string(element))
+        elif element.tag in ['TS', 'Version']:
+            value = PSString(element.text)
+        elif element.tag in ['C']:
+            value = PSString(chr(int(element.text)))
+        elif element.tag == 'DT':
+            value = self._deserialize_datetime(element.text)
+        elif element.tag in ['By', 'SB', 'U16', 'I16', 'U32', 'I32', 'U64', 'I64']:
+            raw_value = int(element.text)
+
+            if sys.version_info[0] < 3 and raw_value > sys.maxint:
+                value = PSLong(raw_value)
+            else:
+                value = PSInt(raw_value)
+        elif element.tag in ['Sg', 'Db', 'D']:
+            value = PSFloat(float(element.text))
+        elif element.tag == 'BA':
+            value = PSBytes(base64.b64decode(element.text))
+        elif element.tag == 'G':
+            value = PSGuid(element.text)
         elif element.tag == 'Ref':
             return self.obj[element.attrib['RefId']]
         elif element.tag == 'Obj':
             value = PSObject()
 
-            for e in element:
-                if e.tag == 'TN':
-                    value.psobject.type_names = [t.text for t in e]
-                elif e.tag == 'TNRef':
-                    value.psobject.type_names = []  # TODO: lookup reference table
-                elif e.tag in ['Props', 'MS']:
-                    for property in e:
-                        prop_info = PSPropertyInfo()
-                        prop_info.name = property.attrib['N']
-                        prop_info.is_instance = element.tag == 'Props'
-                        setattr(value, prop_info.name, self.deserialize(property, clear=False))
+            # Store props so we can properly set them in the correct order after (Extended overrides Adapted).
+            adapted_props = None
+            extended_props = None
 
-                        value.psobject.properties.append(prop_info)
-                elif e.tag == 'ToString':
-                    value.psobject.to_string = self.deserialize(e, clear=False)
-                elif e.tag == 'DCT':
-                    a = ''
-                elif e.tag == 'STK':
+            for obj_entry in element:
+                if obj_entry.tag == 'Props':
+                    adapted_props = ('Props', obj_entry)
+                elif obj_entry.tag == 'MS':
+                    extended_props = ('MS', obj_entry)
+                elif obj_entry.tag == 'ToString':
+                    psobject.to_string = self.deserialize(obj_entry, clear=False)
+                elif obj_entry.tag == 'DCT':
+                    psobject.xml_tag = obj_entry.tag
+
+                    value = PSDict([(self.deserialize(dict_entry.find('*/[@N="Key"]'), clear=False),
+                                     self.deserialize(dict_entry.find('*/[@N="Value"]'), clear=False))
+                                    for dict_entry in obj_entry])
+                elif obj_entry.tag == 'STK':
+                    psobject.xml_tag = obj_entry.tag
+
                     # No stack in Python, just use a list
-                    return [self.deserialize(i) for i in e]
-                elif e.tag == 'QUE':
-                    a = ''
-                elif e.tag in ['LST', 'IE']:
-                    return [self.deserialize(i) for i in e]
-                else:
-                    # TODO: property sets (used in an enum or extended primitive objects)
-                    a = ''
+                    value = PSList([self.deserialize(stack_entry, clear=False) for stack_entry in obj_entry])
+                elif obj_entry.tag == 'QUE':
+                    psobject.xml_tag = obj_entry.tag
 
-            return value
+                    value = PSQueue()
+                    for queue_entry in obj_entry:
+                        value.put(self.deserialize(queue_entry, clear=False))
+                elif obj_entry.tag in ['LST', 'IE']:
+                    psobject.xml_tag = obj_entry.tag
+
+                    value = PSList([self.deserialize(list_entry, clear=False) for list_entry in obj_entry])
+
+                elif obj_entry.tag != 'TN':
+                    psobject.xml_tag = obj_entry.tag
+
+                    # This is the raw value of an extended primitive object, we need to preserve the tag.
+                    value = self.deserialize(obj_entry, clear=False)
+
+            # We support most extended primitive objects except for a bool type.
+            if isinstance(value, PSObject):
+                for prop_group in [adapted_props, extended_props]:
+                    for obj_property in prop_group[1] if prop_group else []:
+                        prop_info = PSPropertyInfo()
+                        prop_info.name = obj_property.attrib['N']
+                        prop_info.attribute_name = prop_info.name
+                        prop_info.property_tag = prop_group[0]
+                        prop_info.xml_tag = obj_property.tag
+
+                        setattr(value, prop_info.name, self.deserialize(obj_property, clear=False))
+                        psobject.properties.append(prop_info)
         else:
-            raise ValueError("Unknown element found %s" % element.tag)
+            raise ValueError("Unknown element found: %s" % element.tag)
 
-        a = ''
+        if isinstance(value, PSObject):
+            value.psobject = psobject
+
+        return value
 
 
 class Serializer(_SerializerBase):
