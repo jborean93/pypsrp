@@ -292,18 +292,30 @@ Can adapt the following items
 
 class FileInfo(PSObject):
 
+    JORDAN = 'jordan'
+
     def __init__(self):
         super(FileInfo, self).__init__()
 
         self.psobject.type_names = ['System.IO.FileInfo', 'System.IO.FileSystemInfo', 'System.MarshalByRefObject',
                                     'System.Object']
-        self.psobject.properties = [
-            PSPropertyInfo(name='mode', attribute_name='mode', property_tag='Props', xml_tag='S'),
-        ]
+        #self.psobject.properties = [
+        #    PSPropertyInfo(name='mode', attribute_name='mode', property_tag='Props', xml_tag='S'),
+        #]
 
         self.mode = None
         self.version_info = None
         self.base_name = None
+
+    def __str__(self):
+        return None
+
+    def __add__(self, other):
+        raise NotImplementedError()
+
+    @property
+    def Test(self):
+        return 'Test value'
 
 
 
@@ -318,5 +330,14 @@ hashtable = s.deserialize((ET.fromstring(hashtable_obj)))
 psdict = s.deserialize(ET.fromstring(dict_obj))
 queue = s.deserialize(ET.fromstring(queue_obj))
 stack = s.deserialize(ET.fromstring(stack_obj))
+
+f = FileInfo()
+f.mode = PSString('--a--')
+setattr(f.mode, 'test property', 'test value')
+f.mode.psobject.extended_properties.append(PSPropertyInfo(name='test property', clixml_name='TestProperty'))
+
+f.version_info = 'howdy'
+f.base_name = 'File'
+print(ET.tostring(s.serialize(f)))
 
 a = ''

@@ -17,27 +17,28 @@ from pypsrp._utils import to_string, version_equal_or_newer
 
 class PSPropertyInfo:
 
-    def __init__(self, name=None, attribute_name=None, property_tag=None, xml_tag=None, optional=True):
-        self.name = name  # The name of the property when serializing/deserializing.
-        self.attribute_name = attribute_name  # The name of the Python attribute of the parent object.
-        self.property_tag = property_tag  # The XML element tag of the property type, either 'MS' or 'Props'.
-        self.xml_tag = xml_tag  # The XML tag to use for the value.
+    def __init__(self, name=None, clixml_name=None, optional=True):
+        self.name = name  # The attribute name on the parent object that contains the property value.
+        self.clixml_name = clixml_name  # The name of the Python attribute of the parent object.
         self.optional = optional  # Will be omitted in the CLIXML if not set
+
+        # self.xml_tag = xml_tag  # The XML tag to use for the value.
 
 
 class PSObjectMeta:
 
     def __init__(self):
-        self.properties = []  # A list of adapted and extended properties of the raw object.
+        self.adapted_properties = []  # A list of adapted properties of the raw object.
+        self.extended_properties = []  # A list of extended properties of the raw object.
+        self.to_string = None  # The raw <ToString> XML element from deserialization.
         self.type_names = []  # A list of type names for the deserialized object.
-        self.to_string = None  # The raw <ToString> XML element from deserialisation.
         self.xml_tag = None  # Extended primitive objects contain a single element, this is the XML tag of that object.
 
 
 class PSObject:
 
-    def __init__(self, psobject=None):
-        self.psobject = psobject or PSObjectMeta()
+    def __init__(self, *args, **kwargs):
+        self.psobject = PSObjectMeta()
 
     def __str__(self):
         return self.psobject.to_string

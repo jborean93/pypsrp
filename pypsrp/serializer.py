@@ -3,6 +3,7 @@
 
 import base64
 import binascii
+import datetime
 import logging
 import re
 import sys
@@ -10,7 +11,7 @@ import uuid
 
 from copy import copy
 from cryptography.hazmat.primitives.padding import PKCS7
-from six import string_types
+from six import integer_types, string_types
 
 from pypsrp.complex_objects import (
     ApartmentState,
@@ -249,7 +250,100 @@ class SerializerV2(_SerializerBase):
         if clear:
             self._clear()
 
-        return None
+        element = None
+        if value is None:
+            return ET.Element("Nil")
+        elif isinstance(value, bytes):
+            a = ''
+        elif isinstance(value, datetime.datetime):
+            a = ''
+        elif isinstance(value, dict):
+            a = ''
+        elif isinstance(value, float):
+            a = ''
+        elif isinstance(value, uuid.UUID):
+            a = ''
+        elif isinstance(value, integer_types):
+            a = ''
+        elif isinstance(value, list):
+            a = ''
+        elif isinstance(value, Queue):
+            a = ''
+        elif isinstance(value, str):
+            element = ET.Element('S')
+            element.text = self._serialize_string(value)
+        elif isinstance(value, PSObject):
+            element = ET.Element('Obj')
+        else:
+            a = ''
+
+        if isinstance(value, PSObject) and ((value.psobject.adapted_properties or value.psobject.extended_properties)
+                                            or element.tag == 'Obj'):
+            is_complex = element.tag == 'Obj'
+
+            if not is_complex:
+                sub_element = element
+                element = ET.Element('Obj')
+                element.append(sub_element)
+
+            # Only add the type names if not a primitive object or explicit type_names were set on the psobject.
+            if value.psobject.type_names or is_complex:
+                type_names = value.psobject.type_names or ['System.Management.Automation.PSCustomObject',
+                                                           'System.Object']
+
+                main_type = type_names[0]
+                ref_id = self.tn.get(main_type, None)
+                if ref_id is None:
+                    ref_id = self.tn_id
+                    self.tn_id += 1
+                    self.tn[main_type] = ref_id
+
+                    tn = ET.SubElement(element, "TN", RefId=str(ref_id))
+                    for type_name in type_names:
+                        ET.SubElement(tn, "T").text = type_name
+                else:
+                    ET.SubElement(element, "TNRef", RefId=str(ref_id))
+
+            # ToString should only be set if explicitly defined or if not a primitive object.
+            if value.psobject.to_string or is_complex:
+                try:
+                    to_string = value.psobject.to_string or str(value)
+                except Exception:
+                    to_string = None  # in case __str__ raises an exception, don't include it
+
+                if to_string:
+                    ET.SubElement(element, 'ToString').text = to_unicode(to_string)
+
+            no_props = True
+            for xml_name, properties in [('Props', value.psobject.adapted_properties),
+                                         ('MS', value.psobject.extended_properties)]:
+                if not properties:
+                    continue
+
+                no_props = False
+                prop_elements = ET.SubElement(element, xml_name)
+                for prop in properties:
+                    if not hasattr(value, prop.name) and prop.optional:
+                        continue
+
+                    prop_element = self.serialize(getattr(value, prop.name, None), clear=False)
+                    prop_element.attrib['N'] = prop.clixml_name
+                    prop_elements.append(prop_element)
+
+            # If no explicit properties were defined and this is not an extended primitive object, set the actual
+            # Python attributes of the object.
+            if is_complex and no_props:
+                for prop in dir(value):
+                    prop_value = getattr(value, prop)
+
+                    if prop == 'psobject' or prop.startswith('__') or callable(prop_value):
+                        continue
+
+                    sub_element = self.serialize(prop_value, clear=False)
+                    sub_element.attrib['N'] = prop
+                    element.append(sub_element)
+
+        return element
 
     def deserialize(self, element, clear=True):
         # TODO: pass in reference object to populate.
@@ -340,14 +434,15 @@ class SerializerV2(_SerializerBase):
             if isinstance(value, PSObject):
                 for prop_group in [adapted_props, extended_props]:
                     for obj_property in prop_group[1] if prop_group else []:
-                        prop_info = PSPropertyInfo()
-                        prop_info.name = obj_property.attrib['N']
-                        prop_info.attribute_name = prop_info.name
-                        prop_info.property_tag = prop_group[0]
-                        prop_info.xml_tag = obj_property.tag
+                        prop_name = obj_property.attrib['N']
+                        prop_info = PSPropertyInfo(prop_name, prop_name)
 
                         setattr(value, prop_info.name, self.deserialize(obj_property, clear=False))
-                        psobject.properties.append(prop_info)
+
+                        if obj_property.tag == 'Props':
+                            psobject.adapted_properties.append(prop_info)
+                        else:
+                            psobject.extended_properties.append(prop_info)
         else:
             raise ValueError("Unknown element found: %s" % element.tag)
 
