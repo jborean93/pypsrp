@@ -1,14 +1,6 @@
 import xml.etree.ElementTree as ET
 
-from pypsrp.complex_objects import (
-    PSPropertyInfo,
-    PSObjectMeta,
-    PSObject,
-    PSDateTime,
-    PSString,
-    PSInt,
-    PSList,
-)
+from pypsrp.dotnet import *
 from pypsrp.powershell import RunspacePool, PowerShell
 from pypsrp.serializer import Serializer, SerializerV2
 from pypsrp.wsman import WSMan

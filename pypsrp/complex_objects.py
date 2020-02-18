@@ -1,10 +1,6 @@
 # Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
-import datetime
-import sys
-import uuid
-
 from copy import deepcopy
 
 try:
@@ -13,88 +9,6 @@ except ImportError:  # pragma: no cover
     from Queue import Queue
 
 from pypsrp._utils import to_string, version_equal_or_newer
-
-
-class PSPropertyInfo:
-
-    def __init__(self, name=None, clixml_name=None, optional=True):
-        self.name = name  # The attribute name on the parent object that contains the property value.
-        self.clixml_name = clixml_name  # The name of the Python attribute of the parent object.
-        self.optional = optional  # Will be omitted in the CLIXML if not set
-
-        # self.xml_tag = xml_tag  # The XML tag to use for the value.
-
-
-class PSObjectMeta:
-
-    def __init__(self):
-        self.adapted_properties = []  # A list of adapted properties of the raw object.
-        self.extended_properties = []  # A list of extended properties of the raw object.
-        self.to_string = None  # The raw <ToString> XML element from deserialization.
-        self.type_names = []  # A list of type names for the deserialized object.
-        self.xml_tag = None  # Extended primitive objects contain a single element, this is the XML tag of that object.
-
-
-class PSObject:
-
-    def __init__(self, *args, **kwargs):
-        self.psobject = PSObjectMeta()
-
-    def __str__(self):
-        return self.psobject.to_string
-
-
-class PSBytes(bytes, PSObject):
-    pass
-
-
-class PSDateTime(datetime.datetime, PSObject):
-
-    def __init__(self, *args, **kwargs):
-        self.nanoseconds = 0
-
-
-class PSFloat(float, PSObject):
-    pass
-
-
-class PSInt(int, PSObject):
-    pass
-
-
-if sys.version_info[0] < 3:
-    class PSLong(long, PSObject):
-        pass
-else:
-    PSLong = PSInt
-
-
-class PSGuid(uuid.UUID, PSObject):
-
-    def __setattr__(self, name, value):
-        # UUID raises TypeError on __setattr__ and there are cases where we need to override the psobject attribute.
-        if name == 'psobject':
-            self.__dict__['psobject'] = value
-            return
-
-        super(PSGuid, self).__setattr__(name, value)
-
-
-class PSList(list, PSObject):
-    pass
-
-
-class PSString(str, PSObject):
-    pass
-
-
-class PSDict(dict, PSObject):
-    pass
-
-
-class PSQueue(Queue, PSObject):
-    pass
-
 
 
 class ObjectMeta(object):

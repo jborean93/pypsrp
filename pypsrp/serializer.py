@@ -9,9 +9,24 @@ import re
 import sys
 import uuid
 
-from copy import copy
-from cryptography.hazmat.primitives.padding import PKCS7
-from six import integer_types, string_types
+from copy import (
+    copy,
+)
+
+from cryptography.hazmat.primitives.padding import (
+    PKCS7,
+)
+
+from decimal import (
+    Decimal,
+)
+
+from six import (
+    binary_type,
+    integer_types,
+    string_types,
+    text_type,
+)
 
 from pypsrp.complex_objects import (
     ApartmentState,
@@ -38,26 +53,57 @@ from pypsrp.complex_objects import (
     SessionStateEntryVisibility,
     Size,
     StackMeta,
-
-    PSBytes,
-    PSDateTime,
-    PSDict,
-    PSFloat,
-    PSGuid,
-    PSInt,
-    PSList,
-    PSLong,
-    PSObject,
-    PSPropertyInfo,
-    PSObjectMeta,
-    PSQueue,
-    PSString,
 )
 
-from pypsrp.exceptions import SerializationError
-from pypsrp.messages import DebugRecord, ErrorRecord, InformationRecord, \
-    VerboseRecord, WarningRecord
-from pypsrp._utils import to_bytes, to_string, to_unicode
+from pypsrp.dotnet import (
+    PSByte,
+    PSByteArray,
+    PSChar,
+    PSDateTime,
+    PSDecimal,
+    PSDict,
+    PSDouble,
+    PSDuration,
+    PSGuid,
+    PSInt16,
+    PSInt,
+    PSInt64,
+    PSList,
+    PSObject,
+    PSObjectMeta,
+    PSPropertyInfo,
+    PSQueue,
+    PSSByte,
+    PSScriptBlock,
+    PSSecureString,
+    PSSingle,
+    PSStack,
+    PSString,
+    PSUInt16,
+    PSUInt,
+    PSUInt64,
+    PSUri,
+    PSVersion,
+    PSXml,
+)
+
+from pypsrp.exceptions import (
+    SerializationError,
+)
+
+from pypsrp.messages import (
+    DebugRecord,
+    ErrorRecord,
+    InformationRecord,
+    VerboseRecord,
+    WarningRecord,
+)
+
+from pypsrp._utils import (
+    to_bytes,
+    to_string,
+    to_unicode,
+)
 
 try:
     from queue import Queue, Empty
@@ -253,25 +299,65 @@ class SerializerV2(_SerializerBase):
         element = None
         if value is None:
             return ET.Element("Nil")
-        elif isinstance(value, bytes):
+        elif isinstance(value, PSByte):
+            element = ET.Element('By')
+            element.text = to_unicode(value)
+        elif isinstance(value, (PSByteArray, binary_type)):
+            element = ET.Element('BA')
+            element.text = to_unicode(base64.b64encode(value))
+        elif isinstance(value, PSChar):
+            element = ET.Element('C')
+            element.text = to_unicode(value)
+        elif isinstance(value, (PSDateTime, datetime.datetime)):
+            element = ET.Element('DT')
+            element.text = to_unicode('# TODO')
+        elif isinstance(value, (PSDecimal, Decimal)):
+            element = ET.Element('D')
+            element.text = to_unicode('# TODO')
+        elif isinstance(value, (PSDict, dict)):
+            # TODO
             a = ''
-        elif isinstance(value, datetime.datetime):
+        elif isinstance(value, PSDouble):
+            element = ET.Element('Db')
+            element.text = to_unicode('# TODO')
+        elif isinstance(value, PSDuration):
             a = ''
-        elif isinstance(value, dict):
+        elif isinstance(value, (PSGuid, uuid.UUID)):
             a = ''
-        elif isinstance(value, float):
+        elif isinstance(value, PSInt16):
+            a  = ''
+        elif isinstance(value, PSInt):
             a = ''
-        elif isinstance(value, uuid.UUID):
+        elif isinstance(value, PSInt64):
             a = ''
-        elif isinstance(value, integer_types):
+        elif isinstance(value, (PSList, list)):
             a = ''
-        elif isinstance(value, list):
+        elif isinstance(value, (PSQueue, Queue)):
             a = ''
-        elif isinstance(value, Queue):
+        elif isinstance(value, PSSByte):
             a = ''
-        elif isinstance(value, str):
-            element = ET.Element('S')
-            element.text = self._serialize_string(value)
+        elif isinstance(value, PSScriptBlock):
+            a = ''
+        elif isinstance(value, PSSecureString):
+            a = ''
+        elif isinstance(value, (PSSingle, float)):
+            a = ''
+        elif isinstance(value, PSStack):
+            a = ''
+        elif isinstance(value, (text_type, PSString)):
+            a = ''
+        elif isinstance(value, PSUInt16):
+            a = ''
+        elif isinstance(value, PSUInt):
+            a = ''
+        elif isinstance(value, PSUInt64):
+            a = ''
+        elif isinstance(value, PSUri):
+            a = ''
+        elif isinstance(value, PSVersion):
+            a = ''
+        elif isinstance(value, PSXml):
+            a = ''
         elif isinstance(value, PSObject):
             element = ET.Element('Obj')
         else:
