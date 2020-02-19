@@ -298,6 +298,7 @@ class FileInfo(PSObject):
         self.mode = None
         self.version_info = None
         self.base_name = None
+        self.abc = ['abc', 'def']
 
     def __str__(self):
         return None
@@ -310,6 +311,22 @@ class FileInfo(PSObject):
         return 'Test value'
 
 
+class SessionCapability(PSObject):
+
+    def __init__(self):
+        super(SessionCapability, self).__init__()
+        self.psobject.extended_properties = [
+            PSPropertyInfo(name='protocol_version', clixml_name='protocolversion', ps_type=PSVersion),
+            PSPropertyInfo(name='ps_version', clixml_name='PSVersion', ps_type=PSVersion),
+            PSPropertyInfo(name='serialization_version', clixml_name='SerializationVersion', ps_type=PSVersion),
+            PSPropertyInfo(name='time_zone', clixml_name='TimeZone', optional=True, ps_type=PSByteArray),
+        ]
+        self.psobject.type_names = None
+
+        self.protocol_version = '2.2'
+        self.ps_version = '2.0'
+        self.serialization_version = '1.1.0.1'
+        self.time_zone = None
 
 s = SerializerV2()
 
@@ -331,5 +348,9 @@ f.mode.psobject.extended_properties.append(PSPropertyInfo(name='test property', 
 f.version_info = 'howdy'
 f.base_name = 'File'
 print(ET.tostring(s.serialize(f)))
+
+print()
+
+print(ET.tostring(s.serialize(SessionCapability())))
 
 a = ''

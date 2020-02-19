@@ -28,7 +28,7 @@ except ImportError:  # pragma: no cover
 
 class PSPropertyInfo:
 
-    def __init__(self, name=None, clixml_name=None, optional=True, ps_type=None):
+    def __init__(self, name=None, clixml_name=None, optional=False, ps_type=None):
         """
         Define the metadata of the property of a class and how it is serialized and deserialized to CLIXML. Each
         property should be set to the adapted or extended propertiest list on a PSObjectMeta.
@@ -109,14 +109,13 @@ class PSDateTime(datetime, PSObject):
     """
 
     def __init__(self, *args, **kwargs):
-        self.nanoseconds = 0
+        self.nanosecond = 0
 
 
 class PSDuration(text_type, PSObject):
     """
     [MS-PSRP] 2.2.5.1.4 - Duration
     https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/434cd15d-8fb3-462c-a004-bcd0d3a60201
-    TODO: See if there is a Python object we can use for this.
 
     XML Element: <TS>
     """
