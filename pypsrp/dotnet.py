@@ -60,6 +60,13 @@ class PSObjectMeta:
         self.type_names = []  # A list of type names for the deserialized object.
 
 
+class PSEnumObjectMeta(PSObjectMeta):
+
+    def __init__(self):
+        super(PSEnumObjectMeta, self).__init__()
+        self.enum_type = PSInt
+
+
 class PSObject:
 
     def __init__(self, *args, **kwargs):
@@ -365,3 +372,68 @@ class PSDict(dict, PSObject):
     XML Element: <DCT>
     """
     pass
+
+
+class PSEnumBase(int, PSObject):
+    """
+    [MS-PSRP] 2.2.5.2.7 0 Contents of Enums
+    https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/893ecc12-6d87-49a8-b5fe-55ab6854c973
+
+    This can't be initialized by itself, it must be implemented by another class with the __init__ signature of
+
+    def __init__(self, value):
+        super(PSEnumClass, self).__init__(value, 'System.EnumType')
+    """
+
+    ENUM_MAP = {'None': 0}
+    IS_FLAGS = False
+
+    def __init__(self, value, type_name, base_type=PSInt):
+        super(PSEnumBase, self).__init__()
+        self.psobject = PSEnumObjectMeta()
+        self.psobject.type_names = [type_name, 'System.Enum', 'System.ValueType', 'System.Object']
+        self.psobject.enum_type = base_type
+
+    def __new__(cls, value):
+        enum_value = value
+
+        if isinstance(value, text_type):
+            if cls.IS_FLAGS:
+                enum_value = 0
+
+                for label in value.split(','):
+                    label = label.strip()
+
+                    if label not in cls.ENUM_MAP:
+                        raise ValueError("Invalid enum flag '%s', valid flags: %s"
+                                         % (label, ", ".join(cls.ENUM_MAP.keys())))
+
+                    enum_value |= cls.ENUM_MAP[label]
+            else:
+                if value not in cls.ENUM_MAP:
+                    raise ValueError("Invalid enum string '%s', valid strings: %s"
+                                     % (value, ", ".join(cls.ENUM_MAP.keys())))
+                enum_value = cls.ENUM_MAP[value]
+
+        return int.__new__(cls, enum_value)
+
+    def __str__(self):
+        enum_value = int(self)
+        enum_map = dict([(v, k) for k, v in self.ENUM_MAP.items()])
+
+        if not self.IS_FLAGS:
+            return enum_map.get(enum_value, str(enum_value))
+
+        if enum_value in enum_map:
+            return enum_map[enum_value]
+
+        flags_set = []
+        for v in sorted([v for v in enum_map.keys() if v != 0], reverse=True):
+            if enum_value & v == v:
+                flags_set.append(enum_map[v])
+                enum_value &= ~v
+
+        if enum_value != 0:
+            flags_set.append(str(enum_value))
+
+        return ", ".join(flags_set or [str(int(self))])

@@ -328,6 +328,23 @@ class SessionCapability(PSObject):
         self.serialization_version = '1.1.0.1'
         self.time_zone = None
 
+
+class FileShare(PSEnumBase):
+
+    ENUM_MAP = {
+        'None': 0,
+        'Read': 1,
+        'Write': 2,
+        'ReadWrite': 3,
+        'Delete': 4,
+        'Inheritable': 16,
+    }
+    IS_FLAGS = True
+
+    def __init__(self, value):
+        super(FileShare, self).__init__(value, 'System.IO.FileShare')
+
+
 s = SerializerV2()
 
 ps_custom = s.deserialize(ET.fromstring(ps_custom_obj))
@@ -353,4 +370,7 @@ print()
 
 print(ET.tostring(s.serialize(SessionCapability())))
 
+
+file_share = FileShare(5)
+file_share_str = str(file_share)
 a = ''
