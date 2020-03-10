@@ -56,6 +56,7 @@ from pypsrp.complex_objects import (
 )
 
 from pypsrp.dotnet import (
+    NoToString,
     PSByte,
     PSByteArray,
     PSChar,
@@ -124,7 +125,7 @@ log = logging.getLogger(__name__)
 
 class _SerializerBase(object):
 
-    def __init__(self):
+    def __init__(self, cipher=None):
         self.obj_id = 0
         self.obj = {}
         self.tn_id = 0
@@ -292,330 +293,6 @@ class _SerializerBase(object):
             obj_types = self.tn[ref_id]
 
         return obj_types
-
-
-class SerializerV2(_SerializerBase):
-
-    def __init__(self):
-        super(SerializerV2, self).__init__()
-
-    def serialize(self, value):
-        if value is None:
-            return ET.Element("Nil")
-        elif isinstance(value, bool):
-            element = ET.Element('B')
-            element.text = to_unicode(str(value).lower())
-        elif isinstance(value, PSByte):
-            element = ET.Element('By')
-            element.text = to_unicode(str(value))
-        elif isinstance(value, (PSByteArray, binary_type)):
-            element = ET.Element('BA')
-            element.text = to_unicode(base64.b64encode(value))
-        elif isinstance(value, PSChar):
-            element = ET.Element('C')
-            element.text = to_unicode(str(value))
-        elif isinstance(value, (PSDateTime, datetime.datetime)):
-            element = ET.Element('DT')
-            element.text = self._serialize_datetime(value)
-        elif isinstance(value, (PSDecimal, Decimal)):
-            element = ET.Element('D')
-            element.text = to_unicode(str(value))
-        elif isinstance(value, PSDouble):
-            element = ET.Element('Db')
-            element.text = to_unicode(str(value)).upper()
-        elif isinstance(value, PSDuration):
-            element = ET.Element('TS')
-            element.text = to_unicode(value)
-        elif isinstance(value, (PSGuid, uuid.UUID)):
-            element = ET.Element('G')
-            element.text = to_unicode(str(value))
-        elif isinstance(value, PSInt16):
-            element = ET.Element('I16')
-            element.text = to_unicode(str(value))
-        elif isinstance(value, (PSInt, integer_types)):
-            element = ET.Element('I32')
-            element.text = to_unicode(str(value))
-        elif isinstance(value, PSInt64):
-            element = ET.Element('I64')
-            element.text = to_unicode(str(value))
-        elif isinstance(value, PSSByte):
-            element = ET.Element('SB')
-            element.text = to_unicode(str(value))
-        elif isinstance(value, PSScriptBlock):
-            element = ET.Element('SBK')
-            element.text = self._serialize_string(value)
-        elif isinstance(value, PSSecureString):
-            element = ET.Element('SS')
-            element.text = self._serialize_secure_string(value)
-        elif isinstance(value, (PSSingle, float)):
-            element = ET.Element('Sg')
-            element.text = to_unicode(str(value)).upper()
-        elif isinstance(value, (PSString, text_type)):
-            element = ET.Element('S')
-            element.text = self._serialize_string(value)
-        elif isinstance(value, PSUInt16):
-            element = ET.Element('U16')
-            element.text = to_unicode(str(value))
-        elif isinstance(value, PSUInt):
-            element = ET.Element('U32')
-            element.text = to_unicode(str(value))
-        elif isinstance(value, PSUInt64):
-            element = ET.Element('U64')
-            element.text = to_unicode(str(value))
-        elif isinstance(value, PSUri):
-            element = ET.Element('URI')
-            element.text = self._serialize_string(value)
-        elif isinstance(value, PSVersion):
-            element = ET.Element('Version')
-            element.text = to_unicode(str(value))
-        elif isinstance(value, PSXml):
-            element = ET.Element('XD')
-            element.text = self._serialize_string(value)
-        elif isinstance(value, (PSObject, list, dict, Queue)):
-            element = ET.Element('Obj', RefId=self._get_obj_id())
-        else:
-            raise ValueError("Unknown type '%s', cannot serialize" % str(type(value)))
-
-        if element.tag == 'Obj' or (isinstance(value, PSObject) and
-                                    (value.psobject.adapted_properties or value.psobject.extended_properties)):
-            is_complex = element.tag == 'Obj'
-            psobject = getattr(value, 'psobject', PSObjectMeta())
-
-            if not is_complex:
-                sub_element = element
-                element = ET.Element('Obj', RefId=self._get_obj_id())
-                element.append(sub_element)
-
-            # Only add the type names if not a primitive object or explicit type_names were set on the psobject.
-            if psobject.type_names or (is_complex and psobject.type_names is not None):
-                if psobject.type_names:
-                    type_names = value.psobject.type_names
-                elif isinstance(value, PSStack):
-                    type_names = ['System.Collections.Generic.Stack`1[[System.Object]]', 'System.Object']
-                elif isinstance(value, (PSQueue, Queue)):
-                    type_names = ['System.Collections.Generic.Queue`1[[System.Object]]', 'System.Object']
-                elif isinstance(value, (PSList, list)):
-                    # This is a toss up between Object[] and List<T> but the functionality of a List over an array is
-                    # really nice so let's use that.
-                    type_names = ['System.Collections.Generic.List`1[[System.Object]]', 'System.Object']
-                elif isinstance(value, (PSDict, dict)):
-                    # I could use the Dictionary<T, T>  but PowerShell really skews towards Hashtables for dictionaries
-                    # so let's keep to that norm.
-                    type_names = ['System.Collections.Hashtable', 'System.Object']
-                else:
-                    type_names = ['System.Management.Automation.PSCustomObject', 'System.Object']
-
-                main_type = type_names[0]
-                ref_id = self.tn.get(main_type, None)
-                if ref_id is None:
-                    ref_id = self.tn_id
-                    self.tn_id += 1
-                    self.tn[main_type] = ref_id
-
-                    tn = ET.SubElement(element, "TN", RefId=str(ref_id))
-                    for type_name in type_names:
-                        ET.SubElement(tn, "T").text = type_name
-                else:
-                    ET.SubElement(element, "TNRef", RefId=str(ref_id))
-
-            no_props = True
-            for xml_name, properties in [('Props', psobject.adapted_properties),
-                                         ('MS', psobject.extended_properties)]:
-                if not properties:
-                    continue
-
-                no_props = False
-                prop_elements = ET.SubElement(element, xml_name)
-                for prop in properties:
-                    prop_value = getattr(value, prop.name, None)
-                    if prop_value is None and prop.optional:
-                        continue
-                    elif prop_value is not None and prop.ps_type:
-                        prop_value = prop.ps_type(prop_value)
-
-                    prop_element = self.serialize(prop_value)
-                    prop_element.attrib['N'] = prop.clixml_name
-                    prop_elements.append(prop_element)
-
-            if isinstance(value, PSStack):
-                stk_element = ET.SubElement(element, 'STK')
-
-                for stk_entry in value:
-                    stk_element.append(self.serialize(stk_entry))
-            elif isinstance(value, (PSQueue, Queue)):
-                que_element = ET.SubElement(element, 'QUE')
-
-                while True:
-                    try:
-                        que_entry = self.serialize(value.get(block=False))
-                    except Empty:
-                        break
-                    else:
-                        que_element.append(que_entry)
-            elif isinstance(value, (PSList, list)):
-                lst_element = ET.SubElement(element, 'LST')
-
-                for lst_entry in value:
-                    lst_element.append(self.serialize(lst_entry))
-            elif isinstance(value, (PSDict, dict)):
-                dct_element = ET.SubElement(element, 'DCT')
-
-                for dct_key, dct_value in value.items():
-                    en_element = ET.SubElement(dct_element, 'En')
-
-                    s_dct_key = self.serialize(dct_key)
-                    s_dct_key.attrib['N'] = 'Key'
-                    en_element.append(s_dct_key)
-
-                    s_dct_value = self.serialize(dct_value)
-                    s_dct_value.attrib['N'] = 'Value'
-                    en_element.append(s_dct_value)
-            else:
-                # ToString should only be set if explicitly defined or if not a primitive object.
-                if is_complex or psobject.to_string:
-                    try:
-                        to_string = psobject.to_string or str(value)
-                    except Exception:
-                        to_string = None  # in case __str__ raises an exception, don't include it
-
-                    if to_string:
-                        ET.SubElement(element, 'ToString').text = self._serialize_string(to_string)
-
-                if is_complex and no_props:
-                    # If no explicit properties were defined and this is not an extended primitive object, set the
-                    # actual Python attributes of the object.
-                    for prop in dir(value):
-                        prop_value = getattr(value, prop)
-
-                        if prop == 'psobject' or prop.startswith('__') or callable(prop_value):
-                            continue
-
-                        sub_element = self.serialize(prop_value)
-                        sub_element.attrib['N'] = prop
-                        element.append(sub_element)
-
-        return element
-
-    def deserialize(self, element):
-        # These types are pure primitive types and we don't need to do anything special when de-serializing
-        if element.tag == 'ToString':
-            return self._deserialize_string(element.text)
-        elif element.tag == 'Nil':
-            return None
-        elif element.tag == 'B':
-            # Technically can be an extended primitive but due to limitations in Python we cannot subclass bool.
-            return element.text.lower() == "true"
-        elif element.tag == 'Ref':
-            return self.obj[element.attrib['RefId']]
-
-        psobject = PSObjectMeta()
-        psobject.type_names = self._get_types_from_obj(element)
-
-        if element.tag == 'By':
-            value = PSByte(element.text)
-        elif element.tag == 'BA':
-            value = PSByteArray(base64.b64decode(element.text))
-        elif element.tag == 'C':
-            value = PSChar(element.text)
-        elif element.tag == 'DT':
-            value = self._deserialize_datetime(element.text)
-        elif element.tag == 'D':
-            value = PSDecimal(element.text)
-        elif element.tag == 'Db':
-            value = PSDouble(element.text)
-        elif element.tag == 'TS':
-            value = PSDuration(element.text)
-        elif element.tag == 'G':
-            value = PSGuid(element.text)
-        elif element.tag == 'I16':
-            value = PSInt16(element.text)
-        elif element.tag == 'I32':
-            value = PSInt(element.text)
-        elif element.tag == 'I64':
-            value = PSInt64(element.text)
-        elif element.tag == 'SB':
-            value = PSSByte(element.text)
-        elif element.tag == 'SBK':
-            value = PSScriptBlock(self._deserialize_string(element.text))
-        elif element.tag == 'SS':
-            value = PSSecureString(self._deserialize_secure_string(element))
-        elif element.tag == 'Sg':
-            value = PSSingle(element.text)
-        elif element.tag == 'S':
-            value = PSString(self._deserialize_string(element.text))
-        elif element.tag == 'U16':
-            value = PSUInt16(element.text)
-        elif element.tag == 'U32':
-            value = PSUInt(element.text)
-        elif element.tag == 'U64':
-            value = PSUInt64(element.text)
-        elif element.tag == 'URI':
-            value = PSUri(self._deserialize_string(element.text))
-        elif element.tag == 'Version':
-            value = PSVersion(element.text)
-        elif element.tag == 'XD':
-            value = PSXml(self._deserialize_string(element.text))
-        elif element.tag == 'Obj':
-            value = PSObject()
-
-            # Store props so we can properly set them in the correct order after (Extended overrides Adapted).
-            adapted_props = None
-            extended_props = None
-
-            for obj_entry in element:
-                if obj_entry.tag == 'Props':
-                    adapted_props = ('Props', obj_entry)
-                elif obj_entry.tag == 'MS':
-                    extended_props = ('MS', obj_entry)
-                elif obj_entry.tag == 'ToString':
-                    psobject.to_string = self.deserialize(obj_entry)
-                elif obj_entry.tag == 'DCT':
-                    psobject.xml_tag = obj_entry.tag
-
-                    value = PSDict([(self.deserialize(dict_entry.find('*/[@N="Key"]')),
-                                     self.deserialize(dict_entry.find('*/[@N="Value"]')))
-                                    for dict_entry in obj_entry])
-                elif obj_entry.tag == 'STK':
-                    psobject.xml_tag = obj_entry.tag
-
-                    value = PSStack([self.deserialize(stack_entry) for stack_entry in obj_entry])
-                elif obj_entry.tag == 'QUE':
-                    psobject.xml_tag = obj_entry.tag
-
-                    value = PSQueue()
-                    for queue_entry in obj_entry:
-                        value.put(self.deserialize(queue_entry))
-                elif obj_entry.tag in ['LST', 'IE']:
-                    psobject.xml_tag = obj_entry.tag
-
-                    value = PSList([self.deserialize(list_entry) for list_entry in obj_entry])
-                elif obj_entry.tag != 'TN':
-                    psobject.xml_tag = obj_entry.tag
-
-                    # This is the raw value of an extended primitive object, we need to preserve the tag.
-                    value = self.deserialize(obj_entry)
-
-            # We support most extended primitive objects except for a bool type.
-            if isinstance(value, PSObject):
-                for prop_group in [adapted_props, extended_props]:
-                    for obj_property in prop_group[1] if prop_group else []:
-                        prop_value = self.deserialize(obj_property)
-
-                        prop_name = obj_property.attrib['N']
-                        prop_info = PSPropertyInfo(name=prop_name, clixml_name=prop_name, ps_type=type(prop_value))
-                        setattr(value, prop_name, prop_value)
-
-                        if obj_property.tag == 'Props':
-                            psobject.adapted_properties.append(prop_info)
-                        else:
-                            psobject.extended_properties.append(prop_info)
-        else:
-            raise ValueError("Unknown element found: %s" % element.tag)
-
-        if isinstance(value, PSObject):
-            value.psobject = psobject
-
-        return value
 
 
 class Serializer(_SerializerBase):
@@ -1258,3 +935,335 @@ class Serializer(_SerializerBase):
         if meta is None:
             meta = ObjectMeta(name=key)
         self.serialize(obj, metadata=meta, parent=parent, clear=False)
+
+
+class SerializerV2(_SerializerBase):
+
+    def __init__(self, cipher=None):
+        """
+        A serializer to used to serialize and deserialize CLIXML objects sent per and received per message sent across
+        the network. This is the new and improved serializer added in pypsrp 1.0.0 that is designed to make it easier
+        to serialize Python objects to PowerShell without having to write a lot of metadata as before.
+
+        See the 'examples' folder for more information on how to create your own objects or process returned objects.
+
+        :param cipher: The cipher to use for encrypting and decrypting serialized strings.
+        """
+        super(SerializerV2, self).__init__(cipher=cipher)
+
+    def serialize(self, value):
+        if value is None:
+            return ET.Element("Nil")
+        elif isinstance(value, bool):
+            element = ET.Element('B')
+            element.text = to_unicode(str(value).lower())
+        elif isinstance(value, PSByte):
+            element = ET.Element('By')
+            element.text = to_unicode(str(value))
+        elif isinstance(value, (PSByteArray, binary_type)):
+            element = ET.Element('BA')
+            element.text = to_unicode(base64.b64encode(value))
+        elif isinstance(value, PSChar):
+            element = ET.Element('C')
+            element.text = to_unicode(str(value))
+        elif isinstance(value, (PSDateTime, datetime.datetime)):
+            element = ET.Element('DT')
+            element.text = self._serialize_datetime(value)
+        elif isinstance(value, (PSDecimal, Decimal)):
+            element = ET.Element('D')
+            element.text = to_unicode(str(value))
+        elif isinstance(value, PSDouble):
+            element = ET.Element('Db')
+            element.text = to_unicode(str(value)).upper()
+        elif isinstance(value, PSDuration):
+            element = ET.Element('TS')
+            element.text = to_unicode(value)
+        elif isinstance(value, (PSGuid, uuid.UUID)):
+            element = ET.Element('G')
+            element.text = to_unicode(str(value))
+        elif isinstance(value, PSInt16):
+            element = ET.Element('I16')
+            element.text = to_unicode(str(value))
+        elif isinstance(value, (PSInt, integer_types)):
+            element = ET.Element('I32')
+            element.text = to_unicode(str(value))
+        elif isinstance(value, PSInt64):
+            element = ET.Element('I64')
+            element.text = to_unicode(str(value))
+        elif isinstance(value, PSSByte):
+            element = ET.Element('SB')
+            element.text = to_unicode(str(value))
+        elif isinstance(value, PSScriptBlock):
+            element = ET.Element('SBK')
+            element.text = self._serialize_string(value)
+        elif isinstance(value, PSSecureString):
+            element = ET.Element('SS')
+            element.text = self._serialize_secure_string(value)
+        elif isinstance(value, (PSSingle, float)):
+            element = ET.Element('Sg')
+            element.text = to_unicode(str(value)).upper()
+        elif isinstance(value, (PSString, text_type)):
+            element = ET.Element('S')
+            element.text = self._serialize_string(value)
+        elif isinstance(value, PSUInt16):
+            element = ET.Element('U16')
+            element.text = to_unicode(str(value))
+        elif isinstance(value, PSUInt):
+            element = ET.Element('U32')
+            element.text = to_unicode(str(value))
+        elif isinstance(value, PSUInt64):
+            element = ET.Element('U64')
+            element.text = to_unicode(str(value))
+        elif isinstance(value, PSUri):
+            element = ET.Element('URI')
+            element.text = self._serialize_string(value)
+        elif isinstance(value, PSVersion):
+            element = ET.Element('Version')
+            element.text = to_unicode(str(value))
+        elif isinstance(value, PSXml):
+            element = ET.Element('XD')
+            element.text = self._serialize_string(value)
+        elif isinstance(value, (PSObject, list, dict, Queue)):
+            element = ET.Element('Obj', RefId=self._get_obj_id())
+        else:
+            raise ValueError("Unknown type '%s', cannot serialize" % str(type(value)))
+
+        if element.tag == 'Obj' or (isinstance(value, PSObject) and
+                                    (value.psobject.adapted_properties or value.psobject.extended_properties)):
+            is_complex = element.tag == 'Obj'
+            psobject = getattr(value, 'psobject', PSObjectMeta())
+
+            if not is_complex:
+                sub_element = element
+                element = ET.Element('Obj', RefId=self._get_obj_id())
+                element.append(sub_element)
+
+            # Only add the type names if not a primitive object or explicit type_names were set on the psobject.
+            if psobject.type_names or (is_complex and psobject.type_names is not None):
+                if psobject.type_names:
+                    type_names = value.psobject.type_names
+                elif isinstance(value, PSStack):
+                    type_names = ['System.Collections.Generic.Stack`1[[System.Object]]', 'System.Object']
+                elif isinstance(value, (PSQueue, Queue)):
+                    type_names = ['System.Collections.Generic.Queue`1[[System.Object]]', 'System.Object']
+                elif isinstance(value, (PSList, list)):
+                    # This is a toss up between Object[] and List<T> but the functionality of a List over an array is
+                    # really nice so let's use that.
+                    type_names = ['System.Collections.Generic.List`1[[System.Object]]', 'System.Object']
+                elif isinstance(value, (PSDict, dict)):
+                    # I could use the Dictionary<T, T>  but PowerShell really skews towards Hashtables for dictionaries
+                    # so let's keep to that norm.
+                    type_names = ['System.Collections.Hashtable', 'System.Object']
+                else:
+                    type_names = ['System.Management.Automation.PSCustomObject', 'System.Object']
+
+                main_type = type_names[0]
+                ref_id = self.tn.get(main_type, None)
+                if ref_id is None:
+                    ref_id = self.tn_id
+                    self.tn_id += 1
+                    self.tn[main_type] = ref_id
+
+                    tn = ET.SubElement(element, "TN", RefId=str(ref_id))
+                    for type_name in type_names:
+                        ET.SubElement(tn, "T").text = type_name
+                else:
+                    ET.SubElement(element, "TNRef", RefId=str(ref_id))
+
+            no_props = True
+            for xml_name, properties in [('Props', psobject.adapted_properties), ('MS', psobject.extended_properties)]:
+                if not properties:
+                    continue
+
+                no_props = False
+                prop_elements = ET.SubElement(element, xml_name)
+                for prop in properties:
+                    prop_value = getattr(value, prop.name, None)
+                    if prop_value is None and prop.optional:
+                        continue
+                    elif prop_value is not None and prop.ps_type:
+                        prop_value = prop.ps_type(prop_value)
+
+                    prop_element = self.serialize(prop_value)
+                    prop_element.attrib['N'] = prop.clixml_name
+                    prop_elements.append(prop_element)
+
+            if isinstance(value, PSStack):
+                stk_element = ET.SubElement(element, 'STK')
+
+                for stk_entry in value:
+                    stk_element.append(self.serialize(stk_entry))
+            elif isinstance(value, (PSQueue, Queue)):
+                que_element = ET.SubElement(element, 'QUE')
+
+                while True:
+                    try:
+                        que_entry = self.serialize(value.get(block=False))
+                    except Empty:
+                        break
+                    else:
+                        que_element.append(que_entry)
+            elif isinstance(value, (PSList, list)):
+                lst_element = ET.SubElement(element, 'LST')
+
+                for lst_entry in value:
+                    lst_element.append(self.serialize(lst_entry))
+            elif isinstance(value, (PSDict, dict)):
+                dct_element = ET.SubElement(element, 'DCT')
+
+                for dct_key, dct_value in value.items():
+                    en_element = ET.SubElement(dct_element, 'En')
+
+                    s_dct_key = self.serialize(dct_key)
+                    s_dct_key.attrib['N'] = 'Key'
+                    en_element.append(s_dct_key)
+
+                    s_dct_value = self.serialize(dct_value)
+                    s_dct_value.attrib['N'] = 'Value'
+                    en_element.append(s_dct_value)
+            else:
+                # ToString should only be set if explicitly defined or if not a primitive object.
+                if is_complex or psobject.to_string:
+                    try:
+                        to_string = psobject.to_string or str(value)
+                    except Exception:
+                        to_string = None  # in case __str__ raises an exception, don't include it
+
+                    if to_string is not None and to_string != NoToString:
+                        ET.SubElement(element, 'ToString').text = self._serialize_string(to_string)
+
+                if is_complex and no_props:
+                    # If no explicit properties were defined and this is not an extended primitive object, set the
+                    # actual Python attributes of the object.
+                    for prop in dir(value):
+                        prop_value = getattr(value, prop)
+
+                        if prop == 'psobject' or prop.startswith('__') or callable(prop_value):
+                            continue
+
+                        sub_element = self.serialize(prop_value)
+                        sub_element.attrib['N'] = prop
+                        element.append(sub_element)
+
+        return element
+
+    def deserialize(self, element):
+        # These types are pure primitive types and we don't need to do anything special when de-serializing
+        if element.tag == 'ToString':
+            return self._deserialize_string(element.text)
+        elif element.tag == 'Nil':
+            return None
+        elif element.tag == 'B':
+            # Technically can be an extended primitive but due to limitations in Python we cannot subclass bool.
+            return element.text.lower() == "true"
+        elif element.tag == 'Ref':
+            return self.obj[element.attrib['RefId']]
+
+        psobject = PSObjectMeta()
+        psobject.type_names = self._get_types_from_obj(element)
+
+        if element.tag == 'By':
+            value = PSByte(element.text)
+        elif element.tag == 'BA':
+            value = PSByteArray(base64.b64decode(element.text))
+        elif element.tag == 'C':
+            value = PSChar(element.text)
+        elif element.tag == 'DT':
+            value = self._deserialize_datetime(element.text)
+        elif element.tag == 'D':
+            value = PSDecimal(element.text)
+        elif element.tag == 'Db':
+            value = PSDouble(element.text)
+        elif element.tag == 'TS':
+            value = PSDuration(element.text)
+        elif element.tag == 'G':
+            value = PSGuid(element.text)
+        elif element.tag == 'I16':
+            value = PSInt16(element.text)
+        elif element.tag == 'I32':
+            value = PSInt(element.text)
+        elif element.tag == 'I64':
+            value = PSInt64(element.text)
+        elif element.tag == 'SB':
+            value = PSSByte(element.text)
+        elif element.tag == 'SBK':
+            value = PSScriptBlock(self._deserialize_string(element.text))
+        elif element.tag == 'SS':
+            value = PSSecureString(self._deserialize_secure_string(element))
+        elif element.tag == 'Sg':
+            value = PSSingle(element.text)
+        elif element.tag == 'S':
+            value = PSString(self._deserialize_string(element.text))
+        elif element.tag == 'U16':
+            value = PSUInt16(element.text)
+        elif element.tag == 'U32':
+            value = PSUInt(element.text)
+        elif element.tag == 'U64':
+            value = PSUInt64(element.text)
+        elif element.tag == 'URI':
+            value = PSUri(self._deserialize_string(element.text))
+        elif element.tag == 'Version':
+            value = PSVersion(element.text)
+        elif element.tag == 'XD':
+            value = PSXml(self._deserialize_string(element.text))
+        elif element.tag == 'Obj':
+            value = PSObject()
+
+            # Store props so we can properly set them in the correct order after (Extended overrides Adapted).
+            adapted_props = None
+            extended_props = None
+
+            for obj_entry in element:
+                if obj_entry.tag == 'Props':
+                    adapted_props = ('Props', obj_entry)
+                elif obj_entry.tag == 'MS':
+                    extended_props = ('MS', obj_entry)
+                elif obj_entry.tag == 'ToString':
+                    psobject.to_string = self.deserialize(obj_entry)
+                elif obj_entry.tag == 'DCT':
+                    psobject.xml_tag = obj_entry.tag
+
+                    value = PSDict([(self.deserialize(dict_entry.find('*/[@N="Key"]')),
+                                     self.deserialize(dict_entry.find('*/[@N="Value"]')))
+                                    for dict_entry in obj_entry])
+                elif obj_entry.tag == 'STK':
+                    psobject.xml_tag = obj_entry.tag
+
+                    value = PSStack([self.deserialize(stack_entry) for stack_entry in obj_entry])
+                elif obj_entry.tag == 'QUE':
+                    psobject.xml_tag = obj_entry.tag
+
+                    value = PSQueue()
+                    for queue_entry in obj_entry:
+                        value.put(self.deserialize(queue_entry))
+                elif obj_entry.tag in ['LST', 'IE']:
+                    psobject.xml_tag = obj_entry.tag
+
+                    value = PSList([self.deserialize(list_entry) for list_entry in obj_entry])
+                elif obj_entry.tag != 'TN':
+                    psobject.xml_tag = obj_entry.tag
+
+                    # This is the raw value of an extended primitive object, we need to preserve the tag.
+                    value = self.deserialize(obj_entry)
+
+            # We support most extended primitive objects except for a bool type.
+            if isinstance(value, PSObject):
+                for prop_group in [adapted_props, extended_props]:
+                    for obj_property in prop_group[1] if prop_group else []:
+                        prop_value = self.deserialize(obj_property)
+
+                        prop_name = obj_property.attrib['N']
+                        prop_info = PSPropertyInfo(prop_name, clixml_name=prop_name, ps_type=type(prop_value))
+                        setattr(value, prop_name, prop_value)
+
+                        if obj_property.tag == 'Props':
+                            psobject.adapted_properties.append(prop_info)
+                        else:
+                            psobject.extended_properties.append(prop_info)
+        else:
+            raise ValueError("Unknown element found: %s" % element.tag)
+
+        if isinstance(value, PSObject):
+            value.psobject = psobject
+
+        return value

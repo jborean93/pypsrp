@@ -8,9 +8,28 @@ try:
 except ImportError:  # pragma: no cover
     from Queue import Queue
 
-from pypsrp._utils import to_string, version_equal_or_newer
+from pypsrp.dotnet import (
+    NoToString,
+    PSBool,
+    PSByteArray,
+    PSDict,
+    PSEnumBase,
+    PSInt,
+    PSInt64,
+    PSList,
+    PSObject,
+    PSPropertyInfo,
+    PSString,
+    PSVersion,
+)
+
+from pypsrp._utils import (
+    to_string,
+    version_equal_or_newer,
+)
 
 
+### Deprecated, V1 Serializer ###
 class ObjectMeta(object):
 
     def __init__(self, tag="*", name=None, optional=False, object=None):
@@ -149,11 +168,13 @@ class Enum(ComplexObject):
     def _to_string(self, value):
         pass
 
+### End deprecation ###
+
 
 # PSRP Complex Objects - https://msdn.microsoft.com/en-us/library/dd302883.aspx
-class Coordinates(ComplexObject):
+class Coordinates(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, x=None, y=None):
         """
         [MS-PSRP] 2.2.3.1 Coordinates
         https://msdn.microsoft.com/en-us/library/dd302883.aspx
@@ -162,22 +183,24 @@ class Coordinates(ComplexObject):
         :param y: The Y coordinate (0 is the topmost row)
         """
         super(Coordinates, self).__init__()
-        self._adapted_properties = (
-            ('x', ObjectMeta("I32", name="X")),
-            ('y', ObjectMeta("I32", name="Y")),
-        )
-        self._types = [
+        self.psobject.adapted_properties = [
+            PSPropertyInfo('x', clixml_name='X', ps_type=PSInt),
+            PSPropertyInfo('y', clixml_name='Y', ps_type=PSInt),
+        ]
+        self.psobject.type_names = [
             "System.Management.Automation.Host.Coordinates",
             "System.ValueType",
             "System.Object"
         ]
-        self.x = kwargs.get('x')
-        self.y = kwargs.get('y')
+        self.psobject.to_string = NoToString
+
+        self.x = x
+        self.y = y
 
 
-class Size(ComplexObject):
+class Size(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, width=None, height=None):
         """
         [MS-PSRP] 2.2.3.2 Size
         https://msdn.microsoft.com/en-us/library/dd305083.aspx
@@ -186,20 +209,22 @@ class Size(ComplexObject):
         :param height: The height of the size
         """
         super(Size, self).__init__()
-        self._adapted_properties = (
-            ('width', ObjectMeta("I32", name="Width")),
-            ('height', ObjectMeta("I32", name="Height")),
-        )
-        self._types = [
+        self.psobject.adapted_properties = [
+            PSPropertyInfo('width', clixml_name='Width', ps_type=PSInt),
+            PSPropertyInfo('height', clixml_name='Height', ps_type=PSInt),
+        ]
+        self.psobject.type_names = [
             "System.Management.Automation.Host.Size",
             "System.ValueType",
             "System.Object"
         ]
-        self.width = kwargs.get('width')
-        self.height = kwargs.get('height')
+        self.psobject.to_string = NoToString
+
+        self.width = width
+        self.height = height
 
 
-class Color(Enum):
+class Color(PSEnumBase):
     BLACK = 0
     DARK_BLUE = 1
     DARK_GREEN = 2
@@ -217,36 +242,40 @@ class Color(Enum):
     YELLOW = 14
     WHITE = 15
 
-    def __init__(self, **kwargs):
+    ENUM_MAP = {
+        'Black': 0,
+        'DarkBlue': 1,
+        'DarkGreen': 2,
+        'DarkCyan': 3,
+        'DarkRed': 4,
+        'DarkMagenta': 5,
+        'DarkYellow': 6,
+        'Gray': 7,
+        'DarkGray': 8,
+        'Blue': 9,
+        'Green': 10,
+        'Cyan': 11,
+        'Red': 12,
+        'Magenta': 13,
+        'Yellow': 14,
+        'White': 15,
+    }
+
+    def __init__(self, value):
         """
         [MS-PSRP] 2.2.3.3 Color
         https://msdn.microsoft.com/en-us/library/dd360026.aspx
 
-        :param value: The enum value for Color
+        :param value: The enum value for Color.
         """
-        string_map = {
-            0: "Black",
-            1: "DarkBlue",
-            2: "DarkGreen",
-            3: "DarkCyan",
-            4: "DarkRed",
-            5: "DarkMagenta",
-            6: "DarkYellow",
-            7: "Gray",
-            8: "DarkGray",
-            9: "Blue",
-            10: "Green",
-            11: "Cyan",
-            12: "Red",
-            13: "Magenta",
-            14: "Yellow",
-            15: "White",
-        }
-        super(Color, self).__init__("System.ConsoleColor", string_map,
-                                    **kwargs)
+        super(Color, self).__init__(value, 'System.ConsoleColor')
+
+    @property  # TODO: deprecate
+    def value(self):
+        return int(self)
 
 
-class RunspacePoolState(object):
+class RunspacePoolState(PSEnumBase):
     BEFORE_OPEN = 0
     OPENING = 1
     OPENED = 2
@@ -258,33 +287,36 @@ class RunspacePoolState(object):
     CONNECTING = 8
     DISCONNECTED = 9
 
-    def __init__(self, state):
+    ENUM_MAP = {
+        'BeforeOpen': 0,
+        'Opening': 1,
+        'Opened': 2,
+        'Closed': 3,
+        'Closing': 4,
+        'Broken': 5,
+        'NegotiationSent': 6,
+        'NegotiationSucceeded': 7,
+        'Connecting': 8,
+        'Disconnected': 9,
+    }
+
+    def __init__(self, value):
         """
         [MS-PSRP] 2.2.3.4 RunspacePoolState
         https://msdn.microsoft.com/en-us/library/dd341723.aspx
 
         Represents the state of the RunspacePool.
 
-        :param state: The state int value
+        :param value: The enum value for RunspacePoolState.
         """
-        self.state = state
+        super(RunspacePoolState, self).__init__(value, 'System.Management.Automation.Runspaces.RunspacePoolState')
 
-    def __str__(self):
-        return {
-            0: "BeforeOpen",
-            1: "Opening",
-            2: "Opened",
-            3: "Closed",
-            4: "Closing",
-            5: "Broken",
-            6: "NegotiationSent",
-            7: "NegotiationSucceeded",
-            8: "Connecting",
-            9: "Disconnected"
-        }[self.state]
+    @property  # TODO: deprecate
+    def state(self):
+        return int(self)
 
 
-class PSInvocationState(object):
+class PSInvocationState(PSEnumBase):
     NOT_STARTED = 0
     RUNNING = 1
     STOPPING = 2
@@ -293,181 +325,153 @@ class PSInvocationState(object):
     FAILED = 5
     DISCONNECTED = 6
 
-    def __init__(self, state):
+    ENUM_MAP = {
+        'NotStarted': 0,
+        'Running': 1,
+        'Stopping': 2,
+        'Stopped': 3,
+        'Completed': 4,
+        'Failed': 5,
+        'Disconnected': 6,
+    }
+
+    def __init__(self, value):
         """
         [MS-PSRP] 2.2.3.5 PSInvocationState
         https://msdn.microsoft.com/en-us/library/dd341651.aspx
 
         Represents the state of a pipeline invocation.
 
-        :param state: The state int value
+        :param value: The enum value for PSInvocationState.
         """
-        self.state = state
+        super(PSInvocationState, self).__init__(value, 'System.Management.Automation.PSInvocationState')
 
-    def __str__(self):
-        return {
-            0: "NotStarted",
-            1: "Running",
-            2: "Stopping",
-            3: "Stopped",
-            4: "Completed",
-            5: "Failed",
-            6: "Disconnected"
-        }[self.state]
+    @property  # TODO: deprecate
+    def state(self):
+        return int(self)
 
 
-class PSThreadOptions(Enum):
+class PSThreadOptions(PSEnumBase):
     DEFAULT = 0
     USE_NEW_THREAD = 1
     REUSE_THREAD = 2
     USE_CURRENT_THREAD = 3
 
-    def __init__(self, **kwargs):
+    ENUM_MAP = {
+        'Default': 0,
+        'UseNewThread': 1,
+        'ReuseThread': 2,
+        'UseCurrentThread': 3,
+    }
+
+    def __init__(self, value):
         """
         [MS-PSRP] 2.2.3.6 PSThreadOptions
         https://msdn.microsoft.com/en-us/library/dd305678.aspx
 
-        :param value: The enum value for PS Thread Options
+        :param value: The enum value for PS Thread Options.
         """
-        string_map = {
-            0: "Default",
-            1: "UseNewThread",
-            2: "ReuseThread",
-            3: "UseCurrentThread"
-        }
-        super(PSThreadOptions, self).__init__(
-            "System.Management.Automation.Runspaces.PSThreadOptions",
-            string_map, **kwargs
-        )
+        super(PSThreadOptions, self).__init__(value, 'System.Management.Automation.Runspaces.PSThreadOptions')
+
+    @property  # TODO: deprecate
+    def state(self):
+        return int(self)
 
 
-class ApartmentState(Enum):
+class ApartmentState(PSEnumBase):
     STA = 0
     MTA = 1
     UNKNOWN = 2
 
-    def __init__(self, **kwargs):
+    ENUM_MAP = {
+        'STA': 0,
+        'MTA': 1,
+        'Unknown': 2
+    }
+
+    def __init__(self, value):
         """
         [MS-PSRP] 2.2.3.7 ApartmentState
         https://msdn.microsoft.com/en-us/library/dd304257.aspx
 
-        :param value: The enum value for Apartment State
+        :param value: The enum value for Apartment State.
         """
-        string_map = {
-            0: 'STA',
-            1: 'MTA',
-            2: 'UNKNOWN'
-        }
-        super(ApartmentState, self).__init__(
-            "System.Management.Automation.Runspaces.ApartmentState",
-            string_map, **kwargs
-        )
+        super(ApartmentState, self).__init__(value, 'System.Management.Automation.Runspaces.ApartmentState')
+
+    @property  # TODO: deprecate
+    def value(self):
+        return int(self)
 
 
-class RemoteStreamOptions(Enum):
+class RemoteStreamOptions(PSEnumBase):
     ADD_INVOCATION_INFO_TO_ERROR_RECORD = 1
     ADD_INVOCATION_INFO_TO_WARNING_RECORD = 2
     ADD_INVOCATION_INFO_TO_DEBUG_RECORD = 4
     ADD_INVOCATION_INFO_TO_VERBOSE_RECORD = 8
     ADD_INVOCATION_INFO = 15
 
-    def __init__(self, **kwargs):
+    ENUM_MAP = {
+        'AddInvocationInfoToErrorRecord': 1,
+        'AddInvocationInfoToWarningRecord': 2,
+        'AddInvocationInfoToDebugRecord': 4,
+        'AddInvocationInfoToVerboseRecord': 8,
+        'AddInvocationInfo': 15,
+    }
+    IS_FLAGS = True
+
+    def __init__(self, value):
         """
         [MS-PSRP] 2.2.3.8 RemoteStreamOptions
         https://msdn.microsoft.com/en-us/library/dd303829.aspx
 
-        :param value: The initial RemoteStreamOption to set
+        :param value: The initial RemoteStreamOption to set.
         """
-        super(RemoteStreamOptions, self).__init__(
-            "System.Management.Automation.Runspaces.RemoteStreamOptions",
-            {}, **kwargs
-        )
+        super(RemoteStreamOptions, self).__init__(value, 'System.Management.Automation.Runspaces.RemoteStreamOptions')
 
-    @property
-    def _to_string(self):
-        if self.value == 15:
-            return "AddInvocationInfo"
-
-        string_map = (
-            ("AddInvocationInfoToErrorRecord", 1),
-            ("AddInvocationInfoToWarningRecord", 2),
-            ("AddInvocationInfoToDebugRecord", 4),
-            ("AddInvocationInfoToVerboseRecord", 8),
-        )
-        values = []
-        for name, flag in string_map:
-            if self.value & flag == flag:
-                values.append(name)
-        return ", ".join(values)
-
-    @_to_string.setter
-    def _to_string(self, value):
-        pass
+    @property  # TODO: deprecate
+    def value(self):
+        return int(self)
 
 
-class Pipeline(ComplexObject):
+class Pipeline(PSObject):
 
-    class _ExtraCmds(ComplexObject):
-        def __init__(self, **kwargs):
+    class _ExtraCmds(PSObject):
+        def __init__(self, cmds=None):
             # Used to encapsulate ExtraCmds in the structure required
             super(Pipeline._ExtraCmds, self).__init__()
-            self._extended_properties = (
-                ('cmds', ListMeta(
-                    name="Cmds",
-                    list_value_meta=ObjectMeta("Obj", object=Command),
-                    list_types=[
-                        "System.Collections.Generic.List`1[["
-                        "System.Management.Automation.PSObject, "
-                        "System.Management.Automation, Version=1.0.0.0, "
-                        "Culture=neutral, PublicKeyToken=31bf3856ad364e35]]",
-                        "System.Object",
-                    ]
-                )),
-            )
-            self.cmds = kwargs.get('cmds')
+            self.psobject.extended_properties = [
+                PSPropertyInfo('cmds', clixml_name='Cmds', ps_type=PSListPSObject),
+            ]
+            self.psobject.to_string = NoToString
+            self.psobject.type_names = None
 
-    def __init__(self, **kwargs):
+            self.cmds = cmds
+
+    def __init__(self, is_nested=None, cmds=None, history=None, redirect_err_to_out=None):
         """
         [MS-PSRP] 2.2.3.11 Pipeline
         https://msdn.microsoft.com/en-us/library/dd358182.aspx
 
-        :param is_nested: Whether the pipeline is a nested pipeline
-        :param commands: List of commands to run
-        :param history: The history string to add to the pipeline
-        :param redirect_err_to_out: Whether to redirect the global
-            error output pipe to the commands error output pipe.
+        :param is_nested: Whether the pipeline is a nested pipeline.
+        :param cmds: List of commands to run.
+        :param history: The history string to add to the pipeline.
+        :param redirect_err_to_out: Whether to redirect the global error output pipe to the commands error output pipe.
         """
         super(Pipeline, self).__init__()
-        cmd_types = [
-            "System.Collections.Generic.List`1[["
-            "System.Management.Automation.PSObject, "
-            "System.Management.Automation, "
-            "Version=1.0.0.0, Culture=neutral, "
-            "PublicKeyToken=31bf3856ad364e35]]",
-            "System.Object",
+        self.psobject.extended_properties = [
+            PSPropertyInfo('is_nested', clixml_name='IsNested', ps_type=PSBool),
+            # ExtraCmds isn't in spec but is value and used to send multiple statements.
+            PSPropertyInfo('_extra_cmds', clixml_name='ExtraCmds', ps_type=self._ExtraCmds),
+            PSPropertyInfo('_cmds', clixml_name='Cmds', ps_type=Command),
+            PSPropertyInfo('history', clixml_name='History', ps_type=PSString),
+            PSPropertyInfo('redirect_err_to_out', clixml_name='RedirectShellErrorToOutputPipe', ps_type=PSBool),
         ]
+        self.psobject.to_string = NoToString
 
-        self._extended_properties = (
-            ('is_nested', ObjectMeta("B", name="IsNested")),
-            # ExtraCmds isn't in spec but is value and used to send multiple
-            # statements
-            ('_extra_cmds', ListMeta(
-                name="ExtraCmds",
-                list_value_meta=ObjectMeta("Obj", object=self._ExtraCmds),
-                list_types=cmd_types
-            )),
-            ('_cmds', ListMeta(
-                name="Cmds", list_value_meta=ObjectMeta("Obj", object=Command),
-                list_types=cmd_types
-            )),
-            ('history', ObjectMeta("S", name="History")),
-            ('redirect_err_to_out',
-             ObjectMeta("B", name="RedirectShellErrorOutputPipe")),
-        )
-        self.is_nested = kwargs.get('is_nested')
-        self.commands = kwargs.get('cmds')
-        self.history = kwargs.get('history')
-        self.redirect_err_to_out = kwargs.get('redirect_err_to_out')
+        self.is_nested = is_nested
+        self.commands = cmds
+        self.history = history
+        self.redirect_err_to_out = redirect_err_to_out
 
     @property
     def _cmds(self):
@@ -527,240 +531,224 @@ class Pipeline(ComplexObject):
         return statements
 
 
-class Command(ComplexObject):
+class Command(PSObject):
 
-    def __init__(self, protocol_version="2.3", **kwargs):
+    def __init__(self, protocol_version="2.3", cmd=None, is_script=None, use_local_scope=None, merge_my_result=None,
+                 merge_to_result=None, merge_previous=None, merge_error=None, merge_warning=None, merge_verbose=None,
+                 merge_debug=None, merge_information=None, args=None, end_of_statement=False):
         """
         [MS-PSRP] 2.2.3.12 Command
         https://msdn.microsoft.com/en-us/library/dd339976.aspx
 
-        :param protocol_version: The negotiated protocol version of the remote
-            host. This determines what merge_* objects are added to the
-            serialized xml.
-        :param cmd: The cmdlet or script to run
-        :param is_script: Whether cmd is a script or not
-        :param use_local_scope: Use local or global scope to invoke commands
-        :param merge_my_result: Controls the behaviour of what stream to merge
-            to 'merge_to_result'. Only supports NONE or ERROR (only used in
-            protocol 2.1)
-        :param merge_to_result: Controls the behaviour of where to merge the
-            'merge_my_result' stream. Only supports NONE or OUTPUT (only used
-            in protocol 2.1)
-        :param merge_previous: Controls the behaviour of where to merge the
-            previous Output and Error streams that have been unclaimed
-        :param merge_error: The merge behaviour of the Error stream
-        :param merge_warning: The merge behaviour of the Warning stream
-        :param merge_verbose: The merge behaviour of the Verbose stream
-        :param merge_debug: The merge behaviour of the Debug stream
-        :param merge_information: The merge behaviour of the Information stream
-        :param args: List of CommandParameters for the cmdlet being invoked
-        :param end_of_statement: Whether this command is the last in the
-            current statement
+        :param protocol_version: The negotiated protocol version of the remote host. This determines what merge_*
+            objects are added to the serialized xml.
+        :param cmd: The cmdlet or script to run.
+        :param is_script: Whether cmd is a script or not.
+        :param use_local_scope: Use local or global scope to invoke commands.
+        :param merge_my_result: Controls the behaviour of what stream to merge to 'merge_to_result'. Only supports NONE
+            or ERROR (only used in protocol 2.1).
+        :param merge_to_result: Controls the behaviour of where to merge the 'merge_my_result' stream. Only supports
+            NONE or OUTPUT (only used in protocol 2.1).
+        :param merge_previous: Controls the behaviour of where to merge the previous Output and Error streams that have
+            been unclaimed.
+        :param merge_error: The merge behaviour of the Error stream.
+        :param merge_warning: The merge behaviour of the Warning stream.
+        :param merge_verbose: The merge behaviour of the Verbose stream.
+        :param merge_debug: The merge behaviour of the Debug stream.
+        :param merge_information: The merge behaviour of the Information stream.
+        :param args: List of CommandParameters for the cmdlet being invoked.
+        :param end_of_statement: Whether this command is the last in the current statement.
         """
         super(Command, self).__init__()
-        arg_types = [
-            "System.Collections.Generic.List`1[["
-            "System.Management.Automation.PSObject, "
-            "System.Management.Automation, "
-            "Version=1.0.0.0, Culture=neutral, "
-            "PublicKeyToken=31bf3856ad364e35]]",
-            "System.Object",
+        self.psobject.extended_properties = [
+            PSPropertyInfo('cmd', clixml_name='Cmd', ps_type=PSString),
+            PSPropertyInfo('is_script', clixml_name='IsScript', ps_type=PSBool),
+            PSPropertyInfo('use_local_scope', clixml_name='UseLocalScope', ps_type=PSBool),
+            PSPropertyInfo('merge_my_result', clixml_name='MergeMyResult', ps_type=PipelineResultTypes),
+            PSPropertyInfo('merge_to_result', clixml_name='MergeToResult', ps_type=PipelineResultTypes),
+            PSPropertyInfo('merge_previous', clixml_name='MergePreviousResults', ps_type=PipelineResultTypes),
+            PSPropertyInfo('args', clixml_name='Args', ps_type=PSListPSObject),
         ]
-        extended_properties = [
-            ('cmd', ObjectMeta("S", name="Cmd")),
-            ('is_script', ObjectMeta("B", name="IsScript")),
-            ('use_local_scope', ObjectMeta("B", name="UseLocalScope")),
-            ('merge_my_result', ObjectMeta("Obj", name="MergeMyResult",
-                                           object=PipelineResultTypes)),
-            ('merge_to_result', ObjectMeta("Obj", name="MergeToResult",
-                                           object=PipelineResultTypes)),
-            ('merge_previous', ObjectMeta("Obj", name="MergePreviousResults",
-                                          object=PipelineResultTypes)),
-            ('args', ListMeta(
-                name="Args",
-                list_value_meta=ObjectMeta(object=CommandParameter),
-                list_types=arg_types)
-             ),
-        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
 
         if version_equal_or_newer(protocol_version, "2.2"):
-            extended_properties.extend([
-                ('merge_error', ObjectMeta("Obj", name="MergeError",
-                                           object=PipelineResultTypes,
-                                           optional=True)),
-                ('merge_warning', ObjectMeta("Obj", name="MergeWarning",
-                                             object=PipelineResultTypes,
-                                             optional=True)),
-                ('merge_verbose', ObjectMeta("Obj", name="MergeVerbose",
-                                             object=PipelineResultTypes,
-                                             optional=True)),
-                ('merge_debug', ObjectMeta("Obj", name="MergeDebug",
-                                           object=PipelineResultTypes,
-                                           optional=True)),
+            self.psobject.extended_properties.extend([
+                PSPropertyInfo('merge_error', clixml_name='MergeError', ps_type=PipelineResultTypes, optional=True),
+                PSPropertyInfo('merge_warning', clixml_name='MergeWarning', ps_type=PipelineResultTypes,
+                               optional=True),
+                PSPropertyInfo('merge_verbose', clixml_name='MergeVerbose', ps_type=PipelineResultTypes,
+                               optional=True),
+                PSPropertyInfo('merge_debug', clixml_name='MergeDebug', ps_type=PipelineResultTypes, optional=True),
             ])
 
         if version_equal_or_newer(protocol_version, "2.3"):
-            extended_properties.extend([
-                ('merge_information', ObjectMeta(
-                    "Obj", name="MergeInformation",
-                    object=PipelineResultTypes,
-                    optional=True
-                )),
+            self.psobject.extended_properties.extend([
+                PSPropertyInfo('merge_information', clixml_name='MergeInformation', ps_type=PipelineResultTypes,
+                               optional=True),
             ])
-        self._extended_properties = extended_properties
 
         self.protocol_version = protocol_version
-        self.cmd = kwargs.get("cmd")
-        self.is_script = kwargs.get("is_script")
-        self.use_local_scope = kwargs.get("use_local_scope")
-
-        none_merge = PipelineResultTypes(value=PipelineResultTypes.NONE)
+        self.cmd = cmd
+        self.is_script = is_script
+        self.use_local_scope = use_local_scope
 
         # valid in all protocols, only really used in 2.1 (PowerShell 2.0)
-        self.merge_my_result = kwargs.get("merge_my_result", none_merge)
-        self.merge_to_result = kwargs.get("merge_to_result", none_merge)
-
-        self.merge_previous = kwargs.get("merge_previous", none_merge)
+        is_v2 = protocol_version == "2.2"
+        self.merge_my_result = merge_my_result or PipelineResultTypes('None', protocol_version_2=is_v2)
+        self.merge_to_result = merge_to_result or PipelineResultTypes('None', protocol_version_2=is_v2)
+        self.merge_previous = merge_previous or PipelineResultTypes('None', protocol_version_2=is_v2)
 
         # only valid for 2.2+ (PowerShell 3.0+)
-        self.merge_error = kwargs.get("merge_error", none_merge)
-        self.merge_warning = kwargs.get("merge_warning", none_merge)
-        self.merge_verbose = kwargs.get("merge_verbose", none_merge)
-        self.merge_debug = kwargs.get("merge_debug", none_merge)
+        self.merge_error = merge_error or PipelineResultTypes('None', protocol_version_2=is_v2)
+        self.merge_warning = merge_warning or PipelineResultTypes('None', protocol_version_2=is_v2)
+        self.merge_verbose = merge_verbose or PipelineResultTypes('None', protocol_version_2=is_v2)
+        self.merge_debug = merge_debug or PipelineResultTypes('None', protocol_version_2=is_v2)
 
         # only valid for 2.3+ (PowerShell 5.0+)
-        self.merge_information = kwargs.get("merge_information", none_merge)
+        self.merge_information = merge_information or PipelineResultTypes('None', protocol_version_2=is_v2)
 
-        self.args = kwargs.get("args", [])
+        self.args = args or []
 
-        # not used in the serialized message but controls how Pipeline is
-        # packed (Cmds/ExtraCmds)
-        self.end_of_statement = kwargs.get("end_of_statement", False)
+        # not used in the serialized message but controls how Pipeline is packed (Cmds/ExtraCmds).
+        self.end_of_statement = end_of_statement
 
 
-class CommandParameter(ComplexObject):
+class CommandParameter(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, name=None, value=None):
         """
         [MS-PSRP] 2.2.3.13 Command Parameter
         https://msdn.microsoft.com/en-us/library/dd359709.aspx
 
-        :param name: The name of the parameter, otherwise None
-        :param value: The value of the parameter, can be any primitive type
-            or Complex Object, Null for no value
+        :param name: The name of the parameter, otherwise None.
+        :param value: The value of the parameter, can be any primitive type or Complex Object, Null for no value.
         """
         super(CommandParameter, self).__init__()
-        self._extended_properties = (
-            ('name', ObjectMeta("S", name="N")),
-            ('value', ObjectMeta(name="V")),
-        )
-        self.name = kwargs.get('name')
-        self.value = kwargs.get('value')
+        self.psobject.extended_properties = [
+            PSPropertyInfo('name', clixml_name='N', ps_type=PSString),
+            PSPropertyInfo('value', clixml_name='V'),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
+        self.name = name
+        self.value = value
 
 
 # The host default data is serialized quite differently from the normal rules
 # this contains some sub classes that are specific to the serialized form
-class _HostDefaultData(ComplexObject):
+class _HostDataDictValue(PSObject):
 
-    class _DictValue(ComplexObject):
+    def __init__(self, value, value_type, ps_value_type=None):
+        super(_HostDataDictValue, self).__init__()
+        self.psobject.extended_properties = [
+            PSPropertyInfo('value_type', clixml_name='T', ps_type=PSString),
+            PSPropertyInfo('value', clixml_name='V', ps_type=ps_value_type),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
 
-        def __init__(self, **kwargs):
-            super(_HostDefaultData._DictValue, self).__init__()
-            self._extended_properties = (
-                ('value_type', ObjectMeta("S", name="T")),
-                ('value', ObjectMeta(name="V")),
-            )
-            self.value_type = kwargs.get('value_type')
-            self.value = kwargs.get('value')
+        self.value_type = value_type
+        self.value = value
 
-    class _Color(ComplexObject):
 
-        def __init__(self, color):
-            super(_HostDefaultData._Color, self).__init__()
-            self._extended_properties = (
-                ('type', ObjectMeta("S", name="T")),
-                ('color', ObjectMeta("I32", name="V")),
-            )
-            self.type = "System.ConsoleColor"
-            self.color = color.value
+class _HostDataColor(_HostDataDictValue):
+    def __init__(self, color):
+        super(_HostDataColor, self).__init__(color.value, 'System.ConsoleColor', ps_value_type=PSInt)
 
-    class _Coordinates(ComplexObject):
 
-        def __init__(self, coordinates):
-            super(_HostDefaultData._Coordinates, self).__init__()
-            self._extended_properties = (
-                ('type', ObjectMeta("S", name="T")),
-                ('value', ObjectMeta("ObjDynamic", name="V",
-                                     object=GenericComplexObject)),
-            )
-            self.type = "System.Management.Automation.Host.Coordinates"
-            self.value = GenericComplexObject()
-            self.value.extended_properties['x'] = coordinates.x
-            self.value.extended_properties['y'] = coordinates.y
+class _HostDataCoordinates(_HostDataDictValue):
 
-    class _Size(ComplexObject):
+    class _Coordinates(PSObject):
+        def __init__(self, x, y):
+            super(_HostDataCoordinates._Coordinates, self).__init__()
+            self.psobject.extended_properties = [
+                PSPropertyInfo('x', ps_type=PSInt),
+                PSPropertyInfo('y', ps_type=PSInt),
+            ]
+            self.psobject.to_string = NoToString
+            self.psobject.type_names = None
 
-        def __init__(self, size):
-            super(_HostDefaultData._Size, self).__init__()
-            self._extended_properties = (
-                ('type', ObjectMeta("S", name="T")),
-                ('value', ObjectMeta("ObjDynamic", name="V",
-                                     object=GenericComplexObject)),
-            )
-            self.type = "System.Management.Automation.Host.Size"
-            self.value = GenericComplexObject()
-            self.value.extended_properties['width'] = size.width
-            self.value.extended_properties['height'] = size.height
+            self.x = x
+            self.y = y
 
-    def __init__(self, **kwargs):
-        # Used by HostInfo to encapsulate the host info values inside a
-        # special object required by PSRP
+    def __init__(self, coordinates):
+        super(_HostDataCoordinates, self).__init__(self._Coordinates(coordinates.x, coordinates.y),
+                                                   'System.Management.Automation.Host.Coordinates',
+                                                   ps_value_type=self._Coordinates)
+
+
+class _HostDataSize(_HostDataDictValue):
+
+    class _Size(PSObject):
+        def __init__(self, width, height):
+            super(_HostDataSize._Size, self).__init__()
+            self.psobject.extended_properties = [
+                PSPropertyInfo('width', ps_type=PSInt),
+                PSPropertyInfo('height', ps_type=PSInt),
+            ]
+            self.psobject.to_string = NoToString
+            self.psobject.type_names = None
+
+            self.width = width
+            self.height = height
+
+    def __init__(self, size):
+        super(_HostDataSize, self).__init__(self._Size(size.width, size.height),
+                                            'System.Management.Automation.Host.Size', ps_value_type=self._Size)
+
+
+class _HostDefaultData(PSObject):
+
+    def __init__(self, raw_ui):
+        # Used by HostInfo to encapsulate the host info values inside a special object required by PSRP.
         super(_HostDefaultData, self).__init__()
-        key_meta = ObjectMeta("I32", name="Key")
-        self._extended_properties = (
-            ('_host_dict', DictionaryMeta(name="data",
-                                          dict_key_meta=key_meta)),
-        )
-        self.raw_ui = kwargs.get('raw_ui')
+        self.psobject.extended_properties = [
+            PSPropertyInfo('_host_dict', 'data', ps_type=PSDict),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
+        self.raw_ui = raw_ui
 
     @property
     def _host_dict(self):
         return (
-            (0, self._Color(self.raw_ui.foreground_color)),
-            (1, self._Color(self.raw_ui.background_color)),
-            (2, self._Coordinates(self.raw_ui.cursor_position)),
-            (3, self._Coordinates(self.raw_ui.window_position)),
-            (4, self._DictValue(value_type="System.Int32",
-                                value=self.raw_ui.cursor_size)),
-            (5, self._Size(self.raw_ui.buffer_size)),
-            (6, self._Size(self.raw_ui.window_size)),
-            (7, self._Size(self.raw_ui.max_window_size)),
-            (8, self._Size(self.raw_ui.max_physical_window_size)),
-            (9, self._DictValue(value_type="System.String",
-                                value=self.raw_ui.window_title)),
+            (0, _HostDataColor(self.raw_ui.foreground_color)),
+            (1, _HostDataColor(self.raw_ui.background_color)),
+            (2, _HostDataCoordinates(self.raw_ui.cursor_position)),
+            (3, _HostDataCoordinates(self.raw_ui.window_position)),
+            (4, _HostDataDictValue(self.raw_ui.cursor_size, 'System.Int32', ps_value_type=PSInt)),
+            (5, _HostDataSize(self.raw_ui.buffer_size)),
+            (6, _HostDataSize(self.raw_ui.window_size)),
+            (7, _HostDataSize(self.raw_ui.max_window_size)),
+            (8, _HostDataSize(self.raw_ui.max_physical_window_size)),
+            (9, _HostDataDictValue(self.raw_ui.window_title, 'System.String', ps_value_type=PSString)),
         )
 
 
-class HostInfo(ComplexObject):
+class HostInfo(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, host=None):
         """
         [MS-PSRP] 2.2.3.14 HostInfo
         https://msdn.microsoft.com/en-us/library/dd340936.aspx
 
-        :param host: An implementation of pypsrp.host.PSHost that defines the
-            local host
+        :param host: An implementation of pypsrp.host.PSHost that defines the local host.
         """
         super(HostInfo, self).__init__()
-        self._extended_properties = (
-            ('_host_data', ObjectMeta("Obj", name="_hostDefaultData",
-                                      optional=True, object=_HostDefaultData)),
-            ('_is_host_null', ObjectMeta("B", name="_isHostNull")),
-            ('_is_host_ui_null', ObjectMeta("B", name="_isHostUINull")),
-            ('_is_host_raw_ui_null', ObjectMeta("B", name="_isHostRawUINull")),
-            ('_use_runspace_host', ObjectMeta("B", name="_useRunspaceHost")),
-        )
-        self.host = kwargs.get('host', None)
+        self.psobject.extended_properties = [
+            PSPropertyInfo('_host_data', clixml_name='_hostDefaultData', ps_type=_HostDefaultData, optional=True),
+            PSPropertyInfo('_is_host_null', clixml_name='_isHostNull', ps_type=PSBool),
+            PSPropertyInfo('_is_host_ui_null', clixml_name='_isHostUINull', ps_type=PSBool),
+            PSPropertyInfo('_is_host_raw_ui_null', clixml_name='_isHostRawUINull', ps_type=PSBool),
+            PSPropertyInfo('_use_runspace_host', clixml_name='_use_runspaceHost', ps_type=PSBool),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
+        self.host = host
 
     @property
     def _is_host_null(self):
@@ -793,385 +781,259 @@ class HostInfo(ComplexObject):
             return host_data
 
 
-class ErrorRecord(ComplexObject):
+class ErrorRecord(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, exception=None, target_object=None, invocation_info=None, fq_error=None, category=None,
+                 activity=None, reason=None, target_name=None, target_type=None, message=None, details_message=None,
+                 action=None, script_stacktrace=None, extended_info_present=None, invocation_name=None,
+                 invocation_bound_parameters=None, invocation_unbound_arguments=None, invocation_command_origin=None,
+                 invocation_expecting_input=None, invocation_line=None, invocation_offset_in_line=None,
+                 invocation_position_message=None, invocation_script_name=None, invocation_script_line_number=None,
+                 invocation_history_id=None, invocation_pipeline_length=None, invocation_pipeline_position=None,
+                 invocation_pipeline_iteration_info=None, command_type=None, command_definition=None,
+                 command_name=None, command_visibility=None, pipeline_iteration_info=None):
         """
         [MS-PSRP] 2.2.3.15 ErrorRecord
         https://msdn.microsoft.com/en-us/library/dd340106.aspx
         """
         super(ErrorRecord, self).__init__()
-        self._types = [
-            "System.Management.Automation.ErrorRecord",
-            "System.Object"
+        self.psobject.extended_properties = [
+            PSPropertyInfo('exception', clixml_name='Exception', optional=True),
+            PSPropertyInfo('target_object', clixml_name='TargetObject', optional=True),
+            PSPropertyInfo('invocation', clixml_name='SerializeExtendedInfo', ps_type=PSBool, optional=True),
+            PSPropertyInfo('invocation_info', clixml_name='InvocationInfo', optional=True),
+            PSPropertyInfo('fq_error', clixml_name='FullyQualifiedErrorId', ps_type=PSString),
+            PSPropertyInfo('category', clixml_name='ErrorCategory_Category', ps_type=PSInt),
+            PSPropertyInfo('activity', clixml_name='ErrorCategory_Activity', ps_type=PSString, optional=True),
+            PSPropertyInfo('reason', clixml_name='ErrorCategory_Reason', ps_type=PSString, optional=True),
+            PSPropertyInfo('target_name', clixml_name='ErrorCategory_TargetName', ps_type=PSString, optional=True),
+            PSPropertyInfo('target_type', clixml_name='ErrorCategory_TargetType', ps_type=PSString, optional=True),
+            PSPropertyInfo('message', clixml_name='ErrorCategory_Message', ps_type=PSString, optional=True),
+            PSPropertyInfo('details_message', clixml_name='ErrorDetails_Message', ps_type=PSString, optional=True),
+            PSPropertyInfo('action', clixml_name='ErrorDetails_RecommendedAction', ps_type=PSString, optional=True),
+            PSPropertyInfo('script_stacktrace', clixml_name='ErrorDetails_ScriptStackTrace', ps_type=PSString,
+                           optional=True),
+            PSPropertyInfo('extended_info_present', clixml_name='SerializeExtendedInfo', ps_type=PSBool),
+            PSPropertyInfo('invocation_name', clixml_name='InvocationInfo_InvocationName', ps_type=PSString,
+                           optional=True),
+            PSPropertyInfo('invocation_bound_parameters', clixml_name='InvocationInfo_BoundParameters',
+                           ps_type=PSBoundParametersDictionary, optional=True),
+            PSPropertyInfo('invocation_unbound_arguments', clixml_name='InvocationInfo_UnboundArguments',
+                           ps_type=PSList, optional=True),
+            PSPropertyInfo('invocation_command_origin', clixml_name='InvocationInfo_CommandOrigin',
+                           ps_type=CommandOrigin, optional=True),
+            PSPropertyInfo('invocation_expecting_input', clixml_name='InvocationInfo_ExpectingInput', ps_type=PSBool,
+                           optional=True),
+            PSPropertyInfo('invocation_line', clixml_name='InvocationInfo_Line', ps_type=PSString, optional=True),
+            PSPropertyInfo('invocation_offset_in_line', clixml_name='InvocationInfo_OffsetInLine', ps_type=PSInt,
+                           optional=True),
+            PSPropertyInfo('invocation_position_message', clixml_name='InvocationInfo_PositionMessage',
+                           ps_type=PSString, optional=True),
+            PSPropertyInfo('invocation_script_name', clixml_name='InvocationInfo_ScriptName', ps_type=PSString,
+                           optional=True),
+            PSPropertyInfo('invocation_script_line_number', clixml_name='InvocationInfo_ScriptLineNumber',
+                           ps_type=PSInt, optional=True),
+            PSPropertyInfo('invocation_history_id', clixml_name='InvocationInfo_HistoryId', ps_type=PSInt64,
+                           optional=True),
+            PSPropertyInfo('invocation_pipeline_length', clixml_name='InvocationInfo_PipelineLength', ps_type=PSInt,
+                           optional=True),
+            PSPropertyInfo('invocation_pipeline_position', clixml_name='InvocationInfo_PipelinePosition',
+                           ps_type=PSInt, optional=True),
+            PSPropertyInfo('invocation_pipeline_iteration_info', clixml_name='InvocationInfo_PipelineIterationInfo',
+                           ps_type=PSIntArray, optional=True),
+            PSPropertyInfo('command_type', clixml_name='CommandInfo_CommandType', ps_type=CommandType, optional=True),
+            PSPropertyInfo('command_definition', clixml_name='CommandInfo_Definition', ps_type=PSString, optional=True),
+            PSPropertyInfo('command_name', clixml_name='CommandInfo_Name', ps_type=PSString, optional=True),
+            PSPropertyInfo('command_visibility', clixml_name='CommandInfo_Visibility',
+                           ps_type=SessionStateEntryVisibility, optional=True),
+            PSPropertyInfo('pipeline_iteration_info', clixml_name='PipelineIterationInfo',
+                           ps_type=PSObjectModelReadOnlyCollectionInt, optional=True),
         ]
-        self._extended_properties = (
-            ('exception', ObjectMeta(name="Exception", optional=True)),
-            ('target_object', ObjectMeta(name="TargetObject", optional=True)),
-            ('invocation', ObjectMeta("B", name="SerializeExtendedInfo")),
-            ('invocation_info', ObjectMeta("ObjDynamic", name="InvocationInfo",
-                                           object=GenericComplexObject,
-                                           optional=True)),
-            ('fq_error', ObjectMeta("S", name="FullyQualifiedErrorId")),
-            ('category', ObjectMeta("I32", name="ErrorCategory_Category")),
-            ('activity', ObjectMeta("S", name="ErrorCategory_Activity",
-                                    optional=True)),
-            ('reason', ObjectMeta("S", name="ErrorCategory_Reason",
-                                  optional=True)),
-            ('target_name', ObjectMeta("S", name="ErrorCategory_TargetName",
-                                       optional=True)),
-            ('target_type', ObjectMeta("S", name="ErrorCategory_TargetType",
-                                       optional=True)),
-            ('message', ObjectMeta("S", name="ErrorCategory_Message",
-                                   optional=True)),
-            ('details_message', ObjectMeta("S", name="ErrorDetails_Message",
-                                           optional=True)),
-            ('action', ObjectMeta("S", name="ErrorDetails_RecommendedAction",
-                                  optional=True)),
-            ('script_stacktrace', ObjectMeta(
-                "S",
-                name="ErrorDetails_ScriptStackTrace",
-                optional=True
-            )),
-            ('extended_info_present', ObjectMeta(
-                "B", name="SerializeExtendedInfo"
-            )),
-            ('invocation_name', ObjectMeta(
-                "S",
-                optional=True,
-                name="InvocationInfo_InvocationName"
-            )),
-            ('invocation_bound_parameters', DictionaryMeta(
-                name="InvocationInfo_BoundParameters",
-                optional=True,
-                dict_key_meta=ObjectMeta("S"),
-                dict_types=[
-                    "System.Management.Automation.PSBoundParametersDictionary",
-                    "System.Collections.Generic.Dictionary`2[[System.String, "
-                    "mscorlib, Version=4.0.0.0, Culture=neutral, "
-                    "PublicKeyToken=b77a5c561934e089],"
-                    "[System.Object, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ]
-            )),
-            ('invocation_unbound_arguments', ListMeta(
-                name="InvocationInfo_UnboundArguments",
-                optional=True,
-                list_types=[
-                    "System.Collections.Generic.List`1[["
-                    "System.Object, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ]
-            )),
-            ('invocation_command_origin', ObjectMeta(
-                "Obj",
-                name="InvocationInfo_CommandOrigin",
-                optional=True,
-                object=CommandOrigin
-            )),
-            ('invocation_expecting_input', ObjectMeta(
-                "B",
-                name="InvocationInfo_ExpectingInput",
-                optional=True
-            )),
-            ('invocation_line', ObjectMeta(
-                "S",
-                name="InvocationInfo_Line",
-                optional=True
-            )),
-            ('invocation_offset_in_line', ObjectMeta(
-                "I32",
-                name="InvocationInfo_OffsetInLine",
-                optional=True
-            )),
-            ('invocation_position_message', ObjectMeta(
-                "S",
-                name="InvocationInfo_PositionMessage",
-                optional=True
-            )),
-            ('invocation_script_name', ObjectMeta(
-                "S",
-                name="InvocationInfo_ScriptName",
-                optional=True
-            )),
-            ('invocation_script_line_number', ObjectMeta(
-                "I32",
-                name="InvocationInfo_ScriptLineNumber",
-                optional=True
-            )),
-            ('invocation_history_id', ObjectMeta(
-                "I64",
-                name="InvocationInfo_HistoryId",
-                optional=True
-            )),
-            ('invocation_pipeline_length', ObjectMeta(
-                "I32",
-                name="InvocationInfo_PipelineLength",
-                optional=True
-            )),
-            ('invocation_pipeline_position', ObjectMeta(
-                "I32",
-                name="InvocationInfo_PipelinePosition",
-                optional=True
-            )),
-            ('invocation_pipeline_iteration_info', ListMeta(
-                name="InvocationInfo_PipelineIterationInfo",
-                optional=True,
-                list_value_meta=ObjectMeta("I32"),
-                list_types=["System.In32[]", "System.Array", "System.Object"]
-            )),
-            ('command_type', ObjectMeta(
-                "Obj",
-                name="CommandInfo_CommandType",
-                object=CommandType,
-                optional=True,
-            )),
-            ('command_definition', ObjectMeta(
-                "S",
-                name="CommandInfo_Definition",
-                optional=True,
-            )),
-            ('command_name', ObjectMeta(
-                "S",
-                name="CommandInfo_Name",
-                optional=True
-            )),
-            ('command_visibility', ObjectMeta(
-                "Obj",
-                name="CommandInfo_Visibility",
-                object=SessionStateEntryVisibility,
-                optional=True
-            )),
-            ('pipeline_iteration_info', ListMeta(
-                name="PipelineIterationInfo", optional=True,
-                list_value_meta=ObjectMeta("I32"),
-                list_types=[
-                    "System.Collections.ObjectModel.ReadOnlyCollection`1[["
-                    "System.Int32, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ]
-            )),
-        )
-        self.exception = kwargs.get('exception')
-        self.target_info = kwargs.get('target_info')
-        self.invocation = kwargs.get('invocation')
-        self.fq_error = kwargs.get('fq_error')
-        self.category = kwargs.get('category')
-        self.activity = kwargs.get('activity')
-        self.reason = kwargs.get('reason')
-        self.target_name = kwargs.get('target_name')
-        self.target_type = kwargs.get('target_type')
-        self.message = kwargs.get('message')
-        self.details_message = kwargs.get('details_message')
-        self.action = kwargs.get('action')
-        self.pipeline_iteration_info = kwargs.get('pipeline_iteration_info')
-        self.invocation_name = kwargs.get('invocation_name')
-        self.invocation_bound_parameters = \
-            kwargs.get('invocation_bound_parameters')
-        self.invocation_unbound_arguments = \
-            kwargs.get('invocation_unbound_arguments')
-        self.invocation_command_origin = \
-            kwargs.get('invocation_command_origin')
-        self.invocation_expecting_input = \
-            kwargs.get('invocation_expecting_input')
-        self.invocation_line = kwargs.get('invocation_line')
-        self.invocation_offset_in_line = \
-            kwargs.get('invocation_offset_in_line')
-        self.invocation_position_message = \
-            kwargs.get('invocation_position_message')
-        self.invocation_script_name = kwargs.get('invocation_script_name')
-        self.invocation_script_line_number = \
-            kwargs.get('invocation_script_line_number')
-        self.invocation_history_id = kwargs.get('invocation_history_id')
-        self.invocation_pipeline_length = \
-            kwargs.get('invocation_pipeline_length')
-        self.invocation_pipeline_position = \
-            kwargs.get('invocation_pipeline_position')
-        self.invocation_pipeline_iteration_info = \
-            kwargs.get('invocation_pipeline_iteration_info')
-        self.command_type = kwargs.get('command_type')
-        self.command_definition = kwargs.get('command_definition')
-        self.command_name = kwargs.get('command_name')
-        self.command_visibility = kwargs.get('command_visibility')
+        self.psobject.type_names = [
+            'System.Management.Automation.ErrorRecord',
+            'System.Object',
+        ]
+
+        self.exception = exception
+        self.target_info = target_object
+        self.invocation = False
+        self.invocation_info = invocation_info
+        self.fq_error = fq_error
+        self.category = category
+        self.activity = activity
+        self.reason = reason
+        self.target_name = target_name
+        self.target_type = target_type
+        self.message = message
+        self.details_message = details_message
+        self.action = action
+        self.script_stacktrace = script_stacktrace
+        self.extended_info_present = extended_info_present
+        self.pipeline_iteration_info = pipeline_iteration_info
+        self.invocation_name = invocation_name
+        self.invocation_bound_parameters = invocation_bound_parameters
+        self.invocation_unbound_arguments = invocation_unbound_arguments
+        self.invocation_command_origin = invocation_command_origin
+        self.invocation_expecting_input = invocation_expecting_input
+        self.invocation_line = invocation_line
+        self.invocation_offset_in_line = invocation_offset_in_line
+        self.invocation_position_message = invocation_position_message
+        self.invocation_script_name = invocation_script_name
+        self.invocation_script_line_number = invocation_script_line_number
+        self.invocation_history_id = invocation_history_id
+        self.invocation_pipeline_length = invocation_pipeline_length
+        self.invocation_pipeline_position = invocation_pipeline_position
+        self.invocation_pipeline_iteration_info = invocation_pipeline_iteration_info
+        self.command_type = command_type
+        self.command_definition = command_definition
+        self.command_name = command_name
+        self.command_visibility = command_visibility
         self.extended_info_present = self.invocation is not None
 
 
-class InformationalRecord(ComplexObject):
+class InformationalRecord(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, message=None, invocation_name=None, invocation_bound_parameters=None,
+                 invocation_unbound_arguments=None, invocation_command_origin=None, invocation_expecting_input=None,
+                 invocation_line=None, invocation_offset_in_line=None, invocation_position_message=None,
+                 invocation_script_name=None, invocation_script_line_number=None, invocation_history_id=None,
+                 invocation_pipeline_length=None, invocation_pipeline_position=None,
+                 invocation_pipeline_iteration_info=None, command_type=None, command_definition=None,
+                 command_name=None, command_visibility=None, pipeline_iteration_info=None):
         """
         [MS-PSRP] 2.2.3.16 InformationalRecord (Debug/Warning/Verbose)
         https://msdn.microsoft.com/en-us/library/dd305072.aspx
         """
         super(InformationalRecord, self).__init__()
-        self._types = [
-            "System.Management.Automation.InformationRecord",
-            "System.Object"
+        self.psobject.extended_properties = [
+            PSPropertyInfo('message', clixml_name='InformationalRecord_Message', ps_type=PSString),
+            PSPropertyInfo('invocation', clixml_name='InformationalRecord_SerializeInvocationInfo', ps_type=PSBool),
+            PSPropertyInfo('invocation_name', clixml_name='InvocationInfo_InvocationName', ps_type=PSString,
+                           optional=True),
+            PSPropertyInfo('invocation_bound_parameters', clixml_name='InvocationInfo_BoundParameters',
+                           ps_type=PSBoundParametersDictionary, optional=True),
+            PSPropertyInfo('invocation_unbound_arguments', clixml_name='InvocationInfo_UnboundArguments',
+                           ps_type=PSList, optional=True),
+            PSPropertyInfo('invocation_command_origin', clixml_name='InvocationInfo_CommandOrigin',
+                           ps_type=CommandOrigin, optional=True),
+            PSPropertyInfo('invocation_expecting_input', clixml_name='InvocationInfo_ExpectingInput', ps_type=PSBool,
+                           optional=True),
+            PSPropertyInfo('invocation_line', clixml_name='InvocationInfo_Line', ps_type=PSString, optional=True),
+            PSPropertyInfo('invocation_offset_in_line', clixml_name='InvocationInfo_OffsetInLine', ps_type=PSInt,
+                           optional=True),
+            PSPropertyInfo('invocation_position_message', clixml_name='InvocationInfo_PositionMessage',
+                           ps_type=PSString, optional=True),
+            PSPropertyInfo('invocation_script_name', clixml_name='InvocationInfo_ScriptName', ps_type=PSString,
+                           optional=True),
+            PSPropertyInfo('invocation_script_line_number', clixml_name='InvocationInfo_ScriptLineNumber',
+                           ps_type=PSInt, optional=True),
+            PSPropertyInfo('invocation_history_id', clixml_name='InvocationInfo_HistoryId', ps_type=PSInt64,
+                           optional=True),
+            PSPropertyInfo('invocation_pipeline_length', clixml_name='InvocationInfo_PipelineLength', ps_type=PSInt,
+                           optional=True),
+            PSPropertyInfo('invocation_pipeline_position', clixml_name='InvocationInfo_PipelinePosition',
+                           ps_type=PSInt, optional=True),
+            PSPropertyInfo('invocation_pipeline_iteration_info', clixml_name='InvocationInfo_PipelineIterationInfo',
+                           ps_type=PSIntArray, optional=True),
+            PSPropertyInfo('command_type', clixml_name='CommandInfo_CommandType', ps_type=CommandType, optional=True),
+            PSPropertyInfo('command_definition', clixml_name='CommandInfo_Definition', ps_type=PSString,
+                           optional=True),
+            PSPropertyInfo('command_name', clixml_name='CommandInfo_Name', ps_type=PSString, optional=True),
+            PSPropertyInfo('command_visibility', clixml_name='CommandInfo_Visibility',
+                           ps_type=SessionStateEntryVisibility, optional=True),
+            PSPropertyInfo('pipeline_iteration_info', clixml_name='InformationalRecord_PipelineIterationInfo',
+                           ps_type=PSObjectModelReadOnlyCollectionInt, optional=True),
         ]
-        self._extended_properties = (
-            ('message', ObjectMeta("S", name="InformationalRecord_Message")),
-            ('invocation', ObjectMeta(
-                "B", name="InformationalRecord_SerializeInvocationInfo"
-            )),
-            ('invocation_name', ObjectMeta(
-                "S",
-                optional=True,
-                name="InvocationInfo_InvocationName"
-            )),
-            ('invocation_bound_parameters', DictionaryMeta(
-                name="InvocationInfo_BoundParameters",
-                optional=True,
-                dict_key_meta=ObjectMeta("S"),
-                dict_types=[
-                    "System.Management.Automation.PSBoundParametersDictionary",
-                    "System.Collections.Generic.Dictionary`2[[System.String, "
-                    "mscorlib, Version=4.0.0.0, Culture=neutral, "
-                    "PublicKeyToken=b77a5c561934e089],"
-                    "[System.Object, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ]
-            )),
-            ('invocation_unbound_arguments', ListMeta(
-                name="InvocationInfo_UnboundArguments",
-                optional=True,
-                list_types=[
-                    "System.Collections.Generic.List`1[["
-                    "System.Object, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ]
-            )),
-            ('invocation_command_origin', ObjectMeta(
-                "Obj",
-                name="InvocationInfo_CommandOrigin",
-                optional=True,
-                object=CommandOrigin
-            )),
-            ('invocation_expecting_input', ObjectMeta(
-                "B",
-                name="InvocationInfo_ExpectingInput",
-                optional=True
-            )),
-            ('invocation_line', ObjectMeta(
-                "S",
-                name="InvocationInfo_Line",
-                optional=True
-            )),
-            ('invocation_offset_in_line', ObjectMeta(
-                "I32",
-                name="InvocationInfo_OffsetInLine",
-                optional=True
-            )),
-            ('invocation_position_message', ObjectMeta(
-                "S",
-                name="InvocationInfo_PositionMessage",
-                optional=True
-            )),
-            ('invocation_script_name', ObjectMeta(
-                "S",
-                name="InvocationInfo_ScriptName",
-                optional=True
-            )),
-            ('invocation_script_line_number', ObjectMeta(
-                "I32",
-                name="InvocationInfo_ScriptLineNumber",
-                optional=True
-            )),
-            ('invocation_history_id', ObjectMeta(
-                "I64",
-                name="InvocationInfo_HistoryId",
-                optional=True
-            )),
-            ('invocation_pipeline_length', ObjectMeta(
-                "I32",
-                name="InvocationInfo_PipelineLength",
-                optional=True
-            )),
-            ('invocation_pipeline_position', ObjectMeta(
-                "I32",
-                name="InvocationInfo_PipelinePosition",
-                optional=True
-            )),
-            ('invocation_pipeline_iteration_info', ListMeta(
-                name="InvocationInfo_PipelineIterationInfo",
-                optional=True,
-                list_value_meta=ObjectMeta("I32"),
-                list_types=["System.In32[]", "System.Array", "System.Object"]
-            )),
-            ('command_type', ObjectMeta(
-                "Obj",
-                name="CommandInfo_CommandType",
-                object=CommandType,
-                optional=True,
-            )),
-            ('command_definition', ObjectMeta(
-                "S",
-                name="CommandInfo_Definition",
-                optional=True,
-            )),
-            ('command_name', ObjectMeta(
-                "S",
-                name="CommandInfo_Name",
-                optional=True
-            )),
-            ('command_visibility', ObjectMeta(
-                "Obj",
-                name="CommandInfo_Visibility",
-                object=SessionStateEntryVisibility,
-                optional=True
-            )),
-            ('pipeline_iteration_info', ListMeta(
-                name="InformationalRecord_PipelineIterationInfo",
-                optional=True,
-                list_value_meta=ObjectMeta("I32"),
-                list_types=[
-                    "System.Collections.ObjectModel.ReadOnlyCollection`1[["
-                    "System.Int32, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ]
-            ))
-        )
-        self.message = kwargs.get('message')
-        self.pipeline_iteration_info = kwargs.get('pipeline_iteration_info')
-        self.invocation_name = kwargs.get('invocation_name')
-        self.invocation_bound_parameters = \
-            kwargs.get('invocation_bound_parameters')
-        self.invocation_unbound_arguments = \
-            kwargs.get('invocation_unbound_arguments')
-        self.invocation_command_origin = \
-            kwargs.get('invocation_command_origin')
-        self.invocation_expecting_input = \
-            kwargs.get('invocation_expecting_input')
-        self.invocation_line = kwargs.get('invocation_line')
-        self.invocation_offset_in_line = \
-            kwargs.get('invocation_offset_in_line')
-        self.invocation_position_message = \
-            kwargs.get('invocation_position_message')
-        self.invocation_script_name = kwargs.get('invocation_script_name')
-        self.invocation_script_line_number = \
-            kwargs.get('invocation_script_line_number')
-        self.invocation_history_id = kwargs.get('invocation_history_id')
-        self.invocation_pipeline_length = \
-            kwargs.get('invocation_pipeline_length')
-        self.invocation_pipeline_position = \
-            kwargs.get('invocation_pipeline_position')
-        self.invocation_pipeline_iteration_info = \
-            kwargs.get('invocation_pipeline_iteration_info')
-        self.command_type = kwargs.get('command_type')
-        self.command_definition = kwargs.get('command_definition')
-        self.command_name = kwargs.get('command_name')
-        self.command_visibility = kwargs.get('command_visibility')
+        self.psobject.type_names = [
+            'System.Management.Automation.InformationRecord',
+            'System.Object',
+        ]
+
+        self.message = message
         self.invocation = False
+        self.invocation_name = invocation_name
+        self.invocation_bound_parameters = invocation_bound_parameters
+        self.invocation_unbound_arguments = invocation_unbound_arguments
+        self.invocation_command_origin = invocation_command_origin
+        self.invocation_expecting_input = invocation_expecting_input
+        self.invocation_line = invocation_line
+        self.invocation_offset_in_line = invocation_offset_in_line
+        self.invocation_position_message = invocation_position_message
+        self.invocation_script_name = invocation_script_name
+        self.invocation_script_line_number = invocation_script_line_number
+        self.invocation_history_id = invocation_history_id
+        self.invocation_pipeline_length = invocation_pipeline_length
+        self.invocation_pipeline_position = invocation_pipeline_position
+        self.invocation_pipeline_iteration_info = invocation_pipeline_iteration_info
+        self.command_type = command_type
+        self.command_definition = command_definition
+        self.command_name = command_name
+        self.command_visibility = command_visibility
+        self.pipeline_iteration_info = pipeline_iteration_info
 
 
-class HostMethodIdentifier(Enum):
+class HostMethodIdentifier(PSEnumBase):
+    
+    ENUM_MAP = {
+        'GetName': 1,
+        'GetVersion': 2,
+        'GetInstanceId': 3,
+        'GetCurrentCulture': 4,
+        'GetCurrentUICulture': 5,
+        'SetShouldExit': 6,
+        'EnterNestedPrompt': 7,
+        'ExitNestedPrompt': 8,
+        'NotifyBeginApplication': 9,
+        'NotifyEndApplication': 10,
+        'ReadLine': 11,
+        'ReadLineAsSecureString': 12,
+        'Write1': 13,
+        'Write2': 14,
+        'WriteLine1': 15,
+        'WriteLine2': 16,
+        'WriteLine3': 17,
+        'WriteErrorLine': 18,
+        'WriteDebugLine': 19,
+        'WriteProgress': 20,
+        'WriteVerboseLine': 21,
+        'WriteWarningLine': 22,
+        'Prompt': 23,
+        'PromptForCredential1': 24,
+        'PromptForCredential2': 25,
+        'PromptForChoice': 26,
+        'GetForegroundColor': 27,
+        'SetForegroundColor': 28,
+        'GetBackgroundColor': 29,
+        'SetBackgroundColor': 30,
+        'GetCursorPosition': 31,
+        'SetCursorPosition': 32,
+        'GetWindowPosition': 33,
+        'SetWindowPosition': 34,
+        'GetCursorSize': 35,
+        'SetCursorSize': 36,
+        'GetBufferSize': 37,
+        'SetBufferSize': 38,
+        'GetWindowSize': 39,
+        'SetWindowSize': 40,
+        'GetWindowTitle': 41,
+        'SetWindowTitle': 42,
+        'GetMaxWindowSize': 43,
+        'GetMaxPhysicalWindowSize': 44,
+        'GetKeyAvailable': 45,
+        'ReadKey': 46,
+        'FlushInputBuffer': 47,
+        'SetBufferContents1': 48,
+        'SetBufferContents2': 49,
+        'GetBufferContents': 50,
+        'ScrollBufferContents': 51,
+        'PushRunspace': 52,
+        'PopRunspace': 53,
+        'GetIsRunspacePushed': 54,
+        'GetRunspce': 55,
+        'PromptForChoiceMultipleSelection': 56,
+    }
 
-    def __init__(self, **kwargs):
+    def __init__(self, value):
         """
         [MS-PSRP] 2.2.3.17 Host Method Identifier
         https://msdn.microsoft.com/en-us/library/dd306624.aspx
@@ -1180,71 +1042,10 @@ class HostMethodIdentifier(Enum):
 
         :param value: The method identifier to execute
         """
-        string_map = {
-            1: "GetName",
-            2: "GetVersion",
-            3: "GetInstanceId",
-            4: "GetCurrentCulture",
-            5: "GetCurrentUICulture",
-            6: "SetShouldExit",
-            7: "EnterNestedPrompt",
-            8: "ExitNestedPrompt",
-            9: "NotifyBeginApplication",
-            10: "NotifyEndApplication",
-            11: "ReadLine",
-            12: "ReadLineAsSecureString",
-            13: "Write1",
-            14: "Write2",
-            15: "WriteLine1",
-            16: "WriteLine2",
-            17: "WriteLine3",
-            18: "WriteErrorLine",
-            19: "WriteDebugLine",
-            20: "WriteProgress",
-            21: "WriteVerboseLine",
-            22: "WriteWarningLine",
-            23: "Prompt",
-            24: "PromptForCredential1",
-            25: "PromptForCredential2",
-            26: "PromptForChoice",
-            27: "GetForegroundColor",
-            28: "SetForegroundColor",
-            29: "GetBackgroundColor",
-            30: "SetBackgroundColor",
-            31: "GetCursorPosition",
-            32: "SetCursorPosition",
-            33: "GetWindowPosition",
-            34: "SetWindowPosition",
-            35: "GetCursorSize",
-            36: "SetCursorSize",
-            37: "GetBufferSize",
-            38: "SetBufferSize",
-            39: "GetWindowSize",
-            40: "SetWindowSize",
-            41: "GetWindowTitle",
-            42: "SetWindowTitle",
-            43: "GetMaxWindowSize",
-            44: "GetMaxPhysicalWindowSize",
-            45: "GetKeyAvailable",
-            46: "ReadKey",
-            47: "FlushInputBuffer",
-            48: "SetBufferContents1",
-            49: "SetBufferContents2",
-            50: "GetBufferContents",
-            51: "ScrollBufferContents",
-            52: "PushRunspace",
-            53: "PopRunspace",
-            54: "GetIsRunspacePushed",
-            55: "GetRunspce",
-            56: "PromptForChoiceMultipleSelection"
-        }
-        super(HostMethodIdentifier, self).__init__(
-            "System.Management.Automation.Remoting.RemoteHostMethodId",
-            string_map, **kwargs
-        )
+        super(HostMethodIdentifier, self).__init__(value, 'System.Management.Automation.Remoting.RemoteHostMethodId')
 
 
-class CommandType(Enum):
+class CommandType(PSEnumBase):
     ALIAS = 0x0001
     FUNCTION = 0x0002
     FILTER = 0x0004
@@ -1256,69 +1057,56 @@ class CommandType(Enum):
     CONFIGURATION = 0x0100
     ALL = 0x01FF
 
-    def __init__(self, **kwargs):
+    ENUM_MAP = {
+        'Alias': 0x0001,
+        'Function': 0x0002,
+        'Filter': 0x0004,
+        'Cmdlet': 0x0008,
+        'ExternalScript': 0x0010,
+        'Application': 0x0020,
+        'Script': 0x0040,
+        'Workflow': 0x0080,
+        'Configuration': 0x0100,
+        'All': 0x01FF,
+    }
+    IS_FLAGS = True
+
+    def __init__(self, value):
         """
         [MS-PSRP] 2.2.3.19 CommandType
         https://msdn.microsoft.com/en-us/library/ee175965.aspx
 
         :param value: The initial flag value for CommandType
         """
-        super(CommandType, self).__init__(
-            "System.Management.Automation.CommandTypes", {}, **kwargs
-        )
-
-    @property
-    def _to_string(self):
-        if self.value == 0x01FF:
-            return "All"
-
-        string_map = (
-            ("Alias", 0x0001),
-            ("Function", 0x0002),
-            ("Filter", 0x0004),
-            ("Cmdlet", 0x0008),
-            ("ExternalScript", 0x0010),
-            ("Application", 0x0020),
-            ("Script", 0x0040),
-            ("Workflow", 0x0080),
-            ("Configuration", 0x0100),
-        )
-        values = []
-        for name, flag in string_map:
-            if self.value & flag == flag:
-                values.append(name)
-        return ", ".join(values)
-
-    @_to_string.setter
-    def _to_string(self, value):
-        pass
+        super(CommandType, self).__init__(value, 'System.Management.Automation.CommandTypes')
 
 
-class CommandMetadataCount(ComplexObject):
+class CommandMetadataCount(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, count=None):
         """
         [MS-PSRP] 2.2.3.21 CommandMetadataCount
         https://msdn.microsoft.com/en-us/library/ee175881.aspx
 
-        :param count: The number of CommandMetadata messages in the pipeline
-            output
+        :param count: The number of CommandMetadata messages in the pipeline output.
         """
         super(CommandMetadataCount, self).__init__()
-        self.types = [
-            "Selected.Microsoft.PowerShell.Commands.GenericMeasureInfo",
-            "System.Management.Automation.PSCustomObject",
-            "System.Object"
+        self.psobject.extended_properties = [
+            PSPropertyInfo('count', clixml_name='Count', ps_type=PSInt),
         ]
-        self._extended_properties = (
-            ('count', ObjectMeta("I32", name="Count")),
-        )
-        self.count = kwargs.get('count')
+        self.psobject.type_names = [
+            'Selected.Microsoft.PowerShell.Commands.GenericMeasureInfo',
+            'System.Management.Automation.PSCustomObject',
+            'System.Object',
+        ]
+        self.psobject.to_string = NoToString
+
+        self.count = count
 
 
-class CommandMetadata(ComplexObject):
+class CommandMetadata(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, name=None, namespace=None, help_url=None, command_type=None, output_type=None, parameters=None):
         """
         [MS-PSRP] 2.2.3.22 CommandMetadata
         https://msdn.microsoft.com/en-us/library/ee175993.aspx
@@ -1333,10 +1121,19 @@ class CommandMetadata(ComplexObject):
             as Command Parameters
         """
         super(CommandMetadata, self).__init__()
-        self.types = [
-            "System.Management.Automation.PSCustomObject",
-            "System.Object"
+        self.psobject.extended_properties = [
+            PSPropertyInfo('name', clixml_name='Name', ps_type=PSString),
+            PSPropertyInfo('namespace', clixml_name='Namespace', ps_type=PSString),
+            PSPropertyInfo('help_uri', clixml_name='HelpUri', ps_type=PSString),
+            PSPropertyInfo('command_type', clixml_name='CommandType', ps_type=CommandType),
+            PSPropertyInfo('output_type', clixml_name='OutputType', ps_type=PSObjectModelReadOnlyCollectionPSTypeName),
+            PSPropertyInfo('parameters', clixml_name='Parameters', ps_type=ParameterMetadata)
         ]
+        self.psobject.type_names = [
+            'System.Management.Automation.PSCustomObject',
+            'System.Object',
+        ]
+        self.psobject.to_string = NoToString
         self._extended_properties = (
             ('name', ObjectMeta("S", name="Name")),
             ('namespace', ObjectMeta("S", name="Namespace")),
@@ -1359,12 +1156,12 @@ class CommandMetadata(ComplexObject):
                 dict_value_meta=ObjectMeta("Obj", object=ParameterMetadata))
              ),
         )
-        self.name = kwargs.get('name')
-        self.namespace = kwargs.get('namespace')
-        self.help_uri = kwargs.get('help_uri')
-        self.command_type = kwargs.get('command_type')
-        self.output_type = kwargs.get('output_type')
-        self.parameters = kwargs.get('parameters')
+        self.name = name
+        self.namespace = namespace
+        self.help_uri = help_url
+        self.command_type = command_type
+        self.output_type = output_type
+        self.parameters = parameters
 
 
 class ParameterMetadata(ComplexObject):
@@ -1678,13 +1475,7 @@ class CommandOrigin(Enum):
         )
 
 
-class PipelineResultTypes(Enum):
-    # While MS-PSRP show this as flags with different values, we only
-    # ever send NONE OUTPUT, ERROR, or OUTPUT_AND_ERROR across the wire and
-    # the actual C# code use these values as enums and not flags. We will
-    # replicate that behaviour here. If using these values, do not rely on
-    # the actual numeric values but rather these definitions.
-
+class PipelineResultTypes(PSEnumBase):
     NONE = 0  # default streaming behaviour
     OUTPUT = 1
     ERROR = 2
@@ -1695,41 +1486,46 @@ class PipelineResultTypes(Enum):
     ALL = 7  # Error, Warning, Verbose, Debug, Information streams
     NULL = 8  # redirect to nothing - pretty much the same as null
 
-    def __init__(self, protocol_version_2=False, **kwargs):
+    def __init__(self, value, protocol_version_2=False):
         """
         [MS-PSRP] 2.2.3.31 PipelineResultTypes
         https://msdn.microsoft.com/en-us/library/ee938207.aspx
 
-        Used as identifiers
-
-        :param protocol_version_2: Whether to use the original string map or
-            just None, Output, and Error that are a bitwise combination. This
-            is only really relevant for MergePreviousResults in a Command obj
         :param value: The initial PipelineResultType flag to set
+        :param protocol_version_2: PSv2 uses a bitwise enum flags with a limited set of streams whereas PSv3+ is just
+            a plain enum. This controls the ENUM_MAP behaviour of the initialised ENUM.
         """
-        if protocol_version_2 is True:
-            string_map = {
-                0: 'None',
-                1: 'Output',
-                2: 'Error',
-                3: 'Output, Error',
+        super(PipelineResultTypes, self).__init__(value, 'System.Management.Automation.Runspaces.PipelineResultTypes')
+
+    def __new__(cls, value, protocol_version_2=False):
+        """
+                :param protocol_version_2: Whether to use the original string map or just None, Output, and Error that are a
+            bitwise combination. This is only really relevant for MergePreviousResults in a Command obj.
+        """
+        if protocol_version_2:
+            cls.ENUM_MAP = {
+                'None': 0,
+                'Output': 1,
+                'Error': 2,
             }
+            cls.IS_FLAGS = True
         else:
-            string_map = {
-                0: 'None',
-                1: 'Output',
-                2: 'Error',
-                3: 'Warning',
-                4: 'Verbose',
-                5: 'Debug',
-                6: 'Information',
-                7: 'All',
-                8: 'Null',
+            cls.ENUM_MAP = {
+                'None': 0,
+                'Output': 1,
+                'Error': 2,
+                'Warning': 3,
+                'Verbose': 4,
+                'Debug': 5,
+                'Information': 6,
+                'All': 7,
+                'Null': 8,
             }
-        super(PipelineResultTypes, self).__init__(
-            "System.Management.Automation.Runspaces.PipelineResultTypes",
-            string_map, **kwargs
-        )
+            cls.IS_FLAGS = False
+        instance = super(PipelineResultTypes, cls).__new__(cls, value)
+        instance.ENUM_MAP = cls.ENUM_MAP.copy()  # Make sure the instance has it's own ENUM_MAP copy.
+        instance.IS_FLAGS = cls.IS_FLAGS
+        return instance
 
 
 class CultureInfo(ComplexObject):
@@ -1805,3 +1601,49 @@ class SessionStateEntryVisibility(Enum):
             "System.Management.Automation.SessionStateEntryVisibility",
             string_map, **kwargs
         )
+
+
+class PSListPSObject(PSList):
+
+    def __init__(self, *args, **kwargs):
+        PSList.__init__(self, *args, **kwargs)
+        self.psobject.type_names = [
+            "System.Collections.Generic.List`1[[System.Management.Automation.PSObject, System.Management.Automation, "
+            "Version=1.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35]]",
+            "System.Object",
+        ]
+
+
+class PSBoundParametersDictionary(PSDict):
+
+    def __init__(self, *args, **kwargs):
+        super(PSBoundParametersDictionary, self).__init__(*args, **kwargs)
+        self.psobject.type_names = [
+            "System.Management.Automation.PSBoundParametersDictionary",
+            "System.Collections.Generic.Dictionary`2[[System.String, mscorlib, Version=4.0.0.0, Culture=neutral, "
+            "PublicKeyToken=b77a5c561934e089],[System.Object, mscorlib, Version=4.0.0.0, Culture=neutral, "
+            "PublicKeyToken=b77a5c561934e089]]",
+            "System.Object"
+        ]
+
+
+class PSIntArray(PSList):
+
+    def __init__(self, *args, **kwargs):
+        super(PSIntArray, self).__init__(*args, **kwargs)
+        self.psobject.type_names = [
+            'System.Int32[]',
+            'System.Array',
+            'System.Object',
+        ]
+
+
+class PSObjectModelReadOnlyCollectionInt(PSList):
+
+    def __init__(self, *args, **kwargs):
+        super(PSObjectModelReadOnlyCollectionInt, self).__init__(*args, **kwargs)
+        self.psobject.type_names = [
+            "System.Collections.ObjectModel.ReadOnlyCollection`1[[System.Int32, mscorlib, Version=4.0.0.0, "
+            "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+            "System.Object"
+        ]

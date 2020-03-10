@@ -1,5 +1,6 @@
 import xml.etree.ElementTree as ET
 
+from pypsrp.complex_objects import PipelineResultTypes
 from pypsrp.dotnet import *
 from pypsrp.powershell import RunspacePool, PowerShell
 from pypsrp.serializer import Serializer, SerializerV2
@@ -291,9 +292,6 @@ class FileInfo(PSObject):
 
         self.psobject.type_names = ['System.IO.FileInfo', 'System.IO.FileSystemInfo', 'System.MarshalByRefObject',
                                     'System.Object']
-        #self.psobject.properties = [
-        #    PSPropertyInfo(name='mode', attribute_name='mode', property_tag='Props', xml_tag='S'),
-        #]
 
         self.mode = None
         self.version_info = None
@@ -316,10 +314,10 @@ class SessionCapability(PSObject):
     def __init__(self):
         super(SessionCapability, self).__init__()
         self.psobject.extended_properties = [
-            PSPropertyInfo(name='protocol_version', clixml_name='protocolversion', ps_type=PSVersion),
-            PSPropertyInfo(name='ps_version', clixml_name='PSVersion', ps_type=PSVersion),
-            PSPropertyInfo(name='serialization_version', clixml_name='SerializationVersion', ps_type=PSVersion),
-            PSPropertyInfo(name='time_zone', clixml_name='TimeZone', optional=True, ps_type=PSByteArray),
+            PSPropertyInfo('protocol_version', clixml_name='protocolversion', ps_type=PSVersion),
+            PSPropertyInfo('ps_version', clixml_name='PSVersion', ps_type=PSVersion),
+            PSPropertyInfo('serialization_version', clixml_name='SerializationVersion', ps_type=PSVersion),
+            PSPropertyInfo('time_zone', clixml_name='TimeZone', optional=True, ps_type=PSByteArray),
         ]
         self.psobject.type_names = None
 
@@ -345,6 +343,28 @@ class FileShare(PSEnumBase):
         super(FileShare, self).__init__(value, 'System.IO.FileShare')
 
 
+class PSObjectList(PSList):
+
+    def __init__(self, *args, **kwargs):
+        PSList.__init__(self, *args, **kwargs)
+        self.psobject.type_names = [
+            "System.Collections.Generic.List`1[[System.Management.Automation.PSObject, System.Management.Automation, "
+            "Version=1.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35]]",
+            "System.Object",
+        ]
+
+
+class ExtraCmds(PSObject):
+    def __init__(self, cmds=None):
+        super(ExtraCmds, self).__init__()
+        self.psobject.extended_properties = [
+            PSPropertyInfo('cmds', clixml_name='Cmds', ps_type=PSObjectList),
+        ]
+        self.psobject.type_names = None
+        self.psobject.to_string = NoToString
+        self.cmds = cmds
+
+
 s = SerializerV2()
 
 ps_custom = s.deserialize(ET.fromstring(ps_custom_obj))
@@ -360,7 +380,7 @@ stack = s.deserialize(ET.fromstring(stack_obj))
 f = FileInfo()
 f.mode = PSString('--a--')
 setattr(f.mode, 'test property', 'test value')
-f.mode.psobject.extended_properties.append(PSPropertyInfo(name='test property', clixml_name='TestProperty'))
+f.mode.psobject.extended_properties.append(PSPropertyInfo('test property', clixml_name='TestProperty'))
 
 f.version_info = 'howdy'
 f.base_name = 'File'
@@ -373,4 +393,14 @@ print(ET.tostring(s.serialize(SessionCapability())))
 
 file_share = FileShare(5)
 file_share_str = str(file_share)
+
+s = SerializerV2()
+print(ET.tostring(s.serialize(PSObjectList(['abc', 'def', 'ghi']))))
+
+s = SerializerV2()
+print(ET.tostring(s.serialize(ExtraCmds(['cmd1', 'cmd2']))))
+
+s = SerializerV2()
+result_type2 = PipelineResultTypes('Output, Error', protocol_version_2=True)
+result_type3 = PipelineResultTypes('Output, Error, Warning', protocol_version_2=False)
 a = ''

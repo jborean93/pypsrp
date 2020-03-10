@@ -14,6 +14,15 @@ from pypsrp.complex_objects import ApartmentState, CommandType, \
     HostInfo, HostMethodIdentifier, InformationalRecord, ListMeta, \
     ObjectMeta, Pipeline, ProgressRecordType, PSThreadOptions, \
     RemoteStreamOptions
+
+from pypsrp.dotnet import (
+    PSByteArray,
+    PSInt,
+    PSObject,
+    PSPropertyInfo,
+    PSVersion,
+)
+
 from pypsrp.exceptions import SerializationError
 from pypsrp._utils import to_string
 
@@ -207,53 +216,79 @@ class Message(object):
         return Message(destination, rpid, pid, message, serializer)
 
 
-class SessionCapability(ComplexObject):
+class SessionCapability(PSObject):
     MESSAGE_TYPE = MessageType.SESSION_CAPABILITY
 
-    def __init__(self, protocol_version=None, ps_version=None,
-                 serialization_version=None, time_zone=None):
+    def __init__(self, protocol_version=None, ps_version=None, serialization_version=None, time_zone=None):
         """
         [MS-PSRP] 2.2.2.1 SESSION_CAPABILITY Message
         https://msdn.microsoft.com/en-us/library/dd340636.aspx
 
-        :param protocol_version: The PSRP version
-        :param ps_version: The PowerShell version
-        :param serialization_version: The serialization version
-        :param time_zone: Time Zone information of the host, should be a byte
-            string
+        :param protocol_version: The PSRP version.
+        :param ps_version: The PowerShell version.
+        :param serialization_version: The serialization version.
+        :param time_zone: Time Zone information of the host, should be a byte string.
         """
         super(SessionCapability, self).__init__()
-        self._extended_properties = (
-            ('protocol_version', ObjectMeta("Version",
-                                            name="protocolversion")),
-            ('ps_version', ObjectMeta("Version", name="PSVersion")),
-            ('serialization_version', ObjectMeta("Version",
-                                                 name="SerializationVersion")),
-            ('time_zone', ObjectMeta("BA", name="TimeZone", optional=True)),
-        )
+        self.psobject.extended_properties = [
+            PSPropertyInfo('protocol_version', clixml_name='protocolversion', ps_type=PSVersion),
+            PSPropertyInfo('ps_version', clixml_name='PSVersion', ps_type=PSVersion),
+            PSPropertyInfo('serialization_version', clixml_name='SerializationVersion', ps_type=PSVersion),
+            PSPropertyInfo('time_zone', clixml_name='TimeZone', optional=True, ps_type=PSByteArray),
+        ]
+        self.psobject.type_names = None
+
         self.protocol_version = protocol_version
         self.ps_version = ps_version
         self.serialization_version = serialization_version
         self.time_zone = time_zone
 
 
-class InitRunspacePool(ComplexObject):
+class InitRunspacePool(PSObject):
+    MESSAGE_TYPE = MessageType.INIT_RUNSPACEPOOL
+
+    def __init__(self, min_runspaces=None, max_runspaces=None, thread_options=None, apartment_state=None,
+                 host_info=None, application_arguments=None):
+        """
+        [MS-PSRP] 2.2.2.2 INIT_RUNSPACEPOOL Message
+        https://msdn.microsoft.com/en-us/library/dd359645.aspx
+
+        :param min_runspaces: The minimum number of runspaces in the pool.
+        :param max_runspaces: The maximum number of runspaces in the pool.
+        :param thread_options: Thread options provided by the higher layer.
+        :param apartment_state: Apartment state provided by the higher layer.
+        :param host_info: The client's HostInfo details.
+        :param application_arguments: Application arguments provided by a higher layer, stored in the $PSSenderInfo
+            variable in the pool.
+        """
+        super(InitRunspacePool, self).__init__()
+        self.psobject.extended_properties = [
+            PSPropertyInfo('min_runspaces', clixml_name='MinRunspaces', ps_type=PSInt),
+            PSPropertyInfo('max_runspaces', clixml_name='MaxRunspaces', ps_type=PSInt),
+            PSPropertyInfo('thread_options', clixml_name='PSThreadOptions', ps_type=None),
+            PSPropertyInfo('apartment_state', clixml_name='ApartmentState', ps_type=None),
+            PSPropertyInfo('host_info', clixml_name='HostInfo', ps_type=None),
+            PSPropertyInfo('application_arguments', clixml_name='ApplicationArguments', ps_type=None),
+        ]
+        self.psobject.type_names = None
+
+        self.min_runspaces = min_runspaces
+        self.max_runspaces = max_runspaces
+        self.thread_options = thread_options
+        self.apartment_state = apartment_state
+        self.host_info = host_info
+        self.application_arguments = application_arguments
+
+
+
+class InitRunspacePool_old(ComplexObject):
     MESSAGE_TYPE = MessageType.INIT_RUNSPACEPOOL
 
     def __init__(self, min_runspaces=None, max_runspaces=None,
                  thread_options=None, apartment_state=None, host_info=None,
                  application_arguments=None):
         """
-        [MS-PSRP] 2.2.2.2 INIT_RUNSPACEPOOL Message
-        https://msdn.microsoft.com/en-us/library/dd359645.aspx
 
-        :param min_runspaces: The minimum number of runspaces in the pool
-        :param max_runspaces: The maximum number of runspaces in the pool
-        :param thread_options: Thread options provided by the higher layer
-        :param apartment_state: Apartment state provided by the higher layer
-        :param host_info: The client's HostInfo details
-        :param application_arguments: Application arguments provided by a
-            higher layer, stored in the $PSSenderInfo variable in the pool
         """
         super(InitRunspacePool, self).__init__()
         self._extended_properties = (
@@ -274,12 +309,7 @@ class InitRunspacePool(ComplexObject):
                 ]
             ))
         )
-        self.min_runspaces = min_runspaces
-        self.max_runspaces = max_runspaces
-        self.thread_options = thread_options
-        self.apartment_state = apartment_state
-        self.host_info = host_info
-        self.application_arguments = application_arguments
+
 
 
 class PublicKey(ComplexObject):

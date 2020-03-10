@@ -76,19 +76,17 @@ class RunspacePool(object):
         :param session_key_timeout_ms: The maximum time to wait for a session
             key transfer from the server
         """
-        log.info("Initialising RunspacePool object for configuration %s"
-                 % configuration_name)
-        # The below are defined in some way at
-        # https://msdn.microsoft.com/en-us/library/ee176015.aspx
+        log.info("Initialising RunspacePool object for configuration %s" % configuration_name)
+        # The below are defined in some way at https://msdn.microsoft.com/en-us/library/ee176015.aspx
         self.id = str(uuid.uuid4()).upper()
         self.state = RunspacePoolState.BEFORE_OPEN
         self.connection = connection
-        resource_uri = "http://schemas.microsoft.com/powershell/%s" \
-                       % configuration_name
-        self.shell = WinRS(connection, resource_uri=resource_uri, id=self.id,
-                           input_streams='stdin pr', output_streams='stdout')
+        resource_uri = "http://schemas.microsoft.com/powershell/%s" % configuration_name
+        self.shell = WinRS(connection, resource_uri=resource_uri, id=self.id, input_streams='stdin pr',
+                           output_streams='stdout')
         self.ci_table = {}
         self.pipelines = {}
+        self.session_cipher = None  # Session Key equivalent.
         self.session_key_timeout_ms = session_key_timeout_ms
 
         # Extra properties that are important and can control the RunspacePool
@@ -104,9 +102,8 @@ class RunspacePool(object):
         self._application_private_data = None
         self._min_runspaces = min_runspaces
         self._max_runspaces = max_runspaces
-        self._serializer = Serializer()
-        self._fragmenter = Fragmenter(self.connection.max_payload_size,
-                                      self._serializer)
+        self._serializer_old = Serializer()
+        self._fragmenter = Fragmenter(self.connection.max_payload_size, self._serializer_old)
         self._exchange_key = None
         self._key_exchanged = False
         self._new_client = False
