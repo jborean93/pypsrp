@@ -73,20 +73,6 @@ class PSObjectMeta:
         self.type_names = []  # A list of type names for the deserialized object.
 
 
-class PSListObjectMeta(PSObjectMeta):
-
-    def __init__(self):
-        super(PSListObjectMeta, self).__init__()
-        self.value_type = PSObject
-
-
-class PSDictObjectMeta(PSListObjectMeta):
-
-    def __init__(self):
-        super(PSDictObjectMeta, self).__init__()
-        self.key_type = PSObject
-
-
 class PSEnumObjectMeta(PSObjectMeta):
 
     def __init__(self):

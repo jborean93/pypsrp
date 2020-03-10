@@ -1,6 +1,8 @@
 # Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
+__metaclass__ = type
+
 from copy import deepcopy
 
 try:
@@ -12,6 +14,7 @@ from pypsrp.dotnet import (
     NoToString,
     PSBool,
     PSByteArray,
+    PSChar,
     PSDict,
     PSEnumBase,
     PSInt,
@@ -19,6 +22,7 @@ from pypsrp.dotnet import (
     PSList,
     PSObject,
     PSPropertyInfo,
+    PSSecureString,
     PSString,
     PSVersion,
 )
@@ -1044,6 +1048,10 @@ class HostMethodIdentifier(PSEnumBase):
         """
         super(HostMethodIdentifier, self).__init__(value, 'System.Management.Automation.Remoting.RemoteHostMethodId')
 
+    @property  # TODO: deprecate
+    def value(self):
+        return int(self)
+
 
 class CommandType(PSEnumBase):
     ALIAS = 0x0001
@@ -1080,6 +1088,10 @@ class CommandType(PSEnumBase):
         """
         super(CommandType, self).__init__(value, 'System.Management.Automation.CommandTypes')
 
+    @property  # TODO: deprecate
+    def value(self):
+        return int(self)
+
 
 class CommandMetadataCount(PSObject):
 
@@ -1111,14 +1123,12 @@ class CommandMetadata(PSObject):
         [MS-PSRP] 2.2.3.22 CommandMetadata
         https://msdn.microsoft.com/en-us/library/ee175993.aspx
 
-        :param name: The name of a command
-        :param namespace: The namespace of the command
-        :param help_uri: The URI to the documentation of the command
-        :param command_type: The CommandType of the command
-        :param output_type: The types of objects that a command can send as
-            output
-        :param parameters: Metadata of parameters that the command can accept
-            as Command Parameters
+        :param name: The name of a command.
+        :param namespace: The namespace of the command.
+        :param help_url: The URI to the documentation of the command.
+        :param command_type: The CommandType of the command.
+        :param output_type: The types of objects that a command can send as output/
+        :param parameters: Metadata of parameters that the command can accept as Command Parameters.
         """
         super(CommandMetadata, self).__init__()
         self.psobject.extended_properties = [
@@ -1127,35 +1137,14 @@ class CommandMetadata(PSObject):
             PSPropertyInfo('help_uri', clixml_name='HelpUri', ps_type=PSString),
             PSPropertyInfo('command_type', clixml_name='CommandType', ps_type=CommandType),
             PSPropertyInfo('output_type', clixml_name='OutputType', ps_type=PSObjectModelReadOnlyCollectionPSTypeName),
-            PSPropertyInfo('parameters', clixml_name='Parameters', ps_type=ParameterMetadata)
+            PSPropertyInfo('parameters', clixml_name='Parameters', ps_type=PSDict)
         ]
         self.psobject.type_names = [
             'System.Management.Automation.PSCustomObject',
             'System.Object',
         ]
         self.psobject.to_string = NoToString
-        self._extended_properties = (
-            ('name', ObjectMeta("S", name="Name")),
-            ('namespace', ObjectMeta("S", name="Namespace")),
-            ('help_uri', ObjectMeta("S", name="HelpUri")),
-            ('command_type', ObjectMeta("Obj", name="CommandType",
-                                        object=CommandType)),
-            ('output_type', ListMeta(
-                name="OutputType",
-                list_value_meta=ObjectMeta("S"),
-                list_types=[
-                    "System.Collections.ObjectModel.ReadOnlyCollection`1[["
-                    "System.Management.Automation.PSTypeName, "
-                    "System.Management.Automation, Version=3.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=31bf3856ad364e35]]",
-                ]
-            )),
-            ('parameters', DictionaryMeta(
-                name="Parameters",
-                dict_key_meta=ObjectMeta("S"),
-                dict_value_meta=ObjectMeta("Obj", object=ParameterMetadata))
-             ),
-        )
+
         self.name = name
         self.namespace = namespace
         self.help_uri = help_url
@@ -1171,12 +1160,11 @@ class ParameterMetadata(ComplexObject):
         [MS-PSRP] 2.2.3.23 ParameterMetadata
         https://msdn.microsoft.com/en-us/library/ee175918.aspx
 
-        :param name: The name of a parameter
-        :param parameter_type: The type of the parameter
-        :param alises: List of alternative names of the parameter
-        :param switch_parameter: True if param is a switch parameter
-        :param dynamic: True if param is included as a consequence of the data
-            specified in the ArgumentList property
+        :param name: The name of a parameter.
+        :param parameter_type: The type of the parameter.
+        :param alises: List of alternative names of the parameter.
+        :param switch_parameter: True if param is a switch parameter.
+        :param dynamic: True if param is included as a consequence of the data specified in the ArgumentList property.
         """
         super(ParameterMetadata, self).__init__()
         self.types = [
@@ -1206,39 +1194,37 @@ class ParameterMetadata(ComplexObject):
         self.dynamic = kwargs.get('dynamic')
 
 
-class PSCredential(ComplexObject):
+class PSCredential(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, username=None, password=None):
         """
         [MS-PSRP] 2.2.3.25 PSCredential
         https://msdn.microsoft.com/en-us/library/ee442231.aspx
 
-        Represents a username and a password. As the password is a secure
-        string, the RunspacePool must have already exchanged keys with
-        .exchange_keys() method.
+        Represents a username and a password. As the password is a secure string, the RunspacePool must have already
+        exchanged keys with rp.exchange_keys() method.
 
-        :param username: The username (including the domain if required)
-        :param password: The password for the user, this should be a unicode
-            string in order to make sure the encoding is correct
+        :param username: The username (including the domain if required).
+        :param password: The password for the user, this should be a unicode string in order to make sure the encoding
+            is correct.
         """
         super(PSCredential, self).__init__()
-        self._types = [
-            "System.Management.Automation.PSCredential",
-            "System.Object"
+        self.psobject.adapted_properties = [
+            PSPropertyInfo('username', clixml_name='UserName', ps_type=PSString),
+            PSPropertyInfo('password', clixml_name='Password', ps_type=PSSecureString),
         ]
-        self._adapted_properties = (
-            ('username', ObjectMeta("S", name="UserName")),
-            ('password', ObjectMeta("SS", name="Password")),
-        )
-        self._to_string = "System.Management.Automation.PSCredential"
+        self.psobject.type_names = [
+            'System.Management.Automation.PSCredential',
+            'System.Object',
+        ]
 
-        self.username = kwargs.get('username')
-        self.password = kwargs.get('password')
+        self.username = username
+        self.password = password
 
 
-class KeyInfo(ComplexObject):
+class KeyInfo(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, code=None, character=None, state=None, key_down=None):
         """
         [MS-PSRP] 2.2.3.26 KeyInfo
         https://msdn.microsoft.com/en-us/library/ee441795.aspx
@@ -1247,58 +1233,61 @@ class KeyInfo(ComplexObject):
         serialized of a ReadKey host method and is not the same as the
         serialized form of KeyInfo in .NET (see KeyInfoDotNet).
 
-        :param code: The int value for the virtual key code
-        :param character: The character
-        :param state: The ControlKeyState int value
-        :param key_down: Whether the key is pressed or released
+        :param code: The int value for the virtual key code.
+        :param character: The character.
+        :param state: The ControlKeyState int value.
+        :param key_down: Whether the key is pressed or released.
         """
         super(KeyInfo, self).__init__()
-        self._extended_properties = (
-            ('code', ObjectMeta("I32", name="virtualKeyCode", optional=True)),
-            ('character', ObjectMeta("C", name="character")),
-            ('state', ObjectMeta("I32", name="controlKeyState")),
-            ('key_down', ObjectMeta("B", name="keyDown")),
-        )
-        self.code = kwargs.get('code')
-        self.character = kwargs.get('character')
-        self.state = kwargs.get('state')
-        self.key_down = kwargs.get('key_down')
+        self.psobject.extended_properties = [
+            PSPropertyInfo('code', clixml_name='virtualKeyCode', ps_type=PSInt, optional=True),
+            PSPropertyInfo('character', ps_type=PSChar),
+            PSPropertyInfo('state', clixml_name='controlKeyState', ps_type=PSInt),
+            PSPropertyInfo('key_down', clixml_name='keyDown', ps_type=PSBool),
+        ]
+        self.psobject.type_names = None
+        self.psobject.to_string = NoToString
+
+        self.code = code
+        self.character = character
+        self.state = state
+        self.key_down = key_down
 
 
-class KeyInfoDotNet(ComplexObject):
+class KeyInfoDotNet(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, code=None, character=None, state=None, key_down=None):
         """
         System.Management.Automation.Host.KeyInfo
         https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.host.keyinfo
 
-        This is the proper serialized form of KeyInfo from .NET, it is
-        returned in a PipelineOutput message.
+        This is the proper serialized form of KeyInfo from .NET, it is returned in a PipelineOutput message.
 
-        :param code: The int value for the virtual key code
-        :param character: The character
-        :param state: The ControlKeyState as a string value
-        :param key_down: Whether the key is pressed or released
+        :param code: The int value for the virtual key code.
+        :param character: The character.
+        :param state: The ControlKeyState as a string value.
+        :param key_down: Whether the key is pressed or released.
         """
         super(KeyInfoDotNet, self).__init__()
-        self._types = [
-            "System.Management.Automation.Host.KeyInfo",
-            "System.ValueType",
-            "System.Object"
+        self.psobject.adapted_properties = [
+            PSPropertyInfo('code', clixml_name='VirtualKeyCode', ps_type=PSInt),
+            PSPropertyInfo('character', clixml_name='Character', ps_type=PSChar),
+            PSPropertyInfo('state', clixml_name='ControlKeyState', ps_type=PSInt),
+            PSPropertyInfo('key_down', clixml_name='KeyDown', ps_type=PSBool),
         ]
-        self._adapted_properties = (
-            ('code', ObjectMeta("I32", name="VirtualKeyCode")),
-            ('character', ObjectMeta("C", name="Character")),
-            ('state', ObjectMeta("S", name="ControlKeyState")),
-            ('key_down', ObjectMeta("B", name="KeyDown")),
-        )
-        self.code = kwargs.get('code')
-        self.character = kwargs.get('character')
-        self.state = kwargs.get('state')
-        self.key_down = kwargs.get('key_down')
+        self.psobject.type_names = [
+            'System.Management.Automation.Host.KeyInfo',
+            'System.ValueType',
+            'System.Object',
+        ]
+
+        self.code = code
+        self.character = character
+        self.state = state
+        self.key_down = key_down
 
 
-class ControlKeyState(object):
+class ControlKeyState:
     """
     [MS-PSRP] 2.2.3.27 ControlKeyStates
     https://msdn.microsoft.com/en-us/library/ee442685.aspx
@@ -1317,36 +1306,36 @@ class ControlKeyState(object):
     EnhancedKey = 0x0100
 
 
-class BufferCell(ComplexObject):
+class BufferCell(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, character=None, foreground_color=None, background_color=None, cell_type=None):
         """
         [MS-PSRP] 2.2.3.28 BufferCell
         https://msdn.microsoft.com/en-us/library/ee443291.aspx
 
         The contents of a cell of a host's screen buffer.
 
-        :param character: The chracter visibile in the cell
-        :param foreground_color: The Color of the foreground
-        :param background_color: The Color of the background
-        :param cell_type: The int value of BufferCellType
+        :param character: The chracter visibile in the cell.
+        :param foreground_color: The Color of the foreground.
+        :param background_color: The Color of the background.
+        :param cell_type: The int value of BufferCellType.
         """
         super(BufferCell, self).__init__()
-        self._adapted_properties = (
-            ('character', ObjectMeta("C", name="character")),
-            ('foreground_color', ObjectMeta("Obj", name="foregroundColor",
-                                            object=Color)),
-            ('background_color', ObjectMeta("Obj", name="backgroundColor",
-                                            object=Color)),
-            ('cell_type', ObjectMeta("I32", name="bufferCellType")),
-        )
-        self.character = kwargs.get('character')
-        self.foreground_color = kwargs.get('foreground_color')
-        self.background_color = kwargs.get('background_color')
-        self.cell_type = kwargs.get('cell_type')
+        self.psobject.adapted_properties = [
+            PSPropertyInfo('character', ps_type=PSChar),
+            PSPropertyInfo('foreground_color', clixml_name='foregroundColor', ps_type=Color),
+            PSPropertyInfo('background_color', clixml_name='backgroundColor', ps_type=Color),
+            PSPropertyInfo('cell_type', clixml_name='bufferCellType', ps_type=PSInt),
+        ]
+        self.psobject.type_names = None
+
+        self.character = character
+        self.foreground_color = foreground_color
+        self.background_color = background_color
+        self.cell_type = cell_type
 
 
-class BufferCellType(object):
+class BufferCellType:
     """
     [MS-PSRP] 2.2.3.29 BufferCellType
     https://msdn.microsoft.com/en-us/library/ee442184.aspx
@@ -1358,27 +1347,28 @@ class BufferCellType(object):
     TRAILING = 2
 
 
-class Array(ComplexObject):
+class Array(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, array=None):
         """
         [MS-PSRP] 2.2.6.1.4 Array
         https://msdn.microsoft.com/en-us/library/dd340684.aspx
 
         Represents a (potentially multi-dimensional) array of elements.
 
-        :param array: The array (list) that needs to be serialised. This can
-            be a multidimensional array (lists in a list)
+        :param array: The array (list) that needs to be serialised. This can be a multidimensional array (lists in a
+            list).
         """
         super(Array, self).__init__()
-        self._extended_properties = (
-            ('mae', ListMeta(name="mae")),
-            ('mal', ListMeta(name="mal", list_value_meta=ObjectMeta("I32"))),
-        )
-        self._array = None
+        self.psobject.extended_properties = [
+            PSPropertyInfo('mae', ps_type=PSList),
+            PSPropertyInfo('mal', ps_type=PSList),
+        ]
+        self.psobject.type_names = None
+
+        self._array = array
         self._mae = None
         self._mal = None
-        self._array = kwargs.get('array')
 
     @property
     def array(self):
@@ -1454,25 +1444,27 @@ class Array(ComplexObject):
         return count
 
 
-class CommandOrigin(Enum):
+class CommandOrigin(PSEnumBase):
     RUNSPACE = 0
     INTERNAL = 1
 
-    def __init__(self, **kwargs):
+    ENUM_MAP = {
+        'Runspace': 0,
+        'Internal': 1,
+    }
+
+    def __init__(self, value):
         """
         [MS-PSRP] 2.2.2.30 CommandOrigin
         https://msdn.microsoft.com/en-us/library/ee441964.aspx
 
-        :param value: The command origin flag to set
+        :param value: The command origin flag to set.
         """
-        string_map = {
-            0: 'Runspace',
-            1: 'Internal',
-        }
-        super(CommandOrigin, self).__init__(
-            "System.Management.Automation.CommandOrigin",
-            string_map, **kwargs
-        )
+        super(CommandOrigin, self).__init__(value, 'System.Management.Automation.CommandOrigin')
+
+    @property  # TODO: deprecate
+    def value(self):
+        return int(self)
 
 
 class PipelineResultTypes(PSEnumBase):
@@ -1527,80 +1519,74 @@ class PipelineResultTypes(PSEnumBase):
         instance.IS_FLAGS = cls.IS_FLAGS
         return instance
 
+    @property  # TODO: deprecate
+    def value(self):
+        return int(self)
 
-class CultureInfo(ComplexObject):
 
-    def __init__(self, **kwargs):
+class CultureInfo(PSObject):
+
+    def __init__(self, lcid=None, name=None, display_name=None, ietf_language_tag=None, three_letter_iso_name=None,
+                 three_letter_windows_name=None, two_letter_iso_language_name=None):
         super(CultureInfo, self).__init__()
+        self.psobject.adapted_properties = [
+            PSPropertyInfo('lcid', clixml_name='LCID', ps_type=PSInt),
+            PSPropertyInfo('name', clixml_name='Name', ps_type=PSString),
+            PSPropertyInfo('display_name', clixml_name='DisplayName', ps_type=PSString),
+            PSPropertyInfo('ietf_language_tag', clixml_name='IetfLanguageTag', ps_type=PSString),
+            PSPropertyInfo('three_letter_iso_name', clixml_name='ThreeLetterISOLanguageName', ps_type=PSString),
+            PSPropertyInfo('three_letter_windows_name', clixml_name='ThreeLetterWindowsLanguageName',
+                           ps_type=PSString),
+            PSPropertyInfo('two_letter_iso_language_name', clixml_name='TwoLetterISOLanguageName', ps_type=PSString),
+        ]
+        self.psobject.type_names = None
+        self.psobject.to_string = NoToString
 
-        self._adapted_properties = (
-            ('lcid', ObjectMeta("I32", name="LCID")),
-            ('name', ObjectMeta("S", name="Name")),
-            ('display_name', ObjectMeta("S", name="DisplayName")),
-            ('ietf_language_tag', ObjectMeta("S", name="IetfLanguageTag")),
-            ('three_letter_iso_name', ObjectMeta(
-                "S", name="ThreeLetterISOLanguageName"
-            )),
-            ('three_letter_windows_name', ObjectMeta(
-                "S", name="ThreeLetterWindowsLanguageName"
-            )),
-            ('two_letter_iso_language_name', ObjectMeta(
-                "S", name="TwoLetterISOLanguageName"
-            )),
-        )
-        self.lcid = kwargs.get('lcid')
-        self.name = kwargs.get('name')
-        self.display_name = kwargs.get('display_name')
-        self.ieft_language_tag = kwargs.get('ietf_language_tag')
-        self.three_letter_iso_name = kwargs.get('three_letter_iso_name')
-        self.three_letter_windows_name = \
-            kwargs.get('three_letter_windows_name')
-        self.two_letter_iso_language_name = \
-            kwargs.get('two_letter_iso_language_name')
+        self.lcid = lcid
+        self.name = name
+        self.display_name = display_name
+        self.ieft_language_tag = ietf_language_tag
+        self.three_letter_iso_name = three_letter_iso_name
+        self.three_letter_windows_name = three_letter_windows_name
+        self.two_letter_iso_language_name = two_letter_iso_language_name
 
 
-class ProgressRecordType(Enum):
+class ProgressRecordType(PSEnumBase):
     PROCESSING = 0
     COMPLETED = 1
+    
+    ENUM_MAP = {
+        'Processing': 0,
+        'Completed': 1,
+    }
 
-    def __init__(self, **kwargs):
+    def __init__(self, value):
         """
         System.Management.Automation.ProgressRecordType Enum
-        This isn't in MS-PSRP but is used in the InformationRecord message and
-        so we need to define it here.
+        This isn't in MS-PSRP but is used in the InformationRecord message and so we need to define it here.
 
-        :param value: The initial ProgressRecordType value to set
+        :param value: The initial ProgressRecordType value to set.
         """
-        string_map = {
-            0: 'Processing',
-            1: 'Completed',
-        }
-        super(ProgressRecordType, self).__init__(
-            "System.Management.Automation.ProgressRecordType",
-            string_map, **kwargs
-        )
+        super(ProgressRecordType, self).__init__(value, 'System.Management.Automation.ProgressRecordType')
 
 
-class SessionStateEntryVisibility(Enum):
+class SessionStateEntryVisibility(PSEnumBase):
     PUBLIC = 0
     PRIVATE = 1
+    
+    ENUM_MAP = {
+        'Public': 0,
+        'Private': 1,
+    }
 
-    def __init__(self, **kwargs):
+    def __init__(self, value):
         """
         System.Management.Automation.SessionStateEntryVisibility Enum
-        This isn't in MS-PSRP but is used in the InformationalRecord object so
-        we need to define it here
+        This isn't in MS-PSRP but is used in the InformationalRecord object so we need to define it here.
 
-        :param value: The initial SessionStateEntryVisibility value to set
+        :param value: The initial SessionStateEntryVisibility value to set.
         """
-        string_map = {
-            0: 'Public',
-            1: 'Private'
-        }
-        super(SessionStateEntryVisibility, self).__init__(
-            "System.Management.Automation.SessionStateEntryVisibility",
-            string_map, **kwargs
-        )
+        super(SessionStateEntryVisibility, self).__init__(value, 'System.Management.Automation.SessionStateEntryVisibility')
 
 
 class PSListPSObject(PSList):
@@ -1643,7 +1629,18 @@ class PSObjectModelReadOnlyCollectionInt(PSList):
     def __init__(self, *args, **kwargs):
         super(PSObjectModelReadOnlyCollectionInt, self).__init__(*args, **kwargs)
         self.psobject.type_names = [
-            "System.Collections.ObjectModel.ReadOnlyCollection`1[[System.Int32, mscorlib, Version=4.0.0.0, "
-            "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-            "System.Object"
+            'System.Collections.ObjectModel.ReadOnlyCollection`1[[System.Int32, mscorlib, Version=4.0.0.0, '
+            'Culture=neutral, PublicKeyToken=b77a5c561934e089]]',
+            'System.Object',
+        ]
+
+
+class PSObjectModelReadOnlyCollectionPSTypeName(PSList):
+    
+    def __init__(self, *args, **kwargs):
+        super(PSObjectModelReadOnlyCollectionPSTypeName, self).__init__(*args, **kwargs)
+        self.psobject.type_names = [
+            'System.Collections.ObjectModel.ReadOnlyCollection`1[[System.Management.Automation.PSTypeName, '
+            'System.Management.Automation, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35]]',
+            'System.Object',
         ]
