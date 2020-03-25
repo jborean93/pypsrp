@@ -3,26 +3,109 @@
 
 import base64
 import binascii
+import datetime
 import logging
 import re
 import sys
 import uuid
 
-from copy import copy
-from cryptography.hazmat.primitives.padding import PKCS7
-from six import string_types
+from copy import (
+    copy,
+)
 
-from pypsrp.complex_objects import ApartmentState, Color, \
-    CommandMetadataCount, CommandOrigin, Coordinates, ComplexObject, \
-    CultureInfo, DictionaryMeta, GenericComplexObject, HostMethodIdentifier, \
-    InformationalRecord, KeyInfoDotNet, ListMeta, ObjectMeta, \
-    ParameterMetadata, PipelineResultTypes, ProgressRecordType, PSCredential,\
-    PSThreadOptions, QueueMeta, RemoteStreamOptions, \
-    SessionStateEntryVisibility, Size, StackMeta
-from pypsrp.exceptions import SerializationError
-from pypsrp.messages import DebugRecord, ErrorRecord, InformationRecord, \
-    VerboseRecord, WarningRecord
-from pypsrp._utils import to_bytes, to_string, to_unicode
+from cryptography.hazmat.primitives.padding import (
+    PKCS7,
+)
+
+from decimal import (
+    Decimal,
+)
+
+from six import (
+    binary_type,
+    integer_types,
+    string_types,
+    text_type,
+)
+
+from pypsrp.complex_objects import (
+    ApartmentState,
+    Color,
+    CommandMetadataCount,
+    CommandOrigin,
+    Coordinates,
+    ComplexObject,
+    CultureInfo,
+    DictionaryMeta,
+    GenericComplexObject,
+    HostMethodIdentifier,
+    InformationalRecord,
+    KeyInfoDotNet,
+    ListMeta,
+    ObjectMeta,
+    ParameterMetadata,
+    PipelineResultTypes,
+    ProgressRecordType,
+    PSCredential,
+    PSThreadOptions,
+    QueueMeta,
+    RemoteStreamOptions,
+    SessionStateEntryVisibility,
+    Size,
+    StackMeta,
+)
+
+from pypsrp.dotnet import (
+    PSByte,
+    PSByteArray,
+    PSChar,
+    PSCustomObject,
+    PSDateTime,
+    PSDecimal,
+    PSDict,
+    PSDouble,
+    PSDuration,
+    PSEnumBase,
+    PSGuid,
+    PSInt16,
+    PSInt,
+    PSInt64,
+    PSList,
+    PSObject,
+    PSPropertyInfo,
+    PSQueue,
+    PSSByte,
+    PSScriptBlock,
+    PSSecureString,
+    PSSingle,
+    PSStack,
+    PSString,
+    PSUInt16,
+    PSUInt,
+    PSUInt64,
+    PSUri,
+    PSVersion,
+    PSXml,
+    TypeRegistry,
+)
+
+from pypsrp.exceptions import (
+    SerializationError,
+)
+
+from pypsrp.messages import (
+    DebugRecord,
+    ErrorRecord,
+    InformationRecord,
+    VerboseRecord,
+    WarningRecord,
+)
+
+from pypsrp._utils import (
+    to_bytes,
+    to_string,
+    to_unicode,
+)
 
 try:
     from queue import Queue, Empty
@@ -41,33 +124,187 @@ else:  # pragma: no cover
 log = logging.getLogger(__name__)
 
 
-class Serializer(object):
+class _SerializerBase(object):
 
-    def __init__(self):
+    def __init__(self, cipher=None):
         self.obj_id = 0
         self.obj = {}
         self.tn_id = 0
         self.tn = {}
 
-        self.cipher = None
-        # Finds C0, C1 and surrogate pairs in a unicode string for us to
-        # encode according to the PSRP rules
+        self.cipher = cipher
+        # Finds C0, C1, and surrogate pairs in a unicode string for us to encode according to the PSRP rules.
         if sys.maxunicode == 65535:  # pragma: no cover
-            # using a narrow Python build or Python 2.x, the regex we need to
-            # use to find surrogate pairs is different than a wide build or on
-            # Python 3
-            self._serial_str = re.compile(u"[\u0000-\u001F]|"
-                                          u"[\u007F-\u009F]|"
-                                          u"[\uD800-\uDBFF][\uDC00-\uDFFF]")
+            # Using a narrow Python build or Python 2.x, the regex we to find surrogate pairs is different than a wide
+            # build or on Python 3
+            self._serial_str = re.compile(u"[\u0000-\u001F]|[\u007F-\u009F]|[\uD800-\uDBFF][\uDC00-\uDFFF]")
         else:  # pragma: no cover
-            self._serial_str = re.compile(u'[\u0000-\u001F'
-                                          u'\u007F-\u009F'
-                                          u'\U00010000-\U0010FFFF]')
+            self._serial_str = re.compile(u'[\u0000-\u001F\u007F-\u009F\U00010000-\U0010FFFF]')
 
-        # to support surrogate UTF-16 pairs we need to use a UTF-16 regex
-        # so we can replace the UTF-16 string representation with the actual
-        # UTF-16 byte value and then decode that
+        # To support surrogate UTF-16 pairs we need to use a UTF-16 regex so we can replace the UTF-16 string
+        # representation with the actual UTF-16 byte value and then decode that.
         self._deserial_str = re.compile(b"\\x00_\\x00x([\\0\\w]{8})\\x00_")
+        self._dt_fraction_pattern = re.compile(r'\.(\d+)(.*)')
+
+    def _deserialize_datetime(self, value):
+        # DateTime values from PowerShell are in the format 'YYYY-MM-DDTHH:MM-SS[.100's of nanoseconds]Z'.
+        # Unfortunately datetime can only be resolved to microseconds so we need to extract the fraction of seconds
+        # edit it to be microseconds and preserve the nanoseconds ourselves.
+
+        datetime_str = value[:19]
+        fraction_tz_section = value[19:]
+        nanoseconds = 0
+
+        fraction_match = self._dt_fraction_pattern.match(fraction_tz_section)
+        if fraction_match:
+            # We have fractional seconds, need to rewrite as microseconds and keep the nanoseconds ourselves.
+            fractional_seconds = fraction_match.group(1)
+            if len(fractional_seconds) > 6:
+                # .NET should only be showing 100's of nanoseconds but just to be safe we will calculate that based
+                # on the length of the fractional seconds found.
+                nanoseconds = int(fractional_seconds[-1:]) * (10 ** (3 + 6 - len(fractional_seconds)))
+                fractional_seconds = fractional_seconds[:-1]
+
+            timezone_section = fraction_match.group(2)
+
+            datetime_str += '.%s%s' % (fractional_seconds, timezone_section)
+        else:
+            # No fractional seconds, just use strptime on the original value.
+            datetime_str = value
+
+        dt = PSDateTime.strptime(datetime_str, '%Y-%m-%dT%H:%M:%S.%f%z')
+        dt.nanosecond = nanoseconds
+
+        return dt
+
+    def _deserialize_secure_string(self, value):
+        if self.cipher is None:
+            # cipher is not set up so we can't decrypt the string, just return
+            # the raw element
+            return value
+
+        ss_string = base64.b64decode(value.text)
+        decryptor = self.cipher.decryptor()
+        decrypted_bytes = decryptor.update(ss_string) + decryptor.finalize()
+
+        unpadder = PKCS7(self.cipher.algorithm.block_size).unpadder()
+        unpadded_bytes = unpadder.update(decrypted_bytes) + unpadder.finalize()
+        decrypted_string = to_unicode(unpadded_bytes, 'utf-16-le')
+
+        return decrypted_string
+
+    def _deserialize_string(self, value):
+        if value is None:
+            return ""
+
+        def rplcr(matchobj):
+            # The matched object is the UTF-16 byte representation of the UTF-8 hex string value. We need to decode the
+            # byte str to unicode and then unhexlify that hex string to get the actual bytes of the _x****_ value, e.g.
+            # group(0) == b"\x00_\x00x\x000\x000\x000\x00A\x00_"
+            # group(1) == b"\x000\x000\x000\x00A"
+            # unicode (from utf-16-be) == u"000A"
+            # returns b"\x00\x0A"
+            match_hex = matchobj.group(1)
+            hex_string = to_unicode(match_hex, encoding='utf-16-be')
+            return binascii.unhexlify(hex_string)
+
+        # Need to ensure we start with a unicode representation of the string so that we can get the actual UTF-16
+        # bytes value from that string.
+        unicode_value = to_unicode(value)
+        unicode_bytes = to_bytes(unicode_value, encoding='utf-16-be')
+        bytes_value = re.sub(self._deserial_str, rplcr, unicode_bytes)
+        return to_unicode(bytes_value, encoding='utf-16-be')
+
+    def _get_obj_id(self, obj=None):
+        # Do a basic sanity check to see if the object has already been serialized and use the same ID. This is only
+        # done in SerializerV2().
+        if obj is not None and id(obj) in self.obj:
+            return self.obj[id(obj)]
+
+        ref_id = str(self.obj_id)
+        self.obj_id += 1
+        return ref_id
+
+    def _serialize_datetime(self, value):
+        # .NET supports DateTime to a 100 nanosecond precision so we need to manually massage the data from Python
+        # to suit that precision if available.
+        fraction_seconds = ""
+        nanoseconds = getattr(value, 'nanosecond', None)
+        if value.microsecond or nanoseconds:
+            fraction_seconds = value.strftime('.%f')
+
+            if nanoseconds:
+                fraction_seconds += str(int(nanoseconds / 100))
+
+        timezone = 'Z'
+        if value.tzinfo:
+            utc_offset = value.strftime('%z')
+            timezone = "%s:%s" % (utc_offset[:3], utc_offset[3:])
+
+        dt_str = value.strftime("%Y-%m-%dT%H:%M:%S{0}{1}".format(fraction_seconds, timezone))
+
+        return to_unicode(dt_str)
+
+    def _serialize_secure_string(self, value):
+        if self.cipher is None:
+            raise SerializationError("Cannot generate secure string as cipher "
+                                     "is not initialised")
+
+        # Convert the string to a UTF-16 byte string as that is what is expected in Windows. If a byte string (native
+        # string in Python 2) was passed in, the sender must make sure it is a valid UTF-16 representation and not
+        # UTF-8 or else the server will fail to decrypt the secure string in most cases.
+        string_bytes = to_bytes(value, encoding='utf-16-le')
+
+        padder = PKCS7(self.cipher.algorithm.block_size).padder()
+        padded_data = padder.update(string_bytes) + padder.finalize()
+
+        encryptor = self.cipher.encryptor()
+        ss_value = encryptor.update(padded_data) + encryptor.finalize()
+        ss_string = to_string(base64.b64encode(ss_value))
+
+        return ss_string
+
+    def _serialize_string(self, value):
+        if value is None:
+            return None
+
+        def rplcr(matchobj):
+            surrogate_char = matchobj.group(0)
+            byte_char = to_bytes(surrogate_char, encoding='utf-16-be')
+            hex_char = to_unicode(binascii.hexlify(byte_char)).upper()
+            hex_split = [hex_char[i:i + 4] for i in range(0, len(hex_char), 4)]
+
+            return u"".join([u"_x%s_" % i for i in hex_split])
+
+        string_value = to_unicode(value)
+
+        # Before running the translation we need to make sure _ before x is encoded, normally _ isn't encoded except
+        # when preceding x. The MS-PSRP docs don't state this but the _x0000_ matcher is case insensitive so we need to
+        # make sure we escape _X as well as _x.
+        string_value = re.sub(u"(?i)_(x)", u"_x005F_\\1", string_value)
+        string_value = re.sub(self._serial_str, rplcr, string_value)
+
+        return string_value
+
+    def _get_types_from_obj(self, element):
+        obj_types = [e.text for e in element.findall("TN/T")]
+
+        if len(obj_types) > 0:
+            ref_id = element.find("TN").attrib['RefId']
+            self.tn[ref_id] = obj_types
+
+        tn_ref = element.find("TNRef")
+        if tn_ref is not None:
+            ref_id = tn_ref.attrib['RefId']
+            obj_types = self.tn[ref_id]
+
+        return obj_types
+
+
+class Serializer(_SerializerBase):
+
+    def __init__(self):
+        super(Serializer, self).__init__()
 
     def serialize(self, value, metadata=None, parent=None, clear=True):
         """
@@ -377,6 +614,12 @@ class Serializer(object):
 
         return obj
 
+    def _clear(self):
+        self.obj_id = 0
+        self.obj = {}
+        self.tn = {}
+        self.tn_id = 0
+
     def _get_tag_from_value(self, value):
         # Get's the XML tag based on the value type, this is a simple list
         # and explicit tagging is recommended.
@@ -545,50 +788,6 @@ class Serializer(object):
 
         return obj
 
-    def _serialize_string(self, value):
-        if value is None:
-            return None
-
-        def rplcr(matchobj):
-            surrogate_char = matchobj.group(0)
-            byte_char = to_bytes(surrogate_char, encoding='utf-16-be')
-            hex_char = to_unicode(binascii.hexlify(byte_char)).upper()
-            hex_split = [hex_char[i:i + 4] for i in range(0, len(hex_char), 4)]
-
-            return u"".join([u"_x%s_" % i for i in hex_split])
-
-        # before running the translation we need to make sure _ before x is
-        # encoded, normally _ isn't encoded except when preceding x
-        string_value = to_unicode(value)
-
-        # The MS-PSRP docs don't state this but the _x0000_ matcher is case insensitive so we need to make sure we
-        # escape _X as well as _x.
-        string_value = re.sub(u"(?i)_(x)", u"_x005F_\\1", string_value)
-        string_value = re.sub(self._serial_str, rplcr, string_value)
-
-        return string_value
-
-    def _serialize_secure_string(self, value):
-        if self.cipher is None:
-            raise SerializationError("Cannot generate secure string as cipher "
-                                     "is not initialised")
-
-        # convert the string to a UTF-16 byte string as that is what is
-        # expected in Windows. If a byte string (native string in Python 2) was
-        # passed in, the sender must make sure it is a valid UTF-16
-        # representation and not UTF-8 or else the server will fail to decrypt
-        # the secure string in most cases
-        string_bytes = to_bytes(value, encoding='utf-16-le')
-
-        padder = PKCS7(self.cipher.algorithm.block_size).padder()
-        padded_data = padder.update(string_bytes) + padder.finalize()
-
-        encryptor = self.cipher.encryptor()
-        ss_value = encryptor.update(padded_data) + encryptor.finalize()
-        ss_string = to_string(base64.b64encode(ss_value))
-
-        return ss_string
-
     def _deserialize_obj(self, element, metadata):
         obj = metadata.object()
         self.obj[element.attrib['RefId']] = obj
@@ -716,71 +915,6 @@ class Serializer(object):
 
         return dictionary
 
-    def _deserialize_string(self, value):
-        if value is None:
-            return ""
-
-        def rplcr(matchobj):
-            # The matched object is the UTF-16 byte representation of the UTF-8
-            # hex string value. We need to decode the byte str to unicode and
-            # then unhexlify that hex string to get the actual bytes of the
-            # _x****_ value, e.g.
-            # group(0) == b"\x00_\x00x\x000\x000\x000\x00A\x00_"
-            # group(1) == b"\x000\x000\x000\x00A"
-            # unicode (from utf-16-be) == u"000A"
-            # returns b"\x00\x0A"
-            match_hex = matchobj.group(1)
-            hex_string = to_unicode(match_hex, encoding='utf-16-be')
-            return binascii.unhexlify(hex_string)
-
-        # need to ensure we start with a unicode representation of the string
-        # so that we can get the actual UTF-16 bytes value from that string
-        unicode_value = to_unicode(value)
-        unicode_bytes = to_bytes(unicode_value, encoding='utf-16-be')
-        bytes_value = re.sub(self._deserial_str, rplcr, unicode_bytes)
-        return to_unicode(bytes_value, encoding='utf-16-be')
-
-    def _deserialize_secure_string(self, value):
-        if self.cipher is None:
-            # cipher is not set up so we can't decrypt the string, just return
-            # the raw element
-            return value
-
-        ss_string = base64.b64decode(value.text)
-        decryptor = self.cipher.decryptor()
-        decrypted_bytes = decryptor.update(ss_string) + decryptor.finalize()
-
-        unpadder = PKCS7(self.cipher.algorithm.block_size).unpadder()
-        unpadded_bytes = unpadder.update(decrypted_bytes) + unpadder.finalize()
-        decrypted_string = to_unicode(unpadded_bytes, 'utf-16-le')
-
-        return decrypted_string
-
-    def _clear(self):
-        self.obj_id = 0
-        self.obj = {}
-        self.tn = {}
-        self.tn_id = 0
-
-    def _get_obj_id(self):
-        ref_id = str(self.obj_id)
-        self.obj_id += 1
-        return ref_id
-
-    def _get_types_from_obj(self, element):
-        obj_types = [e.text for e in element.findall("TN/T")]
-
-        if len(obj_types) > 0:
-            ref_id = element.find("TN").attrib['RefId']
-            self.tn[ref_id] = obj_types
-
-        tn_ref = element.find("TNRef")
-        if tn_ref is not None:
-            ref_id = tn_ref.attrib['RefId']
-            obj_types = self.tn[ref_id]
-
-        return obj_types
-
     def _create_tn(self, parent, types):
         main_type = types[0]
         ref_id = self.tn.get(main_type, None)
@@ -807,3 +941,351 @@ class Serializer(object):
         if meta is None:
             meta = ObjectMeta(name=key)
         self.serialize(obj, metadata=meta, parent=parent, clear=False)
+
+
+class SerializerV2(_SerializerBase):
+    """The Python object serializer.
+
+    This is the new and improved serializer that is used to convert Python objects to CLIXML and vice versa. It should
+    be used over Serializer() as it is able to handle more Python objects than before as well as providing a simpler
+    interface for serializing to specific .NET types. A SerializerV2() instance should not be reused for multiple
+    messages.
+
+    See the `examples` folder for more information on how to create your own objects or how to deal with deserialized
+    objects.
+    """
+
+    def serialize(self, value):  # type: (any) -> ET.Element
+        """ Serialize a Python object to a XML element based on the CLIXML value. """
+        if value is None:
+            return ET.Element("Nil")
+        elif isinstance(value, bool):
+            element = ET.Element('B')
+            element.text = to_unicode(str(value).lower())
+        elif isinstance(value, (PSByteArray, binary_type)):
+            element = ET.Element('BA')
+            element.text = to_unicode(base64.b64encode(value))
+        elif isinstance(value, (PSDateTime, datetime.datetime)):
+            element = ET.Element('DT')
+            element.text = self._serialize_datetime(value)
+        elif isinstance(value, (PSGuid, uuid.UUID)):
+            element = ET.Element('G')
+            element.text = to_unicode(str(value))
+
+        # Integer types
+        elif isinstance(value, PSChar):
+            element = ET.Element('C')
+            element.text = to_unicode(str(int(value)))
+        elif isinstance(value, PSSByte):
+            element = ET.Element('SB')
+            element.text = to_unicode(str(int(value)))
+        elif isinstance(value, PSInt16):
+            element = ET.Element('I16')
+            element.text = to_unicode(str(int(value)))
+        elif isinstance(value, PSInt64):
+            element = ET.Element('I64')
+            element.text = to_unicode(str(int(value)))
+        elif isinstance(value, PSByte):
+            element = ET.Element('By')
+            element.text = to_unicode(str(int(value)))
+        elif isinstance(value, PSUInt16):
+            element = ET.Element('U16')
+            element.text = to_unicode(str(int(value)))
+        elif isinstance(value, PSUInt):
+            element = ET.Element('U32')
+            element.text = to_unicode(str(int(value)))
+        elif isinstance(value, PSUInt64):
+            element = ET.Element('U64')
+            element.text = to_unicode(str(int(value)))
+        elif isinstance(value, (PSInt, integer_types)):
+            element = ET.Element('I32')
+            element.text = to_unicode(str(int(value)))
+        elif isinstance(value, PSDouble):
+            element = ET.Element('Db')
+            element.text = to_unicode(str(value)).upper()
+        elif isinstance(value, (PSSingle, float)):
+            element = ET.Element('Sg')
+            element.text = to_unicode(str(value)).upper()
+        elif isinstance(value, (PSDecimal, Decimal)):
+            element = ET.Element('D')
+            element.text = to_unicode(str(value))
+
+        # String types
+        elif isinstance(value, PSDuration):
+            element = ET.Element('TS')
+            element.text = to_unicode(value)
+        elif isinstance(value, PSScriptBlock):
+            element = ET.Element('SBK')
+            element.text = self._serialize_string(value)
+        elif isinstance(value, PSSecureString):
+            element = ET.Element('SS')
+            element.text = self._serialize_secure_string(value)
+        elif isinstance(value, PSUri):
+            element = ET.Element('URI')
+            element.text = self._serialize_string(value)
+        elif isinstance(value, PSVersion):
+            element = ET.Element('Version')
+            element.text = to_unicode(str(value))
+        elif isinstance(value, PSXml):
+            element = ET.Element('XD')
+            element.text = self._serialize_string(value)
+
+        elif isinstance(value, (PSString, text_type)):
+            element = ET.Element('S')
+            element.text = self._serialize_string(value)
+
+        else:
+            # Any remaining types are considered a complex object.
+            element = ET.Element('Obj', RefId=self._get_obj_id(obj=value))
+
+        if element.tag == 'Obj' or isinstance(value, PSEnumBase) or \
+                (isinstance(value, PSObject) and
+                 (value.PSObject.adapted_properties or value.PSObject.extended_properties)):
+            is_complex = element.tag == 'Obj'
+            # Default to a PSCustomObject if the value does not already have a PSObject attribute on it.
+            ps_object = getattr(value, 'PSObject', PSCustomObject.PSObject)
+
+            # Check if the value is a primitive type with extra properties and make sure we wrap it inside an Obj.
+            if not is_complex or isinstance(value, PSEnumBase):
+                sub_element = element
+                element = ET.Element('Obj', RefId=self._get_obj_id(obj=value))
+                element.append(sub_element)
+
+            # Only add the type names if not a primitive object or explicit type_names were set on the PSObject.
+            if ps_object.type_names and ps_object.tag == 'Obj':
+                type_names = ps_object.type_names
+                main_type = type_names[0]
+                ref_id = self.tn.get(main_type, None)
+                if ref_id is None:
+                    ref_id = self.tn_id
+                    self.tn_id += 1
+                    self.tn[main_type] = ref_id
+
+                    tn = ET.SubElement(element, "TN", RefId=str(ref_id))
+                    for type_name in type_names:
+                        ET.SubElement(tn, "T").text = type_name
+                else:
+                    ET.SubElement(element, "TNRef", RefId=str(ref_id))
+
+            no_props = True
+            for xml_name, properties in [('Props', ps_object.adapted_properties),
+                                         ('MS', ps_object.extended_properties)]:
+                if not properties:
+                    continue
+
+                no_props = False
+                prop_elements = ET.SubElement(element, xml_name)
+                for prop in properties:
+                    prop_value = prop.value
+
+                    # If it's an optional property and the value is not set, omit it from the CLIXML.
+                    if prop_value is None and prop.optional:
+                        continue
+
+                    # Cast it to the proper type.
+                    elif prop_value is not None and prop.ps_type:
+                        prop_value = prop.ps_type(prop_value)
+
+                    # If the value is a function/lambda, get the real value.
+                    elif callable(prop_value):
+                        prop_value = prop_value()
+
+                    prop_element = self.serialize(prop_value)
+                    prop_element.attrib['N'] = self._serialize_string(prop.name)
+                    prop_elements.append(prop_element)
+
+            if isinstance(value, PSStack):
+                stk_element = ET.SubElement(element, 'STK')
+
+                for stk_entry in value:
+                    stk_element.append(self.serialize(stk_entry))
+
+            elif isinstance(value, (PSQueue, Queue)):
+                que_element = ET.SubElement(element, 'QUE')
+
+                while True:
+                    try:
+                        que_entry = self.serialize(value.get(block=False))
+                    except Empty:
+                        break
+                    else:
+                        que_element.append(que_entry)
+
+            elif isinstance(value, (PSList, list)):
+                lst_element = ET.SubElement(element, 'LST')
+
+                for lst_entry in value:
+                    lst_element.append(self.serialize(lst_entry))
+
+            elif isinstance(value, (PSDict, dict)):
+                dct_element = ET.SubElement(element, 'DCT')
+
+                for dct_key, dct_value in value.items():
+                    en_element = ET.SubElement(dct_element, 'En')
+
+                    s_dct_key = self.serialize(dct_key)
+                    s_dct_key.attrib['N'] = 'Key'
+                    en_element.append(s_dct_key)
+
+                    s_dct_value = self.serialize(dct_value)
+                    s_dct_value.attrib['N'] = 'Value'
+                    en_element.append(s_dct_value)
+
+            else:
+                # ToString should only be set if explicitly defined or if not a primitive object.
+                if is_complex or ps_object.to_string or isinstance(value, PSEnumBase):
+                    try:
+                        to_string_value = ps_object.to_string or str(value)
+                    except Exception:
+                        to_string_value = None  # in case __str__ raises an exception, don't include it
+
+                    ET.SubElement(element, 'ToString').text = self._serialize_string(to_string_value)
+
+                if is_complex and no_props and not isinstance(value, PSObject):
+                    # If this was a complex object but no properties were defined we consider this a normal Python
+                    # class instance to serialize. We use the instance attributes and properties to create the CLIXML.
+                    prop_element = None
+                    for prop in dir(value):
+                        prop_value = getattr(value, prop)
+
+                        if prop == 'PSObject' or prop.startswith('__') or callable(prop_value):
+                            continue
+
+                        elif not prop_element:
+                            prop_element = ET.SubElement(element, 'MS')
+
+                        sub_element = self.serialize(prop_value)
+                        sub_element.attrib['N'] = self._serialize_string(prop)
+                        prop_element.append(sub_element)
+
+        return element
+
+    def deserialize(self, element):  # type: (ET.Element) -> any
+        """ Deserializes a XML element of the CLIXML value to a Python type. """
+        # These types are pure primitive types and we don't need to do anything special when de-serializing
+        if element.tag == 'ToString':
+            return self._deserialize_string(element.text)
+        elif element.tag == 'Nil':
+            return None
+        elif element.tag == 'B':
+            # Technically can be an extended primitive but due to limitations in Python we cannot subclass bool.
+            return element.text.lower() == "true"
+        elif element.tag == 'Ref':
+            return self.obj[element.attrib['RefId']]
+
+        if element.tag == 'By':
+            value = PSByte(element.text)
+        elif element.tag == 'BA':
+            value = PSByteArray(base64.b64decode(element.text))
+        elif element.tag == 'C':
+            value = PSChar(int(element.text))
+        elif element.tag == 'DT':
+            value = self._deserialize_datetime(element.text)
+        elif element.tag == 'D':
+            value = PSDecimal(element.text)
+        elif element.tag == 'Db':
+            value = PSDouble(element.text)
+        elif element.tag == 'TS':
+            value = PSDuration(element.text)
+        elif element.tag == 'G':
+            value = PSGuid(element.text)
+        elif element.tag == 'I16':
+            value = PSInt16(element.text)
+        elif element.tag == 'I32':
+            value = PSInt(element.text)
+        elif element.tag == 'I64':
+            value = PSInt64(element.text)
+        elif element.tag == 'SB':
+            value = PSSByte(element.text)
+        elif element.tag == 'SBK':
+            value = PSScriptBlock(self._deserialize_string(element.text))
+        elif element.tag == 'SS':
+            value = PSSecureString(self._deserialize_secure_string(element))
+        elif element.tag == 'Sg':
+            value = PSSingle(element.text)
+        elif element.tag == 'S':
+            value = PSString(self._deserialize_string(element.text))
+        elif element.tag == 'U16':
+            value = PSUInt16(element.text)
+        elif element.tag == 'U32':
+            value = PSUInt(element.text)
+        elif element.tag == 'U64':
+            value = PSUInt64(element.text)
+        elif element.tag == 'URI':
+            value = PSUri(self._deserialize_string(element.text))
+        elif element.tag == 'Version':
+            value = PSVersion(element.text)
+        elif element.tag == 'XD':
+            value = PSXml(self._deserialize_string(element.text))
+        elif element.tag == 'Obj':
+            value = TypeRegistry().rehydrate(self._get_types_from_obj(element))
+
+            props = {
+                'adapted_properties': None,
+                'extended_properties': None,
+            }
+            for obj_entry in element:
+                if obj_entry.tag == 'Props':
+                    props['adapted_properties'] = obj_entry
+
+                elif obj_entry.tag == 'MS':
+                    props['extended_properties'] = obj_entry
+
+                elif obj_entry.tag == 'ToString':
+                    value.PSObject.to_string = self.deserialize(obj_entry)
+
+                elif obj_entry.tag == 'DCT':
+                    value = PSDict([(self.deserialize(dict_entry.find('*/[@N="Key"]')),
+                                     self.deserialize(dict_entry.find('*/[@N="Value"]')))
+                                    for dict_entry in obj_entry])
+
+                elif obj_entry.tag == 'STK':
+                    value = PSStack([self.deserialize(stack_entry) for stack_entry in obj_entry])
+
+                elif obj_entry.tag == 'QUE':
+                    value = PSQueue()
+                    for queue_entry in obj_entry:
+                        value.put(self.deserialize(queue_entry))
+
+                elif obj_entry.tag in ['LST', 'IE']:
+                    value = PSList([self.deserialize(list_entry) for list_entry in obj_entry])
+
+                elif obj_entry.tag != 'TN':
+                    # Extended primitive types and enums store the value as a sub element of the Obj.
+                    new_value = self.deserialize(obj_entry)
+
+                    if isinstance(value, PSEnumBase):
+                        value = type(value)(new_value)
+
+                    else:
+                        # If the TypeRegister returned any types, set them on the new object name.
+                        if value.PSTypeNames:
+                            new_value.PSObject.type_names = value.PSTypeNames
+
+                        value = new_value
+
+            if isinstance(value, PSObject):
+                for prop_group_name, prop_xml in props.items():
+                    if prop_xml is None:
+                        continue
+
+                    existing_properties = dict((p.name, p) for p in getattr(value.PSObject, prop_group_name))
+
+                    for obj_property in prop_xml:
+                        prop_name = self._deserialize_string(obj_property.attrib['N'])
+                        prop_value = self.deserialize(obj_property)
+
+                        # Check if the value's PSObject already has the property defined and use those values,
+                        # otherwise add a new property.
+                        if prop_name in existing_properties:
+                            prop_info = existing_properties[prop_name]
+
+                        else:
+                            prop_info = PSPropertyInfo(prop_name, ps_type=type(prop_value))
+
+                        prop_info.value = prop_value
+                        getattr(value.PSObject, prop_group_name).append(prop_info)
+        else:
+            raise ValueError("Unknown element found: %s" % element.tag)
+
+        return value
