@@ -39,44 +39,47 @@ except ImportError:  # pragma: no cover
 log = logging.getLogger(__name__)
 
 
-def get_auth_context(username, password, auth_provider, cbt_app_data,
-                     hostname, service, delegate, wrap_required):
+def get_auth_context(username, password, auth_provider, cbt_app_data, hostname, service, delegate, wrap_required,
+                     response_auth_header):
     """
-    Returns an AuthContext used in the Negotiate process which provides methods
-    to generate the auth token as well as wrap/unwrap data sent to and from the
-    server.
+    Returns an AuthContext used in the Negotiate process which provides methods to generate the auth token as well as
+    wrap/unwrap data sent to and from the server.
 
-    This function tries to get the context based on the provider that is
-    specified otherwise it tries to get the best provider available. Here is
-    the basic logic it uses when getting the auth provider
+    This function tries to get the context based on the provider that is specified as well as from the response headers
+    from the server, otherwise it tries to get the best provider available. Here is the basic logic it uses when
+    selecting the auth provider.
 
     * If SSPI is available use that (Windows only)
-    * If GSSAPI is available with NTLM/SPNEGO support, use that when auto or
-        kerberos is specified as the provider
-    * If GSSAPI is available with only Kerberos support, try and use that when
-        auto or kerberos is specified as the provider
+    * If GSSAPI is available with NTLM/SPNEGO support, use that when auto or kerberos is specified as the provider
+    * If GSSAPI is available with only Kerberos support, try and use that when auto or kerberos is specified as the
+        provider
     * In all other cases use the fallback ntlm-auth library
 
-    :param username: The username to authenticate with, can be None if on
-        Windows and SSPI is being used or GSSAPI is available and kerberos is
-        used.
-    :param password: The password, same rules apply as username
+    :param username: The username to authenticate with, can be None if on Windows and SSPI is being used or GSSAPI is
+        available and kerberos is used.
+    :param password: The password, same rules apply as username.
     :param auth_provider: The auth provider to use
         auto: Try Kerberos if available and fallback to NTLM if that fails
         kerberos: Only allow Kerberos with no fallback to NTLM
         ntlm: Only use NTLM, do not try Kerberos
-    :param cbt_app_data: The CBT application data field to bind to the auth
-    :param hostname: The hostname to build the SPN with
-    :param service: The service to build the SPN with
-    :param delegate: Whether to add the delegate flag to the kerb ticket
-    :param wrap_required: Whether we need encryption/wrapping in the auth
-        provider, if we need wrapping and GSSAPI does not offer it then we
-        will fallback to ntlm-auth
+    :param cbt_app_data: The CBT application data field to bind to the auth.
+    :param hostname: The hostname to build the SPN with.
+    :param service: The service to build the SPN with.
+    :param delegate: Whether to add the delegate flag to the kerb ticket.
+    :param wrap_required: Whether we need encryption/wrapping in the auth provider, if we need wrapping and GSSAPI does
+        not offer it then we will fallback to ntlm-auth.
+    :param response_auth_header: The response's auth token set in its 'www-authenticate' header. This is used by auto
+        to select a provider, we expect this to be either 'negotiate', 'kerberos', or 'ntlm'.
     :return:
     """
     if auth_provider not in ["auto", "kerberos", "ntlm"]:
-        raise ValueError("Invalid auth_provider specified %s, must be "
-                         "auto, kerberos, or ntlm" % auth_provider)
+        raise ValueError("Invalid auth_provider specified %s, must be auto, kerberos, or ntlm" % auth_provider)
+
+    if auth_provider == 'auto' and response_auth_header != 'negotiate':
+        auth_provider = 'kerberos' if response_auth_header == 'kerberos' else 'ntlm'
+    elif auth_provider != 'auto' and response_auth_header not in ['negotiate', auth_provider]:
+        raise ValueError("Server responded with the auth protocol '%s' which is incompatible with the specified "
+                         "auth_provider '%s'" % (response_auth_header, auth_provider))
 
     context_gen = None
     out_token = None
@@ -396,57 +399,47 @@ class GSSAPIContext(AuthContext):
         return self._context.unwrap(header + data)[0]
 
     @staticmethod
-    def _get_security_context(name_type, mech, spn, username, password,
-                              delegate, wrap_required, channel_bindings=None):
+    def _get_security_context(name_type, mech, spn, username, password, delegate, wrap_required,
+                              channel_bindings=None):
         if username is not None:
             username = gssapi.Name(base=username, name_type=name_type)
 
-        server_name = gssapi.Name(spn,
-                                  name_type=gssapi.NameType.hostbased_service)
+        server_name = gssapi.Name(spn, name_type=gssapi.NameType.hostbased_service)
 
-        # first try and get the cred from the existing cache, if that fails
-        # then get a new ticket with the password (if specified). The cache
-        # can only be used for Kerberos, NTLM/SPNEGO must have acquire the
-        # cred with a pass
+        # First try and get the cred from the existing cache, if that fails then get a new ticket with the password
+        # (if specified). The cache can only be used for Kerberos or SPNEGO (only uses kerb), NTLM must have acquire
+        # the cred with a password.
         cred = None
-        kerb_oid = GSSAPIContext._AUTH_PROVIDERS['kerberos']
-        kerb_mech = gssapi.OID.from_int_seq(kerb_oid)
-        if mech == kerb_mech:
+        kerb_mech = gssapi.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['kerberos'])
+        negotiate_mech = gssapi.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['auto'])
+        if mech == kerb_mech or (mech == negotiate_mech and (not username or not password)):
             try:
-                cred = gssapi.Credentials(name=username, usage='initiate',
-                                          mechs=[mech])
-                # raises ExpiredCredentialsError if it has expired
+                cred = gssapi.Credentials(name=username, usage='initiate', mechs=[mech])
+
+                # Raises ExpiredCredentialsError if it has expired, we don't care about the actual value.
                 cred.lifetime
             except gssapi.raw.GSSError:
-                # we can't acquire the cred if no password was supplied
+                # We can't acquire the cred if no password was supplied.
                 if password is None:
                     raise
                 cred = None
         elif username is None or password is None:
-            raise ValueError("Can only use implicit credentials with kerberos "
+            raise ValueError("Can only use implicit credentials with kerberos or auto (with no credentials) "
                              "authentication")
 
         if cred is None:
-            # error when trying to access the existing cache, get our own
-            # credentials with the password specified
+            # Error when trying to access the existing cache, get our own credentials with the password specified.
             b_password = to_bytes(password)
-            cred = gssapi.raw.acquire_cred_with_password(username, b_password,
-                                                         usage='initiate',
-                                                         mechs=[mech])
+            cred = gssapi.raw.acquire_cred_with_password(username, b_password, usage='initiate', mechs=[mech])
             cred = cred.creds
 
-        flags = gssapi.RequirementFlag.mutual_authentication | \
-            gssapi.RequirementFlag.out_of_sequence_detection
+        flags = gssapi.RequirementFlag.mutual_authentication | gssapi.RequirementFlag.out_of_sequence_detection
         if delegate:
             flags |= gssapi.RequirementFlag.delegate_to_peer
         if wrap_required:
             flags |= gssapi.RequirementFlag.confidentiality
 
-        context = gssapi.SecurityContext(name=server_name,
-                                         creds=cred,
-                                         usage='initiate',
-                                         mech=mech,
-                                         flags=flags,
+        context = gssapi.SecurityContext(name=server_name, creds=cred, usage='initiate', mech=mech, flags=flags,
                                          channel_bindings=channel_bindings)
 
         return context

@@ -1,3 +1,4 @@
+import re
 import types
 
 import pytest
@@ -31,29 +32,30 @@ def reset_imports():
 class TestGetAuthContext(object):
 
     def test_invalid_provider(self):
-        with pytest.raises(ValueError) as err:
-            get_auth_context("", "", "fake", None, None, None, False, False)
-        assert str(err.value) == \
-            "Invalid auth_provider specified fake, must be auto, kerberos, " \
-            "or ntlm"
+        expected = "Invalid auth_provider specified fake, must be auto, kerberos, or ntlm"
+        with pytest.raises(ValueError, match=re.escape(expected)):
+            get_auth_context("", "", "fake", None, None, None, False, False, None)
 
     def test_fail_only_ntlm(self, reset_imports):
         spnego.HAS_SSPI = False
         spnego.HAS_GSSAPI = False
 
-        with pytest.raises(ValueError) as err:
-            get_auth_context("", "", "kerberos", None, None, None, False,
-                             False)
-        assert str(err.value) == \
-            "The auth_provider specified 'kerberos' cannot be used without " \
-            "GSSAPI or SSPI being installed, select auto or install GSSAPI " \
-            "or SSPI"
+        expected = "The auth_provider specified 'kerberos' cannot be used without GSSAPI or SSPI being installed, " \
+                   "select auto or install GSSAPI or SSPI"
+        with pytest.raises(ValueError, match=re.escape(expected)):
+            get_auth_context("", "", "kerberos", None, None, None, False, False, 'negotiate')
+
+    @pytest.mark.parametrize('provider, header', [['ntlm', 'kerberos'], ['kerberos', 'ntlm']])
+    def test_fail_provider_does_not_match_server_response(self, provider, header):
+        expected = "Server responded with the auth protocol '%s' which is incompatible with the specified auth_" \
+                   "provider '%s'" % (header, provider)
+        with pytest.raises(ValueError, match=re.escape(expected)):
+            get_auth_context("", "", provider, None, None, None, False, False, header)
 
     def test_get_auth_no_sspi_or_gssapi(self, reset_imports):
         spnego.HAS_GSSAPI = False
         spnego.HAS_SSPI = False
-        context, gen, token = get_auth_context("", "", "auto", None, None,
-                                               None, False, False)
+        context, gen, token = get_auth_context("", "", "auto", None, None, None, False, False, 'negotiate')
 
         assert isinstance(context, NTLMContext)
         assert token.startswith(b"NTLMSSP\x00\x01\x00\x00\x00")
@@ -61,8 +63,7 @@ class TestGetAuthContext(object):
     def test_get_auth_has_gssapi_ntlm_with_cred(self, reset_imports):
         spnego.HAS_GSSAPI = True
         spnego.HAS_SSPI = False
-        context, gen, token = get_auth_context("", "", "ntlm", None, None,
-                                               None, False, True)
+        context, gen, token = get_auth_context("", "", "ntlm", None, None, None, False, True, 'negotiate')
 
         assert isinstance(context, NTLMContext)
         assert token.startswith(b"NTLMSSP\x00\x01\x00\x00\x00")
@@ -75,16 +76,13 @@ class TestGetAuthContext(object):
         mock_set_sec = MagicMock(side_effect=gss.exceptions.GSSError(65536, 0))
         monkeypatch.setattr('gssapi.raw.set_sec_context_option', mock_set_sec)
 
-        context, gen, token = get_auth_context("", "", "auto", None, "host",
-                                               "service", False, True)
+        context, gen, token = get_auth_context("", "", "auto", None, "host", "service", False, True, 'negotiate')
 
         assert isinstance(context, NTLMContext)
         assert token.startswith(b"NTLMSSP\x00\x01\x00\x00\x00")
         assert len(mock_set_sec.call_args) == 2
-        assert mock_set_sec.call_args[0] == \
-            (gss.OID.from_int_seq("1.3.6.1.4.1.7165.655.1.3"),)
-        assert isinstance(mock_set_sec.call_args[1]['context'],
-                          gss.SecurityContext)
+        assert mock_set_sec.call_args[0] == (gss.OID.from_int_seq("1.3.6.1.4.1.7165.655.1.3"),)
+        assert isinstance(mock_set_sec.call_args[1]['context'], gss.SecurityContext)
         assert mock_set_sec.call_args[1]['value'] == b"\x00\x00\x00\x00"
 
     def test_get_auth_has_gssapi_kerb_failure(self, monkeypatch):
@@ -96,8 +94,7 @@ class TestGetAuthContext(object):
 
         # gssapi will fail because the user is not a valid user, we expect
         # this to happen and should result in NTLMContext being returned
-        context, gen, token = get_auth_context("", "", "auto", None, "host",
-                                               "service", False, False)
+        context, gen, token = get_auth_context("", "", "auto", None, "host", "service", False, False, 'negotiate')
 
         assert isinstance(context, NTLMContext)
         assert token.startswith(b"NTLMSSP\x00\x01\x00\x00\x00")
@@ -121,8 +118,7 @@ class TestGetAuthContext(object):
         monkeypatch.setattr(SSPIContext, "init_context", mock_init)
         monkeypatch.setattr(SSPIContext, "step", _step)
 
-        context, gen, token = get_auth_context("", "", auth, None, "host",
-                                               "service", False, wrap)
+        context, gen, token = get_auth_context("", "", auth, None, "host", "service", False, wrap, 'negotiate')
 
         assert isinstance(context, SSPIContext)
         assert context.auth_provider == provider
@@ -142,8 +138,7 @@ class TestGetAuthContext(object):
         monkeypatch.setattr(GSSAPIContext, "init_context", mock_init)
         monkeypatch.setattr(GSSAPIContext, "step", _step)
 
-        context, gen, token = get_auth_context("", "", "auto", None, "host",
-                                               "service", False, False)
+        context, gen, token = get_auth_context("", "", "auto", None, "host", "service", False, False, 'negotiate')
 
         assert isinstance(context, GSSAPIContext)
         assert context.auth_provider == "1.3.6.1.5.5.2"
@@ -151,7 +146,8 @@ class TestGetAuthContext(object):
         assert isinstance(gen, types.GeneratorType)
         assert token == b"token"
 
-    def test_get_auth_gssapi_auto_kerb_avail(self, monkeypatch):
+    @pytest.mark.parametrize('header_token', ['negotiate', 'kerberos'])
+    def test_get_auth_gssapi_auto_kerb_avail(self, header_token, monkeypatch):
         gss = pytest.importorskip("gssapi")
 
         def _step(self, token=None):
@@ -163,8 +159,7 @@ class TestGetAuthContext(object):
         monkeypatch.setattr(GSSAPIContext, "init_context", mock_init)
         monkeypatch.setattr(GSSAPIContext, "step", _step)
 
-        context, gen, token = get_auth_context("", "", "auto", None, "host",
-                                               "service", False, False)
+        context, gen, token = get_auth_context("", "", "auto", None, "host", "service", False, False, header_token)
 
         assert isinstance(context, GSSAPIContext)
         assert context.auth_provider == "1.2.840.113554.1.2.2"
@@ -184,9 +179,7 @@ class TestGetAuthContext(object):
         monkeypatch.setattr(GSSAPIContext, "init_context", mock_init)
         monkeypatch.setattr(GSSAPIContext, "step", _step)
 
-        context, gen, token = get_auth_context("", "", "kerberos", None,
-                                               "host", "service", False,
-                                               False)
+        context, gen, token = get_auth_context("", "", "kerberos", None, "host", "service", False, False, 'negotiate')
 
         assert isinstance(context, GSSAPIContext)
         assert context.auth_provider == "1.2.840.113554.1.2.2"
@@ -206,9 +199,7 @@ class TestGetAuthContext(object):
         monkeypatch.setattr(GSSAPIContext, "init_context", mock_init)
         monkeypatch.setattr(GSSAPIContext, "step", _step)
 
-        context, gen, token = get_auth_context("", "", "kerberos", None,
-                                               "host", "service", False,
-                                               False)
+        context, gen, token = get_auth_context("", "", "kerberos", None, "host", "service", False, False, 'negotiate')
 
         assert isinstance(context, GSSAPIContext)
         assert context.auth_provider == "1.2.840.113554.1.2.2"
@@ -228,14 +219,10 @@ class TestGetAuthContext(object):
         mock_set_sec = MagicMock()
         monkeypatch.setattr('gssapi.raw.set_sec_context_option', mock_set_sec)
 
-        with pytest.raises(ValueError) as err:
-            get_auth_context("", "", "kerberos", None, "host", "service",
-                             False, True)
-        assert str(err.value) == \
-            "The auth_provider specified 'kerberos' is not available as " \
-            "message encryption is required but is not available on the " \
-            "current system. Either disable encryption, use https or " \
-            "specify auto/ntlm"
+        expected = "The auth_provider specified 'kerberos' is not available as message encryption is required but " \
+                   "is not available on the current system. Either disable encryption, use https or specify auto/ntlm"
+        with pytest.raises(ValueError, match=re.escape(expected)):
+            get_auth_context("", "", "kerberos", None, "host", "service", False, True, 'negotiate')
 
 
 class TestSSPIContext(object):
@@ -276,8 +263,7 @@ class TestSSPIContext(object):
             def __init__(self):
                 self.authenticated = False
 
-        context = SSPIContext("user", "pass", "auto", None, "host", "http",
-                              False)
+        context = SSPIContext("user", "pass", "auto", None, "host", "http", False)
         context._context = MockSecContext()
         assert context.complete is False
         context._context.authenticated = True
@@ -299,8 +285,7 @@ class TestSSPIContext(object):
                 return b""
 
         monkeypatch.setattr(SSPIContext, "_step", _step)
-        context = SSPIContext("user", "pass", "auto", None, "host", "http",
-                              False)
+        context = SSPIContext("user", "pass", "auto", None, "host", "http", False)
         context._context = MockSecContext()
 
         gen = context.step()
@@ -317,8 +302,7 @@ class TestSSPIContext(object):
             def encrypt(self, data):
                 return data + b"-encrypted", b"header"
 
-        context = SSPIContext("user", "pass", "auto", None, "host", "http",
-                              False)
+        context = SSPIContext("user", "pass", "auto", None, "host", "http", False)
 
         context._context = MockSecContext()
         actual_header, actual_data = context.wrap(b"data")
@@ -331,8 +315,7 @@ class TestSSPIContext(object):
             def decrypt(self, data, header):
                 return header + data
 
-        context = SSPIContext("user", "pass", "auto", None, "host", "http",
-                              False)
+        context = SSPIContext("user", "pass", "auto", None, "host", "http", False)
 
         context._context = MockSecContext()
         actual = context.unwrap(b"header", b"data")
@@ -363,8 +346,7 @@ class TestGSSAPIContext(object):
                     self.complete = True
                     return in_token
 
-        context = GSSAPIContext(None, None, "auto", None, "hostname", "http",
-                                True, True)
+        context = GSSAPIContext(None, None, "auto", None, "hostname", "http", True, True)
 
         context._context = MockSecContext()
         assert context.complete is False
@@ -380,8 +362,7 @@ class TestGSSAPIContext(object):
         assert context.complete
 
     def test_gssapi_unwrap(self):
-        context = GSSAPIContext(None, None, "auto", None, "hostname", "http",
-                                True, True)
+        context = GSSAPIContext(None, None, "auto", None, "hostname", "http", True, True)
         context._context = MagicMock()
         context.unwrap(b"header", b"data")
         method_calls = context._context.method_calls
@@ -395,15 +376,13 @@ class TestGSSAPIContext(object):
 
         mock_con = MagicMock()
         monkeypatch.setattr(GSSAPIContext, "_get_security_context", mock_con)
-        context = GSSAPIContext("user", "pass", "auto", None, "hostname",
-                                "http", True, True)
+        context = GSSAPIContext("user", "pass", "auto", None, "hostname", "http", True, True)
 
         context.init_context()
         name, mech, spn, user, password, delegate, wrap, cbt = \
             mock_con.call_args[0]
         assert name == gss.NameType.user
-        assert mech == \
-            gss.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['auto'])
+        assert mech == gss.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['auto'])
         assert spn == "http@hostname"
         assert user == "user"
         assert password == "pass"
@@ -416,15 +395,12 @@ class TestGSSAPIContext(object):
 
         mock_con = MagicMock()
         monkeypatch.setattr(GSSAPIContext, "_get_security_context", mock_con)
-        context = GSSAPIContext("user", "pass", "auto", None, "hostname",
-                                "http", False, False)
+        context = GSSAPIContext("user", "pass", "auto", None, "hostname", "http", False, False)
 
         context.init_context()
-        name, mech, spn, user, password, delegate, wrap, cbt = \
-            mock_con.call_args[0]
+        name, mech, spn, user, password, delegate, wrap, cbt = mock_con.call_args[0]
         assert name == gss.NameType.user
-        assert mech == \
-            gss.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['auto'])
+        assert mech == gss.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['auto'])
         assert spn == "http@hostname"
         assert user == "user"
         assert password == "pass"
@@ -437,15 +413,12 @@ class TestGSSAPIContext(object):
 
         mock_con = MagicMock()
         monkeypatch.setattr(GSSAPIContext, "_get_security_context", mock_con)
-        context = GSSAPIContext("user", "pass", "kerberos", None, "hostname",
-                                "http", True, True)
+        context = GSSAPIContext("user", "pass", "kerberos", None, "hostname", "http", True, True)
 
         context.init_context()
-        name, mech, spn, user, password, delegate, wrap, cbt = \
-            mock_con.call_args[0]
+        name, mech, spn, user, password, delegate, wrap, cbt = mock_con.call_args[0]
         assert name == gss.NameType.kerberos_principal
-        assert mech == \
-            gss.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['kerberos'])
+        assert mech == gss.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['kerberos'])
         assert spn == "http@hostname"
         assert user == "user"
         assert password == "pass"
@@ -458,15 +431,12 @@ class TestGSSAPIContext(object):
 
         mock_con = MagicMock()
         monkeypatch.setattr(GSSAPIContext, "_get_security_context", mock_con)
-        context = GSSAPIContext("user", "pass", "ntlm", None, "hostname",
-                                "http", True, True)
+        context = GSSAPIContext("user", "pass", "ntlm", None, "hostname", "http", True, True)
 
         context.init_context()
-        name, mech, spn, user, password, delegate, wrap, cbt = \
-            mock_con.call_args[0]
+        name, mech, spn, user, password, delegate, wrap, cbt = mock_con.call_args[0]
         assert name == gss.NameType.user
-        assert mech == \
-            gss.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['ntlm'])
+        assert mech == gss.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['ntlm'])
         assert spn == "http@hostname"
         assert user == "user"
         assert password == "pass"
@@ -479,15 +449,12 @@ class TestGSSAPIContext(object):
 
         mock_con = MagicMock()
         monkeypatch.setattr(GSSAPIContext, "_get_security_context", mock_con)
-        context = GSSAPIContext("user", "pass", "auto", b"cbt", "hostname",
-                                "http", True, True)
+        context = GSSAPIContext("user", "pass", "auto", b"cbt", "hostname", "http", True, True)
 
         context.init_context()
-        name, mech, spn, user, password, delegate, wrap, cbt = \
-            mock_con.call_args[0]
+        name, mech, spn, user, password, delegate, wrap, cbt = mock_con.call_args[0]
         assert name == gss.NameType.user
-        assert mech == \
-            gss.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['auto'])
+        assert mech == gss.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['auto'])
         assert spn == "http@hostname"
         assert user == "user"
         assert password == "pass"
@@ -505,8 +472,7 @@ class TestGSSAPIContext(object):
         mock_context = MagicMock()
 
         monkeypatch.setattr(gss, 'Credentials', mock_cred)
-        monkeypatch.setattr(gss.raw, 'acquire_cred_with_password',
-                            mock_acquire_cred)
+        monkeypatch.setattr(gss.raw, 'acquire_cred_with_password', mock_acquire_cred)
         monkeypatch.setattr(gss, 'SecurityContext', mock_context)
 
         name_type = gss.NameType.kerberos_principal
@@ -518,14 +484,11 @@ class TestGSSAPIContext(object):
         wrap_required = False
         cbt = None
 
-        GSSAPIContext._get_security_context(name_type, mech, spn, username,
-                                            password, delegate, wrap_required,
-                                            cbt)
+        GSSAPIContext._get_security_context(name_type, mech, spn, username, password, delegate, wrap_required, cbt)
 
         assert mock_cred.call_count == 1
         assert mock_cred.call_args[0] == ()
-        assert mock_cred.call_args[1]['name'] == \
-            gss.Name(base=username, name_type=name_type)
+        assert mock_cred.call_args[1]['name'] == gss.Name(base=username, name_type=name_type)
         assert mock_cred.call_args[1]['usage'] == 'initiate'
         assert mock_cred.call_args[1]['mechs'] == [mech]
 
@@ -533,13 +496,11 @@ class TestGSSAPIContext(object):
 
         assert mock_context.call_count == 1
         assert mock_context.call_args[0] == ()
-        assert mock_context.call_args[1]['name'] == \
-            gss.Name(spn, name_type=gss.NameType.hostbased_service)
+        assert mock_context.call_args[1]['name'] == gss.Name(spn, name_type=gss.NameType.hostbased_service)
         assert isinstance(mock_context.call_args[1]['creds'], MagicMock)
         assert mock_context.call_args[1]['usage'] == "initiate"
         assert mock_context.call_args[1]['mech'] == mech
-        assert mock_context.call_args[1]['flags'] == \
-            gss.RequirementFlag.mutual_authentication | \
+        assert mock_context.call_args[1]['flags'] == gss.RequirementFlag.mutual_authentication | \
             gss.RequirementFlag.out_of_sequence_detection
         assert mock_context.call_args[1]['channel_bindings'] == cbt
 
@@ -551,8 +512,7 @@ class TestGSSAPIContext(object):
         mock_context = MagicMock()
 
         monkeypatch.setattr(gss, 'Credentials', mock_cred)
-        monkeypatch.setattr(gss.raw, 'acquire_cred_with_password',
-                            mock_acquire_cred)
+        monkeypatch.setattr(gss.raw, 'acquire_cred_with_password', mock_acquire_cred)
         monkeypatch.setattr(gss, 'SecurityContext', mock_context)
 
         name_type = gss.NameType.kerberos_principal
@@ -564,14 +524,11 @@ class TestGSSAPIContext(object):
         wrap_required = True
         cbt = None
 
-        GSSAPIContext._get_security_context(name_type, mech, spn, username,
-                                            password, delegate, wrap_required,
-                                            cbt)
+        GSSAPIContext._get_security_context(name_type, mech, spn, username, password, delegate, wrap_required, cbt)
 
         assert mock_cred.call_count == 1
         assert mock_cred.call_args[0] == ()
-        assert mock_cred.call_args[1]['name'] == \
-            gss.Name(base=username, name_type=name_type)
+        assert mock_cred.call_args[1]['name'] == gss.Name(base=username, name_type=name_type)
         assert mock_cred.call_args[1]['usage'] == 'initiate'
         assert mock_cred.call_args[1]['mechs'] == [mech]
 
@@ -579,8 +536,7 @@ class TestGSSAPIContext(object):
 
         assert mock_context.call_count == 1
         assert mock_context.call_args[0] == ()
-        assert mock_context.call_args[1]['name'] == \
-            gss.Name(spn, name_type=gss.NameType.hostbased_service)
+        assert mock_context.call_args[1]['name'] == gss.Name(spn, name_type=gss.NameType.hostbased_service)
         assert isinstance(mock_context.call_args[1]['creds'], MagicMock)
         assert mock_context.call_args[1]['usage'] == "initiate"
         assert mock_context.call_args[1]['mech'] == mech
@@ -598,8 +554,7 @@ class TestGSSAPIContext(object):
         mock_context = MagicMock()
 
         monkeypatch.setattr(gss, 'Credentials', mock_cred)
-        monkeypatch.setattr(gss.raw, 'acquire_cred_with_password',
-                            mock_acquire_cred)
+        monkeypatch.setattr(gss.raw, 'acquire_cred_with_password', mock_acquire_cred)
         monkeypatch.setattr(gss, 'SecurityContext', mock_context)
 
         name_type = gss.NameType.kerberos_principal
@@ -611,14 +566,11 @@ class TestGSSAPIContext(object):
         wrap_required = False
         cbt = None
 
-        GSSAPIContext._get_security_context(name_type, mech, spn, username,
-                                            password, delegate, wrap_required,
-                                            cbt)
+        GSSAPIContext._get_security_context(name_type, mech, spn, username, password, delegate, wrap_required, cbt)
 
         assert mock_cred.call_count == 1
         assert mock_cred.call_args[0] == ()
-        assert mock_cred.call_args[1]['name'] == \
-            gss.Name(base=username, name_type=name_type)
+        assert mock_cred.call_args[1]['name'] == gss.Name(base=username, name_type=name_type)
         assert mock_cred.call_args[1]['usage'] == 'initiate'
         assert mock_cred.call_args[1]['mechs'] == [mech]
 
@@ -626,8 +578,7 @@ class TestGSSAPIContext(object):
 
         assert mock_context.call_count == 1
         assert mock_context.call_args[0] == ()
-        assert mock_context.call_args[1]['name'] == \
-            gss.Name(spn, name_type=gss.NameType.hostbased_service)
+        assert mock_context.call_args[1]['name'] == gss.Name(spn, name_type=gss.NameType.hostbased_service)
         assert isinstance(mock_context.call_args[1]['creds'], MagicMock)
         assert mock_context.call_args[1]['usage'] == "initiate"
         assert mock_context.call_args[1]['mech'] == mech
@@ -654,9 +605,7 @@ class TestGSSAPIContext(object):
         cbt = None
 
         with pytest.raises(gss.exceptions.GSSError) as err:
-            GSSAPIContext._get_security_context(name_type, mech, spn,
-                                                username, password, delegate,
-                                                wrap_required, cbt)
+            GSSAPIContext._get_security_context(name_type, mech, spn, username, password, delegate, wrap_required, cbt)
         assert err.value.maj_code == 458752
         assert err.value.min_code == 0
 
@@ -681,27 +630,22 @@ class TestGSSAPIContext(object):
         wrap_required = False
         cbt = None
 
-        GSSAPIContext._get_security_context(name_type, mech, spn, username,
-                                            password, delegate, wrap_required,
-                                            cbt)
+        GSSAPIContext._get_security_context(name_type, mech, spn, username, password, delegate, wrap_required, cbt)
 
         assert mock_cred.call_count == 1
         assert mock_cred.call_args[0] == ()
-        assert mock_cred.call_args[1]['name'] == \
-            gss.Name(base=username, name_type=name_type)
+        assert mock_cred.call_args[1]['name'] == gss.Name(base=username, name_type=name_type)
         assert mock_cred.call_args[1]['usage'] == 'initiate'
         assert mock_cred.call_args[1]['mechs'] == [mech]
 
         assert mock_acquire_cred.call_count == 1
-        assert mock_acquire_cred.call_args[0] == \
-            (gss.Name(base=username, name_type=name_type), b"password")
+        assert mock_acquire_cred.call_args[0] == (gss.Name(base=username, name_type=name_type), b"password")
         assert mock_acquire_cred.call_args[1]['usage'] == 'initiate'
         assert mock_acquire_cred.call_args[1]['mechs'] == [mech]
 
         assert mock_context.call_count == 1
         assert mock_context.call_args[0] == ()
-        assert mock_context.call_args[1]['name'] == \
-            gss.Name(spn, name_type=gss.NameType.hostbased_service)
+        assert mock_context.call_args[1]['name'] == gss.Name(spn, name_type=gss.NameType.hostbased_service)
         assert isinstance(mock_context.call_args[1]['creds'], MagicMock)
         assert mock_context.call_args[1]['usage'] == "initiate"
         assert mock_context.call_args[1]['mech'] == mech
@@ -719,8 +663,7 @@ class TestGSSAPIContext(object):
         mock_context = MagicMock()
 
         monkeypatch.setattr(gss, 'Credentials', mock_cred)
-        monkeypatch.setattr(gss.raw, 'acquire_cred_with_password',
-                            mock_acquire_cred)
+        monkeypatch.setattr(gss.raw, 'acquire_cred_with_password', mock_acquire_cred)
         monkeypatch.setattr(gss, 'SecurityContext', mock_context)
 
         name_type = gss.NameType.user
@@ -732,22 +675,18 @@ class TestGSSAPIContext(object):
         wrap_required = False
         cbt = b"cbt"
 
-        GSSAPIContext._get_security_context(name_type, mech, spn, username,
-                                            password, delegate, wrap_required,
-                                            cbt)
+        GSSAPIContext._get_security_context(name_type, mech, spn, username, password, delegate, wrap_required, cbt)
 
         assert mock_cred.call_count == 0
 
         assert mock_acquire_cred.call_count == 1
-        assert mock_acquire_cred.call_args[0] == \
-            (gss.Name(base=username, name_type=name_type), b"password")
+        assert mock_acquire_cred.call_args[0] == (gss.Name(base=username, name_type=name_type), b"password")
         assert mock_acquire_cred.call_args[1]['usage'] == 'initiate'
         assert mock_acquire_cred.call_args[1]['mechs'] == [mech]
 
         assert mock_context.call_count == 1
         assert mock_context.call_args[0] == ()
-        assert mock_context.call_args[1]['name'] == \
-            gss.Name(spn, name_type=gss.NameType.hostbased_service)
+        assert mock_context.call_args[1]['name'] == gss.Name(spn, name_type=gss.NameType.hostbased_service)
         assert isinstance(mock_context.call_args[1]['creds'], MagicMock)
         assert mock_context.call_args[1]['usage'] == "initiate"
         assert mock_context.call_args[1]['mech'] == mech
@@ -756,11 +695,19 @@ class TestGSSAPIContext(object):
             gss.RequirementFlag.out_of_sequence_detection
         assert mock_context.call_args[1]['channel_bindings'] == cbt
 
-    def test_gssapi_get_sec_context_auto_implicit(self):
+    def test_gssapi_get_sec_context_auto_implicit(self, monkeypatch):
         gss = pytest.importorskip("gssapi")
 
+        mock_cred = MagicMock()
+        mock_acquire_cred = MagicMock()
+        mock_context = MagicMock()
+
+        monkeypatch.setattr(gss, 'Credentials', mock_cred)
+        monkeypatch.setattr(gss.raw, 'acquire_cred_with_password', mock_acquire_cred)
+        monkeypatch.setattr(gss, 'SecurityContext', mock_context)
+
         name_type = gss.NameType.user
-        mech = gss.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['auto'])
+        mech = gss.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['kerberos'])
         spn = "http@hostname"
         username = None
         password = None
@@ -768,12 +715,41 @@ class TestGSSAPIContext(object):
         wrap_required = False
         cbt = None
 
-        with pytest.raises(ValueError) as err:
-            GSSAPIContext._get_security_context(name_type, mech, spn, username,
-                                                password, delegate,
-                                                wrap_required, cbt)
-        assert str(err.value) == "Can only use implicit credentials with " \
-                                 "kerberos authentication"
+        GSSAPIContext._get_security_context(name_type, mech, spn, username, password, delegate, wrap_required, cbt)
+
+        assert mock_cred.call_count == 1
+        assert mock_cred.call_args[0] == ()
+        assert mock_cred.call_args[1]['name'] is None
+        assert mock_cred.call_args[1]['usage'] == 'initiate'
+        assert mock_cred.call_args[1]['mechs'] == [mech]
+
+        assert mock_acquire_cred.call_count == 0
+
+        assert mock_context.call_count == 1
+        assert mock_context.call_args[0] == ()
+        assert mock_context.call_args[1]['name'] == gss.Name(spn, name_type=gss.NameType.hostbased_service)
+        assert isinstance(mock_context.call_args[1]['creds'], MagicMock)
+        assert mock_context.call_args[1]['usage'] == "initiate"
+        assert mock_context.call_args[1]['mech'] == mech
+        assert mock_context.call_args[1]['flags'] == gss.RequirementFlag.mutual_authentication | \
+            gss.RequirementFlag.out_of_sequence_detection
+        assert mock_context.call_args[1]['channel_bindings'] == cbt
+
+    def test_gssapi_get_sec_context_ntlm_implicit(self):
+        gss = pytest.importorskip("gssapi")
+
+        name_type = gss.NameType.user
+        mech = gss.OID.from_int_seq(GSSAPIContext._AUTH_PROVIDERS['ntlm'])
+        spn = "http@hostname"
+        username = None
+        password = None
+        delegate = False
+        wrap_required = False
+        cbt = None
+
+        expected = "Can only use implicit credentials with kerberos or auto (with no credentials) authentication"
+        with pytest.raises(ValueError, match=re.escape(expected)):
+            GSSAPIContext._get_security_context(name_type, mech, spn, username, password, delegate, wrap_required, cbt)
 
 
 class TestNTLMContext(object):

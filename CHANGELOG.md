@@ -3,11 +3,16 @@
 ## 0.5.0 - TBD
 
 ### Breaking changes
+
 * Dropped support for Python 2.6 and Python 3.4
 * Using `Client.copy()` and `Client.fetch()` doesn't expand variables in the local path by default.
 
 ### Features
+
+* Support endpoints that only have `Kerberos` enabled and not just `Negotiate`.
+* On Linux, use Kerberos if the `auto` auth provider is specified and no username or password is set. There is still no `NTLM` fallback but `Kerberos` is ideal in this scenario.
 * `Client.copy()` and `Client.fetch()` methods have new `expand_variables` parameter. This can be used to expand variables both in local and remote path.
+
 
 ## 0.4.0 - 2019-09-19
 

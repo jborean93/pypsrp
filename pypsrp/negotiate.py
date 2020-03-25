@@ -72,7 +72,7 @@ class HTTPNegotiateAuth(AuthBase):
         self.wrap_required = wrap_required
         self.contexts = {}
 
-        self._regex = re.compile(r'Negotiate\s*([^,]*),?', re.I)
+        self._regex = re.compile(r'(Kerberos|Negotiate|NTLM)\s*([^,]*),?', re.I)
 
     def __call__(self, request):
         request.headers['Connection'] = 'Keep-Alive'
@@ -82,21 +82,25 @@ class HTTPNegotiateAuth(AuthBase):
 
     def response_hook(self, response, **kwargs):
         if response.status_code == 401:
-            self._check_auth_supported(response, "Negotiate")
+            matched_provider = self._check_auth_supported(response, ['Negotiate', 'Kerberos', 'NTLM'])
+            kwargs['_pypsrp_auth_provider'] = matched_provider
+
             response = self.handle_401(response, **kwargs)
 
         return response
 
     def handle_401(self, response, **kwargs):
+        response_auth_header = kwargs.pop('_pypsrp_auth_provider')
         host = get_hostname(response.url)
+
+        cbt_app_data = None
         if self.send_cbt:
             cbt_app_data = HTTPNegotiateAuth._get_cbt_data(response)
 
         auth_hostname = self.hostname_override or host
-        context, token_gen, out_token = get_auth_context(
-            self.username, self.password, self.auth_provider, cbt_app_data,
-            auth_hostname, self.service, self.delegate, self.wrap_required
-        )
+        context, token_gen, out_token = get_auth_context(self.username, self.password, self.auth_provider,
+                                                         cbt_app_data, auth_hostname, self.service, self.delegate,
+                                                         self.wrap_required, response_auth_header.lower())
         self.contexts[host] = context
 
         while not context.complete or out_token is not None:
@@ -108,7 +112,7 @@ class HTTPNegotiateAuth(AuthBase):
             # create a request with the Negotiate token present
             request = response.request.copy()
             log.debug("Sending http request with new auth token")
-            self._set_auth_token(request, out_token, "Negotiate")
+            self._set_auth_token(request, out_token, response_auth_header)
 
             # send the request with the auth token and get the response
             response = response.connection.send(request, **kwargs)
@@ -128,13 +132,14 @@ class HTTPNegotiateAuth(AuthBase):
         return response
 
     @staticmethod
-    def _check_auth_supported(response, auth_provider):
+    def _check_auth_supported(response, auth_providers):
         auth_supported = response.headers.get('www-authenticate', '')
-        if auth_provider.upper() not in auth_supported.upper():
-            error_msg = "The server did not response with the " \
-                        "authentication method of %s - actual: '%s'" \
-                        % (auth_provider, auth_supported)
-            raise AuthenticationError(error_msg)
+        matched_providers = [p for p in auth_providers if p.upper() in auth_supported.upper()]
+        if not matched_providers:
+            raise AuthenticationError("The server did not response with one of the following authentication methods "
+                                      "%s - actual: '%s'" % (", ".join(auth_providers), auth_supported))
+
+        return matched_providers[0]
 
     @staticmethod
     def _set_auth_token(request, token, auth_provider):
@@ -150,7 +155,7 @@ class HTTPNegotiateAuth(AuthBase):
         if not token_match:
             return None
 
-        token = token_match.group(1)
+        token = token_match.group(2)
         return base64.b64decode(token)
 
     @staticmethod
