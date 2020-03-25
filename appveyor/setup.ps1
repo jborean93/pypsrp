@@ -143,7 +143,7 @@ function Reset-WinRMConfig {
 
     if ($ResetWinRM) {
         Write-Verbose "Removing all existing WinRM listeners"
-        Remove-Item -Path WSMan:\localhost\Listener\* -Force -Recurse
+        Get-ChildItem -LiteralPath WSMan:\localhost\Listener | Remove-Item -Force -Recurse
 
         if (-not $CertificateThumbprint) {
             Write-Verbose "Removing all existing certificate in the personal store"
@@ -294,6 +294,8 @@ Function New-JEAConfiguration {
 Write-Information -MessageData "Installing openssl which is used to convert the authentication private key to the PEM format"
 &choco.exe install -y openssl.light --no-progress
 
+Enable-PSRemoting -Force
+Start-Service -Name WinRM
 Reset-WinRMConfig -ResetWinRM:$ResetWinRM
 
 New-CertificateAuthBinding -Name $Name
