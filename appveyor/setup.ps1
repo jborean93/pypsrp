@@ -294,6 +294,7 @@ Function New-JEAConfiguration {
 Write-Information -MessageData "Installing openssl which is used to convert the authentication private key to the PEM format"
 &choco.exe install -y openssl.light --no-progress
 
+Enable-PSRemoting -Force
 Start-Service -Name WinRM
 Reset-WinRMConfig -ResetWinRM:$ResetWinRM
 
