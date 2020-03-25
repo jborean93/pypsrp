@@ -72,6 +72,8 @@ class PSObjectMeta:
         self.to_string = None  # The raw <ToString> XML element from deserialization.
         self.type_names = []  # A list of type names for the deserialized object.
 
+        self._xml = None  # Only populated on deserialization, should not be used in code.
+
 
 class PSEnumObjectMeta(PSObjectMeta):
 

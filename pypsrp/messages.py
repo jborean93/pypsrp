@@ -9,17 +9,38 @@ import warnings
 
 from six import binary_type
 
-from pypsrp.complex_objects import ApartmentState, CommandType, \
-    ComplexObject, DictionaryMeta, ErrorRecord, GenericComplexObject, \
-    HostInfo, HostMethodIdentifier, InformationalRecord, ListMeta, \
-    ObjectMeta, Pipeline, ProgressRecordType, PSThreadOptions, \
-    RemoteStreamOptions
+from pypsrp.complex_objects import (
+    ApartmentState,
+    CommandType,
+    ComplexObject,
+    ErrorRecord,
+    GenericComplexObject,
+    HostInfo,
+    HostMethodIdentifier,
+    InformationalRecord,
+    ListMeta,
+    ObjectMeta,
+    Pipeline,
+    ProgressRecordType,
+    PSArrayList,
+    PSObjectArray,
+    PSPrimitiveDictionary,
+    PSStringArray,
+    PSThreadOptions,
+    RemoteStreamOptions,
+)
 
 from pypsrp.dotnet import (
+    NoToString,
+    PSBool,
     PSByteArray,
+    PSDateTime,
+    PSGuid,
     PSInt,
+    PSInt64,
     PSObject,
     PSPropertyInfo,
+    PSString,
     PSVersion,
 )
 
@@ -236,6 +257,7 @@ class SessionCapability(PSObject):
             PSPropertyInfo('serialization_version', clixml_name='SerializationVersion', ps_type=PSVersion),
             PSPropertyInfo('time_zone', clixml_name='TimeZone', optional=True, ps_type=PSByteArray),
         ]
+        self.psobject.to_string = NoToString
         self.psobject.type_names = None
 
         self.protocol_version = protocol_version
@@ -265,11 +287,12 @@ class InitRunspacePool(PSObject):
         self.psobject.extended_properties = [
             PSPropertyInfo('min_runspaces', clixml_name='MinRunspaces', ps_type=PSInt),
             PSPropertyInfo('max_runspaces', clixml_name='MaxRunspaces', ps_type=PSInt),
-            PSPropertyInfo('thread_options', clixml_name='PSThreadOptions', ps_type=None),
-            PSPropertyInfo('apartment_state', clixml_name='ApartmentState', ps_type=None),
-            PSPropertyInfo('host_info', clixml_name='HostInfo', ps_type=None),
-            PSPropertyInfo('application_arguments', clixml_name='ApplicationArguments', ps_type=None),
+            PSPropertyInfo('thread_options', clixml_name='PSThreadOptions', ps_type=PSThreadOptions),
+            PSPropertyInfo('apartment_state', clixml_name='ApartmentState', ps_type=ApartmentState),
+            PSPropertyInfo('host_info', clixml_name='HostInfo', ps_type=HostInfo),
+            PSPropertyInfo('application_arguments', clixml_name='ApplicationArguments', ps_type=PSPrimitiveDictionary),
         ]
+        self.psobject.to_string = NoToString
         self.psobject.type_names = None
 
         self.min_runspaces = min_runspaces
@@ -280,39 +303,7 @@ class InitRunspacePool(PSObject):
         self.application_arguments = application_arguments
 
 
-
-class InitRunspacePool_old(ComplexObject):
-    MESSAGE_TYPE = MessageType.INIT_RUNSPACEPOOL
-
-    def __init__(self, min_runspaces=None, max_runspaces=None,
-                 thread_options=None, apartment_state=None, host_info=None,
-                 application_arguments=None):
-        """
-
-        """
-        super(InitRunspacePool, self).__init__()
-        self._extended_properties = (
-            ('min_runspaces', ObjectMeta("I32", name="MinRunspaces")),
-            ('max_runspaces', ObjectMeta("I32", name="MaxRunspaces")),
-            ('thread_options', ObjectMeta("Obj", name="PSThreadOptions",
-                                          object=PSThreadOptions)),
-            ('apartment_state', ObjectMeta("Obj", name="ApartmentState",
-                                           object=ApartmentState)),
-            ('host_info', ObjectMeta("Obj", name="HostInfo",
-                                     object=HostInfo)),
-            ('application_arguments', DictionaryMeta(
-                name="ApplicationArguments",
-                dict_types=[
-                    "System.Management.Automation.PSPrimitiveDictionary",
-                    "System.Collections.Hashtable",
-                    "System.Object"
-                ]
-            ))
-        )
-
-
-
-class PublicKey(ComplexObject):
+class PublicKey(PSObject):
     MESSAGE_TYPE = MessageType.PUBLIC_KEY
 
     def __init__(self, public_key=None):
@@ -320,17 +311,19 @@ class PublicKey(ComplexObject):
         [MS-PSRP] 2.2.2.3 PUBLIC_KEY Message
         https://msdn.microsoft.com/en-us/library/dd644859.aspx
 
-        :param public_key: The Base64 encoding of the public key in the PKCS1
-            format.
+        :param public_key: The Base64 encoding of the public key in the PKCS1 format.
         """
         super(PublicKey, self).__init__()
-        self._extended_properties = (
-            ('public_key', ObjectMeta("S", name="PublicKey")),
-        )
+        self.psobject.extended_properties = [
+            PSPropertyInfo('public_key', clixml_name='PublicKey', ps_type=PSString),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
         self.public_key = public_key
 
 
-class EncryptedSessionKey(ComplexObject):
+class EncryptedSessionKey(PSObject):
     MESSAGE_TYPE = MessageType.ENCRYPTED_SESSION_KEY
 
     def __init__(self, session_key=None):
@@ -338,18 +331,20 @@ class EncryptedSessionKey(ComplexObject):
         [MS-PSRP] 2.2.2.4 ENCRYPTED_SESSION_KEY Message
         https://msdn.microsoft.com/en-us/library/dd644930.aspx
 
-        :param session_key: The 256-bit key for AES encryption that has been
-            encrypted using the public key from the PUBLIC_KEY message using
-            the RSAES-PKCS-v1_5 encryption scheme and then Base64 formatted.
+        :param session_key: The 256-bit key for AES encryption that has been encrypted using the public key from the
+            PUBLIC_KEY message using the RSAES-PKCS-v1_5 encryption scheme and then Base64 formatted.
         """
         super(EncryptedSessionKey, self).__init__()
-        self._extended_properties = (
-            ('session_key', ObjectMeta("S", name="EncryptedSessionKey")),
-        )
+        self.psobject.extended_properties = [
+            PSPropertyInfo('session_key', clixml_name='EncryptedSessionKey', ps_type=PSString),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
         self.session_key = session_key
 
 
-class PublicKeyRequest(object):
+class PublicKeyRequest(PSObject):
     MESSAGE_TYPE = MessageType.PUBLIC_KEY_REQUEST
 
     def __init__(self):
@@ -358,9 +353,11 @@ class PublicKeyRequest(object):
         https://msdn.microsoft.com/en-us/library/dd644906.aspx
         """
         super(PublicKeyRequest, self).__init__()
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
 
 
-class SetMaxRunspaces(ComplexObject):
+class SetMaxRunspaces(PSObject):
     MESSAGE_TYPE = MessageType.SET_MAX_RUNSPACES
 
     def __init__(self, max_runspaces=None, ci=None):
@@ -368,19 +365,22 @@ class SetMaxRunspaces(ComplexObject):
         [MS-PSRP] 2.2.2.6 SET_MAX_RUNSPACES Message
         https://msdn.microsoft.com/en-us/library/dd304870.aspx
 
-        :param max_runspaces: The maximum number of runspaces
-        :param ci: The ci identifier for the CI table
+        :param max_runspaces: The maximum number of runspaces.
+        :param ci: The ci identifier for the CI table.
         """
         super(SetMaxRunspaces, self).__init__()
-        self._extended_properties = (
-            ('max_runspaces', ObjectMeta("I32", name="MaxRunspaces")),
-            ('ci', ObjectMeta("I64", name="CI")),
-        )
+        self.psobject.extended_properties = [
+            PSPropertyInfo('max_runspaces', clixml_name='MaxRunspaces', ps_type=PSInt),
+            PSPropertyInfo('ci', clixml_name='CI', ps_type=PSInt64),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
         self.max_runspaces = max_runspaces
         self.ci = ci
 
 
-class SetMinRunspaces(ComplexObject):
+class SetMinRunspaces(PSObject):
     MESSAGE_TYPE = MessageType.SET_MIN_RUNSPACES
 
     def __init__(self, min_runspaces=None, ci=None):
@@ -388,8 +388,8 @@ class SetMinRunspaces(ComplexObject):
         [MS-PSRP] 2.2.2.7 SET_MIN_RUNSPACES Message
         https://msdn.microsoft.com/en-us/library/dd340570.aspx
 
-        :param max_runspaces: The minimum number of runspaces
-        :param ci: The ci identifier for the CI table
+        :param max_runspaces: The minimum number of runspaces.
+        :param ci: The ci identifier for the CI table.
         """
         super(SetMinRunspaces, self).__init__()
         self._extended_properties = (
@@ -400,7 +400,7 @@ class SetMinRunspaces(ComplexObject):
         self.ci = ci
 
 
-class RunspaceAvailability(ComplexObject):
+class RunspaceAvailability(PSObject):
     MESSAGE_TYPE = MessageType.RUNSPACE_AVAILABILITY
 
     def __init__(self, response=None, ci=None):
@@ -412,15 +412,18 @@ class RunspaceAvailability(ComplexObject):
         :param ci: The ci identifier for the CI table
         """
         super(RunspaceAvailability, self).__init__()
-        self._extended_properties = (
-            ('response', ObjectMeta(name="SetMinMaxRunspacesResponse")),
-            ('ci', ObjectMeta("I64", name="ci")),
-        )
+        self.psobject.extended_properties = [
+            PSPropertyInfo('response', clixml_name='SetMinMaxRunspacesResponse'),
+            PSPropertyInfo('ci', clixml_name='CI', ps_type=PSInt64),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
         self.response = response
         self.ci = ci
 
 
-class RunspacePoolStateMessage(ComplexObject):
+class RunspacePoolStateMessage(PSObject):
     MESSAGE_TYPE = MessageType.RUNSPACEPOOL_STATE
 
     def __init__(self, state=None, error_record=None):
@@ -428,54 +431,50 @@ class RunspacePoolStateMessage(ComplexObject):
         [MS-PSRP] 2.2.2.9 RUNSPACEPOOL_STATE Message
         https://msdn.microsoft.com/en-us/library/dd303020.aspx
 
-        :param state: The state of the runspace pool
-        :param error_record:
+        :param state: The state of the runspace pool.
+        :param error_record: An optional error record with error information.
         """
         super(RunspacePoolStateMessage, self).__init__()
-        self._extended_properties = (
-            ('state', ObjectMeta("I32", name="RunspaceState")),
-            ('error_record', ObjectMeta("Obj", optional=True,
-                                        object=ErrorRecord)),
-        )
+        self.psobject.extended_properties = [
+            PSPropertyInfo('state', clixml_name='RunspaceState', ps_type=PSInt),
+            PSPropertyInfo('error_record', clixml_name='ExceptionAsErrorRecord', ps_type=ErrorRecord),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
         self.state = state
         self.error_record = error_record
 
 
-class CreatePipeline(ComplexObject):
+class CreatePipeline(PSObject):
     MESSAGE_TYPE = MessageType.CREATE_PIPELINE
 
-    def __init__(self, no_input=None, apartment_state=None,
-                 remote_stream_options=None, add_to_history=None,
+    def __init__(self, no_input=None, apartment_state=None, remote_stream_options=None, add_to_history=None,
                  host_info=None, pipeline=None, is_nested=None):
         """
         [MS-PSRP] 2.2.2.10 CREATE_PIPELINE Message
         https://msdn.microsoft.com/en-us/library/dd340567.aspx
 
-        :param no_input: Whether the pipeline will take input
-        :param apartment_state: The ApartmentState of the pipeline
-        :param remote_stream_options: The RemoteStreamOptions of the pipeline
-        :param add_to_history: Whether to add the pipeline being execute to
-            the history field of the runspace
-        :param host_info: The HostInformation of the pipeline
-        :param pipeline: The PowerShell object to create
-        :param is_nested: Whether the pipeline is run in nested or
-            steppable mode
+        :param no_input: Whether the pipeline will take input.
+        :param apartment_state: The ApartmentState of the pipeline.
+        :param remote_stream_options: The RemoteStreamOptions of the pipeline.
+        :param add_to_history: Whether to add the pipeline being execute to the history field of the runspace.
+        :param host_info: The HostInformation of the pipeline.
+        :param pipeline: The PowerShell object to create.
+        :param is_nested: Whether the pipeline is run in nested or steppable mode.
         """
         super(CreatePipeline, self).__init__()
-        self._extended_properties = (
-            ('no_input', ObjectMeta("B", name="NoInput")),
-            ('apartment_state', ObjectMeta("Obj", name="ApartmentState",
-                                           object=ApartmentState)),
-            ('remote_stream_options', ObjectMeta("Obj",
-                                                 name="RemoteStreamOptions",
-                                                 object=RemoteStreamOptions)),
-            ('add_to_history', ObjectMeta("B", name="AddToHistory")),
-            ('host_info', ObjectMeta("Obj", name="HostInfo",
-                                     object=HostInfo)),
-            ('pipeline', ObjectMeta("Obj", name="PowerShell",
-                                    object=Pipeline)),
-            ('is_nested', ObjectMeta("B", name="IsNested")),
-        )
+        self.psobject.extended_properties = [
+            PSPropertyInfo('no_input', clixml_name='NoInput', ps_type=PSBool),
+            PSPropertyInfo('apartment_state', clixml_name='ApartmentState', ps_type=ApartmentState),
+            PSPropertyInfo('remote_stream_options', clixml_name='RemoteStreamOptions', ps_type=RemoteStreamOptions),
+            PSPropertyInfo('add_to_history', clixml_name='AddToHistory', ps_type=PSBool),
+            PSPropertyInfo('host_info', clixml_name='HostInfo', ps_type=HostInfo),
+            PSPropertyInfo('pipeline', clixml_name='PowerShell', ps_type=Pipeline),
+            PSPropertyInfo('is_nested', clixml_name='IsNested', ps_type=PSBool),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
 
         self.no_input = no_input
         self.apartment_state = apartment_state
@@ -486,7 +485,7 @@ class CreatePipeline(ComplexObject):
         self.is_nested = is_nested
 
 
-class GetAvailableRunspaces(ComplexObject):
+class GetAvailableRunspaces(PSObject):
     MESSAGE_TYPE = MessageType.GET_AVAILABLE_RUNSPACES
 
     def __init__(self, ci=None):
@@ -497,43 +496,46 @@ class GetAvailableRunspaces(ComplexObject):
         :param ci: The ci identifier for the CI table
         """
         super(GetAvailableRunspaces, self).__init__()
-        self._extended_properties = (
-            ('ci', ObjectMeta("I64", name="ci")),
-        )
+        self.psobject.extended_properties = [
+            PSPropertyInfo('ci', ps_type=PSInt64),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
         self.ci = ci
 
 
-class UserEvent(ComplexObject):
+class UserEvent(PSObject):
     MESSAGE_TYPE = MessageType.USER_EVENT
 
-    def __init__(self, event_id=None, source_id=None, time=None, sender=None,
-                 args=None, data=None, computer=None, runspace_id=None):
+    def __init__(self, event_id=None, source_id=None, time=None, sender=None, args=None, data=None, computer=None,
+                 runspace_id=None):
         """
         [MS-PSRP] 2.2.2.12 USER_EVENT Message
         https://msdn.microsoft.com/en-us/library/dd359395.aspx
 
-        :param event_id:
-        :param source_id:
-        :param time:
-        :param sender:
-        :param args:
-        :param data:
-        :param computer:
-        :param runspace_id:
+        :param event_id: Event identifier.
+        :param source_id: Source identifier.
+        :param time: Time when the event was generated.
+        :param sender: Sender of the event.
+        :param args: Event arguments.
+        :param data: Message data.
+        :param computer: Name of the computer where the event was fired.
+        :param runspace_id: ID of the runspace.
         """
         super(UserEvent, self).__init__()
-        self._extended_properties = (
-            ('event_id', ObjectMeta(
-                "I32", name="PSEventArgs.EventIdentifier")),
-            ('source_id', ObjectMeta(
-                "S", name="PSEventArgs.SourceIdentifier")),
-            ('time', ObjectMeta("DT", name="PSEventArgs.TimeGenerated")),
-            ('sender', ObjectMeta(name="PSEventArgs.Sender")),
-            ('args', ObjectMeta(name="PSEventArgs.SourceArgs")),
-            ('data', ObjectMeta(name="PSEventArgs.MessageData")),
-            ('computer', ObjectMeta("S", name="PSEventArgs.ComputerName")),
-            ('runspace_id', ObjectMeta("G", name="PSEventArgs.RunspaceId")),
-        )
+        self.psobject.extended_properties = [
+            PSPropertyInfo('event_id', clixml_name='PSEventArgs.EventIdentifier', ps_type=PSInt),
+            PSPropertyInfo('source_id', clixml_name='PSEventArgs.SourceIdentifier', ps_type=PSString),
+            PSPropertyInfo('time', clixml_name='PSEventArgs.TimeGenerated', ps_type=PSDateTime),
+            PSPropertyInfo('sender', clixml_name='PSEventArgs.Sender'),
+            PSPropertyInfo('args', clixml_name='PSEventArgs.SourceArgs'),
+            PSPropertyInfo('computer', clixml_name='PSEventArgs.ComputerName'),
+            PSPropertyInfo('runspace_id', clixml_name='PSEventArgs.RunspaceId', ps_type=PSGuid),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
         self.event_id = event_id
         self.source_id = source_id
         self.time = time
@@ -544,7 +546,7 @@ class UserEvent(ComplexObject):
         self.runspace_id = runspace_id
 
 
-class ApplicationPrivateData(ComplexObject):
+class ApplicationPrivateData(PSObject):
     MESSAGE_TYPE = MessageType.APPLICATION_PRIVATE_DATA
 
     def __init__(self, data=None):
@@ -555,48 +557,46 @@ class ApplicationPrivateData(ComplexObject):
         :param data: A dict that contains data to sent to the PowerShell layer
         """
         super(ApplicationPrivateData, self).__init__()
-        self._extended_properties = (
-            ('data', DictionaryMeta(name="ApplicationPrivateData")),
-        )
+        self.psobject.extended_properties = [
+            PSPropertyInfo('data', clixml_name='ApplicationPrivateData', ps_type=PSPrimitiveDictionary),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
         self.data = data
 
 
-class GetCommandMetadata(ComplexObject):
+class GetCommandMetadata(PSObject):
     MESSAGE_TYPE = MessageType.GET_COMMAND_METADATA
 
-    def __init__(self, names=None, command_type=None, namespace=None,
-                 argument_list=None):
+    def __init__(self, names=None, command_type=None, namespace=None, argument_list=None):
         """
         [MS-PSRP] 2.2.2.14 GET_COMMAND_METADATA Message
         https://msdn.microsoft.com/en-us/library/ee175985.aspx
 
-        :param names:
-        :param command_type:
-        :param namespace:
-        :param argument_list:
+        :param names: A list of wildcard patterns specifying the command names.
+        :param command_type: The command type to lookup.
+        :param namespace: Wildcard patterns describing the command namespaces containing the commands that the server
+            SHOULD return.
+        :param argument_list: Extra arguments passed ot the higher-layer above the PSRP.
         """
         super(GetCommandMetadata, self).__init__()
-        self._extended_properties = (
-            ('names', ListMeta(
-                name="Name", list_value_meta=ObjectMeta("S"),
-                list_types=[
-                    "System.String[]",
-                    "System.Array",
-                    "System.Object"
-                ])
-             ),
-            ('command_type', ObjectMeta(name="CommandType",
-                                        object=CommandType)),
-            ('namespace', ObjectMeta(name="Namespace")),
-            ('argument_list', ListMeta(name="ArgumentList"))
-        )
+        self.psobject.extended_properties = [
+            PSPropertyInfo('names', clixml_name='Name', ps_type=PSStringArray),
+            PSPropertyInfo('command_type', clixml_name='CommandType', ps_type=CommandType),
+            PSPropertyInfo('namespace', clixml_name='Namespace', ps_type=PSStringArray),
+            PSPropertyInfo('argument_list', clixml_name='ArgumentList', ps_type=PSObjectArray),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
         self.names = names
         self.command_type = command_type
         self.namespace = namespace
         self.argument_list = argument_list
 
 
-class RunspacePoolHostCall(ComplexObject):
+class RunspacePoolHostCall(PSObject):
     MESSAGE_TYPE = MessageType.RUNSPACEPOOL_HOST_CALL
 
     def __init__(self, ci=None, mi=None, mp=None):
@@ -604,22 +604,25 @@ class RunspacePoolHostCall(ComplexObject):
         [MS-PSRP] 2.2.2.15 RUNSPACE_HOST_CALL Message
         https://msdn.microsoft.com/en-us/library/dd340830.aspx
 
-        :param ci:
-        :param mi:
-        :param mp:
+        :param ci: The call ID.
+        :param mi: The host method identifier.
+        :param mp: Parameters for the method.
         """
         super(RunspacePoolHostCall, self).__init__()
-        self._extended_properties = (
-            ('ci', ObjectMeta("I64", name="ci")),
-            ('mi', ObjectMeta("Obj", name="mi", object=HostMethodIdentifier)),
-            ('mp', ListMeta(name="mp"))
-        )
+        self.psobject.extended_properties = [
+            PSPropertyInfo('ci', ps_type=PSInt64),
+            PSPropertyInfo('mi', ps_type=HostMethodIdentifier),
+            PSPropertyInfo('mp', ps_type=PSArrayList),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
         self.ci = ci
         self.mi = mi
         self.mp = mp
 
 
-class RunspacePoolHostResponse(ComplexObject):
+class RunspacePoolHostResponse(PSObject):
     MESSAGE_TYPE = MessageType.RUNSPACEPOOL_HOST_RESPONSE
 
     def __init__(self, ci=None, mi=None, mr=None, me=None):
@@ -627,26 +630,28 @@ class RunspacePoolHostResponse(ComplexObject):
         [MS-PSRP] 2.2.2.16 RUNSPACEPOOL_HOST_RESPONSE Message
         https://msdn.microsoft.com/en-us/library/dd358453.aspx
 
-        :param ci:
-        :param mi:
-        :param mr:
-        :param me:
+        :param ci: The call ID.
+        :param mi: The host method ID that the response is coming from.
+        :param mr: The return value of the method.
+        :param me: Exception thrown by a host method invocation.
         """
         super(RunspacePoolHostResponse, self).__init__()
-        self._extended_properties = (
-            ('ci', ObjectMeta("I64", name="ci")),
-            ('mi', ObjectMeta("Obj", name="mi", object=HostMethodIdentifier)),
-            ('mr', ObjectMeta(name="mr")),
-            ('me', ObjectMeta("Obj", name="me", object=ErrorRecord,
-                              optional=True)),
-        )
+        self.psobject.extended_properties = [
+            PSPropertyInfo('ci', ps_type=PSInt64),
+            PSPropertyInfo('mi', ps_type=HostMethodIdentifier),
+            PSPropertyInfo('mr'),
+            PSPropertyInfo('me', ps_type=ErrorRecordMessage, optional=True),
+        ]
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
         self.ci = ci
         self.mi = mi
         self.mr = mr
         self.me = me
 
 
-class PipelineInput(ComplexObject):
+class PipelineInput(PSObject):
     MESSAGE_TYPE = MessageType.PIPELINE_INPUT
 
     def __init__(self, data=None):
@@ -660,7 +665,7 @@ class PipelineInput(ComplexObject):
         self.data = data
 
 
-class EndOfPipelineInput(ComplexObject):
+class EndOfPipelineInput(PSObject):
     MESSAGE_TYPE = MessageType.END_OF_PIPELINE_INPUT
 
     def __init__(self):
@@ -671,7 +676,7 @@ class EndOfPipelineInput(ComplexObject):
         super(EndOfPipelineInput, self).__init__()
 
 
-class PipelineOutput(object):
+class PipelineOutput(PSObject):
     MESSAGE_TYPE = MessageType.PIPELINE_OUTPUT
 
     def __init__(self, data=None):
@@ -696,7 +701,7 @@ class ErrorRecordMessage(ErrorRecord):
         super(ErrorRecordMessage, self).__init__(**kwargs)
 
 
-class PipelineState(ComplexObject):
+class PipelineState(PSObject):
     MESSAGE_TYPE = MessageType.PIPELINE_STATE
 
     def __init__(self, state=None, error_record=None):
@@ -705,14 +710,16 @@ class PipelineState(ComplexObject):
         https://msdn.microsoft.com/en-us/library/dd304923.aspx
 
         :param state: The state of the pipeline
-        :param error_record:
+        :param error_record: Optional error information.
         """
         super(PipelineState, self).__init__()
         self._extended_properties = (
-            ('state', ObjectMeta("I32", name="PipelineState")),
-            ('error_record', ObjectMeta("Obj", name="ExceptionAsErrorRecord",
-                                        optional=True)),
+            PSPropertyInfo('state', clixml_name='PipelineState', ps_type=PSInt),
+            PSPropertyInfo('error_record', clixml_name='ExceptionAsErrorRecord', ps_type=ErrorRecord, optional=True),
         )
+        self.psobject.to_string = NoToString
+        self.psobject.type_names = None
+
         self.state = state
         self.error_record = error_record
 
@@ -726,7 +733,7 @@ class DebugRecord(InformationalRecord):
         https://msdn.microsoft.com/en-us/library/dd340758.aspx
         """
         super(DebugRecord, self).__init__(**kwargs)
-        self._types.insert(0, "System.Management.Automation.DebugRecord")
+        self.psobject.type_names.insert(0, "System.Management.Automation.DebugRecord")
 
 
 class VerboseRecord(InformationalRecord):
@@ -738,7 +745,7 @@ class VerboseRecord(InformationalRecord):
         https://msdn.microsoft.com/en-us/library/dd342930.aspx
         """
         super(VerboseRecord, self).__init__(**kwargs)
-        self._types.insert(0, "System.Management.Automation.VerboseRecord")
+        self.psobject.type_names.insert(0, "System.Management.Automation.VerboseRecord")
 
 
 class WarningRecord(InformationalRecord):
@@ -750,7 +757,7 @@ class WarningRecord(InformationalRecord):
         https://msdn.microsoft.com/en-us/library/dd303590.aspx
         """
         super(WarningRecord, self).__init__(**kwargs)
-        self._types.insert(0, "System.Management.Automation.WarningRecord")
+        self.psobject.type_names.insert(0, "System.Management.Automation.WarningRecord")
 
 
 class ProgressRecord(ComplexObject):
@@ -799,7 +806,7 @@ class InformationRecord(ComplexObject):
         [MS-PSRP] 2.2.2.26 INFORMATION_RECORD Message
         https://msdn.microsoft.com/en-us/library/mt224023.aspx
 
-        Only in protocol_version 2.3 and above
+        Only used in protocol_version 2.3 and above.
 
         :param kwargs:
         """

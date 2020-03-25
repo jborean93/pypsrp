@@ -13,7 +13,6 @@ except ImportError:  # pragma: no cover
 from pypsrp.dotnet import (
     NoToString,
     PSBool,
-    PSByteArray,
     PSChar,
     PSDict,
     PSEnumBase,
@@ -24,7 +23,6 @@ from pypsrp.dotnet import (
     PSPropertyInfo,
     PSSecureString,
     PSString,
-    PSVersion,
 )
 
 from pypsrp._utils import (
@@ -34,7 +32,7 @@ from pypsrp._utils import (
 
 
 ### Deprecated, V1 Serializer ###
-class ObjectMeta(object):
+class ObjectMeta:
 
     def __init__(self, tag="*", name=None, optional=False, object=None):
         self.tag = tag
@@ -113,7 +111,7 @@ class DictionaryMeta(ObjectMeta):
             self.dict_types = dict_types
 
 
-class ComplexObject(object):
+class ComplexObject:
 
     def __init__(self):
         self._adapted_properties = ()
@@ -659,7 +657,7 @@ class _HostDataDictValue(PSObject):
 
 class _HostDataColor(_HostDataDictValue):
     def __init__(self, color):
-        super(_HostDataColor, self).__init__(color.value, 'System.ConsoleColor', ps_value_type=PSInt)
+        super(_HostDataColor, self).__init__(int(color), 'System.ConsoleColor', ps_value_type=PSInt)
 
 
 class _HostDataCoordinates(_HostDataDictValue):
@@ -1127,7 +1125,7 @@ class CommandMetadata(PSObject):
         :param namespace: The namespace of the command.
         :param help_url: The URI to the documentation of the command.
         :param command_type: The CommandType of the command.
-        :param output_type: The types of objects that a command can send as output/
+        :param output_type: The types of objects that a command can send as output.
         :param parameters: Metadata of parameters that the command can accept as Command Parameters.
         """
         super(CommandMetadata, self).__init__()
@@ -1153,45 +1151,33 @@ class CommandMetadata(PSObject):
         self.parameters = parameters
 
 
-class ParameterMetadata(ComplexObject):
+class ParameterMetadata(PSObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, name=None, parameter_type=None, aliases=None, switch_parameter=None, dynamic=None):
         """
         [MS-PSRP] 2.2.3.23 ParameterMetadata
         https://msdn.microsoft.com/en-us/library/ee175918.aspx
 
         :param name: The name of a parameter.
         :param parameter_type: The type of the parameter.
-        :param alises: List of alternative names of the parameter.
+        :param aliases: List of alternative names of the parameter.
         :param switch_parameter: True if param is a switch parameter.
         :param dynamic: True if param is included as a consequence of the data specified in the ArgumentList property.
         """
         super(ParameterMetadata, self).__init__()
-        self.types = [
-            "System.Management.Automation.ParameterMetadata",
-            "System.Object"
+        self.psobject.adapted_properties = [
+            PSPropertyInfo('name', clixml_name='Name', ps_type=PSString),
+            PSPropertyInfo('parameter_type', clixml_name='ParameterType', ps_type=PSString),
+            PSPropertyInfo('aliases', clixml_name='Aliases', ps_type=PSObjectModelCollectionString),
+            PSPropertyInfo('switch_parameter', clixml_name='SwitchParameter', ps_type=PSBool),
+            PSPropertyInfo('dynamic', clixml_name='IsDynamic', ps_type=PSBool),
         ]
-        self._adapted_properties = (
-            ('name', ObjectMeta("S", name="Name")),
-            ('parameter_type', ObjectMeta("S", name="ParameterType")),
-            ('aliases', ListMeta(
-                name="Aliases",
-                list_value_meta=ObjectMeta("S"),
-                list_types=[
-                    "System.Collections.ObjectModel.Collection`1"
-                    "[[System.String, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ])
-             ),
-            ('switch_parameter', ObjectMeta("B", name="SwitchParameter")),
-            ('dynamic', ObjectMeta("B", name="IsDynamic")),
-        )
-        self.name = kwargs.get('name')
-        self.parameter_type = kwargs.get('parameter_type')
-        self.aliases = kwargs.get('aliases')
-        self.switch_parameter = kwargs.get('switch_parameter')
-        self.dynamic = kwargs.get('dynamic')
+
+        self.name = name
+        self.parameter_type = parameter_type
+        self.aliases = aliases
+        self.switch_parameter = switch_parameter
+        self.dynamic = dynamic
 
 
 class PSCredential(PSObject):
@@ -1490,10 +1476,6 @@ class PipelineResultTypes(PSEnumBase):
         super(PipelineResultTypes, self).__init__(value, 'System.Management.Automation.Runspaces.PipelineResultTypes')
 
     def __new__(cls, value, protocol_version_2=False):
-        """
-                :param protocol_version_2: Whether to use the original string map or just None, Output, and Error that are a
-            bitwise combination. This is only really relevant for MergePreviousResults in a Command obj.
-        """
         if protocol_version_2:
             cls.ENUM_MAP = {
                 'None': 0,
@@ -1564,7 +1546,7 @@ class ProgressRecordType(PSEnumBase):
         """
         System.Management.Automation.ProgressRecordType Enum
         This isn't in MS-PSRP but is used in the InformationRecord message and so we need to define it here.
-
+0
         :param value: The initial ProgressRecordType value to set.
         """
         super(ProgressRecordType, self).__init__(value, 'System.Management.Automation.ProgressRecordType')
@@ -1586,17 +1568,17 @@ class SessionStateEntryVisibility(PSEnumBase):
 
         :param value: The initial SessionStateEntryVisibility value to set.
         """
-        super(SessionStateEntryVisibility, self).__init__(value, 'System.Management.Automation.SessionStateEntryVisibility')
+        super(SessionStateEntryVisibility, self).__init__(value,
+                                                          'System.Management.Automation.SessionStateEntryVisibility')
 
 
-class PSListPSObject(PSList):
+class PSArrayList(PSList):
 
     def __init__(self, *args, **kwargs):
-        PSList.__init__(self, *args, **kwargs)
+        super(PSArrayList, self).__init__(*args, **kwargs)
         self.psobject.type_names = [
-            "System.Collections.Generic.List`1[[System.Management.Automation.PSObject, System.Management.Automation, "
-            "Version=1.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35]]",
-            "System.Object",
+            'System.Collections.ArrayList',
+            'System.Object',
         ]
 
 
@@ -1624,6 +1606,39 @@ class PSIntArray(PSList):
         ]
 
 
+class PSListPSObject(PSList):
+
+    def __init__(self, *args, **kwargs):
+        PSList.__init__(self, *args, **kwargs)
+        self.psobject.type_names = [
+            "System.Collections.Generic.List`1[[System.Management.Automation.PSObject, System.Management.Automation, "
+            "Version=1.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35]]",
+            "System.Object",
+        ]
+
+
+class PSObjectArray(PSList):
+
+    def __init__(self, *args, **kwargs):
+        super(PSObjectArray, self).__init__(*args, **kwargs)
+        self.psobject.type_names = [
+            'System.Object[]',
+            'System.Array',
+            'System.Object',
+        ]
+
+
+class PSObjectModelCollectionString(PSList):
+
+    def __init__(self, *args, **kwargs):
+        super(PSObjectModelCollectionString, self).__init__(*args, **kwargs)
+        self.psobject.type_names = [
+            'System.Collections.ObjectModel.Collection`1[[System.String, mscorlib, Version=4.0.0.0, Culture=neutral, '
+            'PublicKeyToken=b77a5c561934e089]]',
+            'System.Object',
+        ]
+
+
 class PSObjectModelReadOnlyCollectionInt(PSList):
 
     def __init__(self, *args, **kwargs):
@@ -1642,5 +1657,27 @@ class PSObjectModelReadOnlyCollectionPSTypeName(PSList):
         self.psobject.type_names = [
             'System.Collections.ObjectModel.ReadOnlyCollection`1[[System.Management.Automation.PSTypeName, '
             'System.Management.Automation, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35]]',
+            'System.Object',
+        ]
+
+
+class PSPrimitiveDictionary(PSDict):
+    
+    def __init__(self, *args, **kwargs):
+        super(PSPrimitiveDictionary, self).__init__(*args, **kwargs)
+        self.psobject.type_names = [
+            'System.Management.Automation.PSPrimitiveDictionary',
+            'System.Collections.Hashtable',
+            'System.Object',
+        ]
+
+
+class PSStringArray(PSList):
+
+    def __init__(self, *args, **kwargs):
+        super(PSStringArray, self).__init__(*args, **kwargs)
+        self.psobject.type_names = [
+            'System.String[]',
+            'System.Array',
             'System.Object',
         ]
