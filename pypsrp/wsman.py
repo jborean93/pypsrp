@@ -5,6 +5,7 @@ from __future__ import division
 
 import ipaddress
 import logging
+import re
 import requests
 import sys
 import uuid
@@ -699,6 +700,8 @@ class _TransportHTTP(object):
         # self._test_messages = []
 
     def send(self, message):
+        # message = b'<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd" xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd"><s:Header><a:To>http://server2019.exchange.test:80/PowerShell?PSVersion=5.1.17763.771</a:To><w:ResourceURI s:mustUnderstand="true">http://schemas.microsoft.com/powershell/Microsoft.Exchange</w:ResourceURI><a:ReplyTo><a:Address s:mustUnderstand="true">http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:Address></a:ReplyTo><a:Action s:mustUnderstand="true">http://schemas.xmlsoap.org/ws/2004/09/transfer/Create</a:Action><w:MaxEnvelopeSize s:mustUnderstand="true">512000</w:MaxEnvelopeSize><a:MessageID>uuid:E9019AAA-1BCA-46DA-91F1-FE39E8742276</a:MessageID><w:Locale xml:lang="en-US" s:mustUnderstand="false" /><p:DataLocale xml:lang="en-US" s:mustUnderstand="false" /><p:SessionId s:mustUnderstand="false">uuid:063318A0-86CD-4899-967C-7BC3129A4C81</p:SessionId><p:OperationID s:mustUnderstand="false">uuid:DB59B1C1-D4F3-40AE-B03B-A785ECDA76E7</p:OperationID><p:SequenceId s:mustUnderstand="false">1</p:SequenceId><w:OptionSet xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" s:mustUnderstand="true"><w:Option Name="protocolversion" MustComply="true">2.3</w:Option></w:OptionSet><w:OperationTimeout>PT180.000S</w:OperationTimeout><rsp:CompressionType s:mustUnderstand="true" xmlns:rsp="http://schemas.microsoft.com/wbem/wsman/1/windows/shell">xpress</rsp:CompressionType></s:Header><s:Body><rsp:Shell xmlns:rsp="http://schemas.microsoft.com/wbem/wsman/1/windows/shell" Name="WinRM2" ShellId="C0BF05B3-CA8F-40E2-BDF3-B393E52CC7C6"><rsp:InputStreams>stdin pr</rsp:InputStreams><rsp:OutputStreams>stdout</rsp:OutputStreams><creationXml xmlns="http://schemas.microsoft.com/powershell">AAAAAAAAAAMAAAAAAAAAAAMAAALwAgAAAAIAAQCzBb/Aj8riQL3zs5PlLMfGAAAAAAAAAAAAAAAAAAAAAO+7vzxPYmogUmVmSWQ9IjAiPjxNUz48VmVyc2lvbiBOPSJwcm90b2NvbHZlcnNpb24iPjIuMzwvVmVyc2lvbj48VmVyc2lvbiBOPSJQU1ZlcnNpb24iPjIuMDwvVmVyc2lvbj48VmVyc2lvbiBOPSJTZXJpYWxpemF0aW9uVmVyc2lvbiI+MS4xLjAuMTwvVmVyc2lvbj48QkEgTj0iVGltZVpvbmUiPkFBRUFBQUQvLy8vL0FRQUFBQUFBQUFBRUFRQUFBQnhUZVhOMFpXMHVRM1Z5Y21WdWRGTjVjM1JsYlZScGJXVmFiMjVsQkFBQUFCZHRYME5oWTJobFpFUmhlV3hwWjJoMFEyaGhibWRsY3cxdFgzUnBZMnR6VDJabWMyVjBEbTFmYzNSaGJtUmhjbVJPWVcxbERtMWZaR0Y1YkdsbmFIUk9ZVzFsQXdBQkFSeFRlWE4wWlcwdVEyOXNiR1ZqZEdsdmJuTXVTR0Z6YUhSaFlteGxDUWtDQUFBQUFBQUFBQUFBQUFBS0NnUUNBQUFBSEZONWMzUmxiUzVEYjJ4c1pXTjBhVzl1Y3k1SVlYTm9kR0ZpYkdVSEFBQUFDa3h2WVdSR1lXTjBiM0lIVm1WeWMybHZiZ2hEYjIxd1lYSmxjaEJJWVhOb1EyOWtaVkJ5YjNacFpHVnlDRWhoYzJoVGFYcGxCRXRsZVhNR1ZtRnNkV1Z6QUFBREF3QUZCUXNJSEZONWMzUmxiUzVEYjJ4c1pXTjBhVzl1Y3k1SlEyOXRjR0Z5WlhJa1UzbHpkR1Z0TGtOdmJHeGxZM1JwYjI1ekxrbElZWE5vUTI5a1pWQnliM1pwWkdWeUNPeFJPRDhBQUFBQUNnb0RBQUFBQ1FNQUFBQUpCQUFBQUJBREFBQUFBQUFBQUJBRUFBQUFBQUFBQUFzPTwvQkE+PC9NUz48L09iaj4AAAAAAAAABAAAAAAAAAAAAwAADo8CAAAABAABALMFv8CPyuJAvfOzk+Usx8YAAAAAAAAAAAAAAAAAAAAA77u/PE9iaiBSZWZJZD0iMCI+PE1TPjxJMzIgTj0iTWluUnVuc3BhY2VzIj4xPC9JMzI+PEkzMiBOPSJNYXhSdW5zcGFjZXMiPjE8L0kzMj48T2JqIE49IlBTVGhyZWFkT3B0aW9ucyIgUmVmSWQ9IjEiPjxUTiBSZWZJZD0iMCI+PFQ+U3lzdGVtLk1hbmFnZW1lbnQuQXV0b21hdGlvbi5SdW5zcGFjZXMuUFNUaHJlYWRPcHRpb25zPC9UPjxUPlN5c3RlbS5FbnVtPC9UPjxUPlN5c3RlbS5WYWx1ZVR5cGU8L1Q+PFQ+U3lzdGVtLk9iamVjdDwvVD48L1ROPjxUb1N0cmluZz5EZWZhdWx0PC9Ub1N0cmluZz48STMyPjA8L0kzMj48L09iaj48T2JqIE49IkFwYXJ0bWVudFN0YXRlIiBSZWZJZD0iMiI+PFROIFJlZklkPSIxIj48VD5TeXN0ZW0uVGhyZWFkaW5nLkFwYXJ0bWVudFN0YXRlPC9UPjxUPlN5c3RlbS5FbnVtPC9UPjxUPlN5c3RlbS5WYWx1ZVR5cGU8L1Q+PFQ+U3lzdGVtLk9iamVjdDwvVD48L1ROPjxUb1N0cmluZz5Vbmtub3duPC9Ub1N0cmluZz48STMyPjI8L0kzMj48L09iaj48T2JqIE49IkFwcGxpY2F0aW9uQXJndW1lbnRzIiBSZWZJZD0iMyI+PFROIFJlZklkPSIyIj48VD5TeXN0ZW0uTWFuYWdlbWVudC5BdXRvbWF0aW9uLlBTUHJpbWl0aXZlRGljdGlvbmFyeTwvVD48VD5TeXN0ZW0uQ29sbGVjdGlvbnMuSGFzaHRhYmxlPC9UPjxUPlN5c3RlbS5PYmplY3Q8L1Q+PC9UTj48RENUPjxFbj48UyBOPSJLZXkiPlBTVmVyc2lvblRhYmxlPC9TPjxPYmogTj0iVmFsdWUiIFJlZklkPSI0Ij48VE5SZWYgUmVmSWQ9IjIiIC8+PERDVD48RW4+PFMgTj0iS2V5Ij5QU1ZlcnNpb248L1M+PFZlcnNpb24gTj0iVmFsdWUiPjUuMS4xNzc2My43NzE8L1ZlcnNpb24+PC9Fbj48RW4+PFMgTj0iS2V5Ij5QU0VkaXRpb248L1M+PFMgTj0iVmFsdWUiPkRlc2t0b3A8L1M+PC9Fbj48RW4+PFMgTj0iS2V5Ij5QU0NvbXBhdGlibGVWZXJzaW9uczwvUz48T2JqIE49IlZhbHVlIiBSZWZJZD0iNSI+PFROIFJlZklkPSIzIj48VD5TeXN0ZW0uVmVyc2lvbltdPC9UPjxUPlN5c3RlbS5BcnJheTwvVD48VD5TeXN0ZW0uT2JqZWN0PC9UPjwvVE4+PExTVD48VmVyc2lvbj4xLjA8L1ZlcnNpb24+PFZlcnNpb24+Mi4wPC9WZXJzaW9uPjxWZXJzaW9uPjMuMDwvVmVyc2lvbj48VmVyc2lvbj40LjA8L1ZlcnNpb24+PFZlcnNpb24+NS4wPC9WZXJzaW9uPjxWZXJzaW9uPjUuMS4xNzc2My43NzE8L1ZlcnNpb24+PC9MU1Q+PC9PYmo+PC9Fbj48RW4+PFMgTj0iS2V5Ij5DTFJWZXJzaW9uPC9TPjxWZXJzaW9uIE49IlZhbHVlIj40LjAuMzAzMTkuNDIwMDA8L1ZlcnNpb24+PC9Fbj48RW4+PFMgTj0iS2V5Ij5CdWlsZFZlcnNpb248L1M+PFZlcnNpb24gTj0iVmFsdWUiPjEwLjAuMTc3NjMuNzcxPC9WZXJzaW9uPjwvRW4+PEVuPjxTIE49IktleSI+V1NNYW5TdGFja1ZlcnNpb248L1M+PFZlcnNpb24gTj0iVmFsdWUiPjMuMDwvVmVyc2lvbj48L0VuPjxFbj48UyBOPSJLZXkiPlBTUmVtb3RpbmdQcm90b2NvbFZlcnNpb248L1M+PFZlcnNpb24gTj0iVmFsdWUiPjIuMzwvVmVyc2lvbj48L0VuPjxFbj48UyBOPSJLZXkiPlNlcmlhbGl6YXRpb25WZXJzaW9uPC9TPjxWZXJzaW9uIE49IlZhbHVlIj4xLjEuMC4xPC9WZXJzaW9uPjwvRW4+PC9EQ1Q+PC9PYmo+PC9Fbj48L0RDVD48L09iaj48T2JqIE49Ikhvc3RJbmZvIiBSZWZJZD0iNiI+PE1TPjxPYmogTj0iX2hvc3REZWZhdWx0RGF0YSIgUmVmSWQ9IjciPjxNUz48T2JqIE49ImRhdGEiIFJlZklkPSI4Ij48VE4gUmVmSWQ9IjQiPjxUPlN5c3RlbS5Db2xsZWN0aW9ucy5IYXNodGFibGU8L1Q+PFQ+U3lzdGVtLk9iamVjdDwvVD48L1ROPjxEQ1Q+PEVuPjxJMzIgTj0iS2V5Ij45PC9JMzI+PE9iaiBOPSJWYWx1ZSIgUmVmSWQ9IjkiPjxNUz48UyBOPSJUIj5TeXN0ZW0uU3RyaW5nPC9TPjxTIE49IlYiPkFkbWluaXN0cmF0b3I6IFdpbmRvd3MgUG93ZXJTaGVsbDwvUz48L01TPjwvT2JqPjwvRW4+PEVuPjxJMzIgTj0iS2V5Ij44PC9JMzI+PE9iaiBOPSJWYWx1ZSIgUmVmSWQ9IjEwIj48TVM+PFMgTj0iVCI+U3lzdGVtLk1hbmFnZW1lbnQuQXV0b21hdGlvbi5Ib3N0LlNpemU8L1M+PE9iaiBOPSJWIiBSZWZJZD0iMTEiPjxNUz48STMyIE49IndpZHRoIj4zNTk8L0kzMj48STMyIE49ImhlaWdodCI+OTE8L0kzMj48L01TPjwvT2JqPjwvTVM+PC9PYmo+PC9Fbj48RW4+PEkzMiBOPSJLZXkiPjc8L0kzMj48T2JqIE49IlZhbHVlIiBSZWZJZD0iMTIiPjxNUz48UyBOPSJUIj5TeXN0ZW0uTWFuYWdlbWVudC5BdXRvbWF0aW9uLkhvc3QuU2l6ZTwvUz48T2JqIE49IlYiIFJlZklkPSIxMyI+PE1TPjxJMzIgTj0id2lkdGgiPjEyMDwvSTMyPjxJMzIgTj0iaGVpZ2h0Ij45MTwvSTMyPjwvTVM+PC9PYmo+PC9NUz48L09iaj48L0VuPjxFbj48STMyIE49IktleSI+NjwvSTMyPjxPYmogTj0iVmFsdWUiIFJlZklkPSIxNCI+PE1TPjxTIE49IlQiPlN5c3RlbS5NYW5hZ2VtZW50LkF1dG9tYXRpb24uSG9zdC5TaXplPC9TPjxPYmogTj0iViIgUmVmSWQ9IjE1Ij48TVM+PEkzMiBOPSJ3aWR0aCI+MTIwPC9JMzI+PEkzMiBOPSJoZWlnaHQiPjUwPC9JMzI+PC9NUz48L09iaj48L01TPjwvT2JqPjwvRW4+PEVuPjxJMzIgTj0iS2V5Ij41PC9JMzI+PE9iaiBOPSJWYWx1ZSIgUmVmSWQ9IjE2Ij48TVM+PFMgTj0iVCI+U3lzdGVtLk1hbmFnZW1lbnQuQXV0b21hdGlvbi5Ib3N0LlNpemU8L1M+PE9iaiBOPSJWIiBSZWZJZD0iMTciPjxNUz48STMyIE49IndpZHRoIj4xMjA8L0kzMj48STMyIE49ImhlaWdodCI+MzAwMDwvSTMyPjwvTVM+PC9PYmo+PC9NUz48L09iaj48L0VuPjxFbj48STMyIE49IktleSI+NDwvSTMyPjxPYmogTj0iVmFsdWUiIFJlZklkPSIxOCI+PE1TPjxTIE49IlQiPlN5c3RlbS5JbnQzMjwvUz48STMyIE49IlYiPjI1PC9JMzI+PC9NUz48L09iaj48L0VuPjxFbj48STMyIE49IktleSI+MzwvSTMyPjxPYmogTj0iVmFsdWUiIFJlZklkPSIxOSI+PE1TPjxTIE49IlQiPlN5c3RlbS5NYW5hZ2VtZW50LkF1dG9tYXRpb24uSG9zdC5Db29yZGluYXRlczwvUz48T2JqIE49IlYiIFJlZklkPSIyMCI+PE1TPjxJMzIgTj0ieCI+MDwvSTMyPjxJMzIgTj0ieSI+MDwvSTMyPjwvTVM+PC9PYmo+PC9NUz48L09iaj48L0VuPjxFbj48STMyIE49IktleSI+MjwvSTMyPjxPYmogTj0iVmFsdWUiIFJlZklkPSIyMSI+PE1TPjxTIE49IlQiPlN5c3RlbS5NYW5hZ2VtZW50LkF1dG9tYXRpb24uSG9zdC5Db29yZGluYXRlczwvUz48T2JqIE49IlYiIFJlZklkPSIyMiI+PE1TPjxJMzIgTj0ieCI+MDwvSTMyPjxJMzIgTj0ieSI+MTc8L0kzMj48L01TPjwvT2JqPjwvTVM+PC9PYmo+PC9Fbj48RW4+PEkzMiBOPSJLZXkiPjE8L0kzMj48T2JqIE49IlZhbHVlIiBSZWZJZD0iMjMiPjxNUz48UyBOPSJUIj5TeXN0ZW0uQ29uc29sZUNvbG9yPC9TPjxJMzIgTj0iViI+NTwvSTMyPjwvTVM+PC9PYmo+PC9Fbj48RW4+PEkzMiBOPSJLZXkiPjA8L0kzMj48T2JqIE49IlZhbHVlIiBSZWZJZD0iMjQiPjxNUz48UyBOPSJUIj5TeXN0ZW0uQ29uc29sZUNvbG9yPC9TPjxJMzIgTj0iViI+NjwvSTMyPjwvTVM+PC9PYmo+PC9Fbj48L0RDVD48L09iaj48L01TPjwvT2JqPjxCIE49Il9pc0hvc3ROdWxsIj5mYWxzZTwvQj48QiBOPSJfaXNIb3N0VUlOdWxsIj5mYWxzZTwvQj48QiBOPSJfaXNIb3N0UmF3VUlOdWxsIj5mYWxzZTwvQj48QiBOPSJfdXNlUnVuc3BhY2VIb3N0Ij5mYWxzZTwvQj48L01TPjwvT2JqPjwvTVM+PC9PYmo+</creationXml></rsp:Shell></s:Body></s:Envelope>'
+
         hostname = get_hostname(self.endpoint)
         if self.session is None:
             self.session = self._build_session()
@@ -708,7 +711,16 @@ class _TransportHTTP(object):
             if self.wrap_required:
                 request = requests.Request('POST', self.endpoint, data=None)
                 prep_request = self.session.prepare_request(request)
-                self._send_request(prep_request, hostname)
+                self._send_request(prep_request)
+
+                protocol = WinRMEncryption.SPNEGO
+                if isinstance(self.session.auth, HttpCredSSPAuth):
+                    protocol = WinRMEncryption.CREDSSP
+                elif self.session.auth.contexts[hostname].response_auth_header == 'kerberos':
+                    # When Kerberos (not Negotiate) was used, we need to send a special protocol value and not SPNEGO.
+                    protocol = WinRMEncryption.KERBEROS
+
+                self.encryption = WinRMEncryption(self.session.auth.contexts[hostname], protocol)
 
         log.debug("Sending message: %s" % message)
         # for testing, keep commented out
@@ -717,8 +729,7 @@ class _TransportHTTP(object):
 
         headers = self.session.headers
         if self.wrap_required:
-            content_type, payload = self.encryption.wrap_message(message,
-                                                                 hostname)
+            content_type, payload = self.encryption.wrap_message(message)
             type_header = '%s;protocol="%s";boundary="Encrypted Boundary"' \
                           % (content_type, self.encryption.protocol)
             headers.update({
@@ -732,18 +743,17 @@ class _TransportHTTP(object):
         request = requests.Request('POST', self.endpoint, data=payload,
                                    headers=headers)
         prep_request = self.session.prepare_request(request)
-        return self._send_request(prep_request, hostname)
+        return self._send_request(prep_request)
 
-    def _send_request(self, request, hostname):
+    def _send_request(self, request):
         response = self.session.send(request, timeout=(
             self.connection_timeout, self.read_timeout
         ))
 
         content_type = response.headers.get('content-type', "")
-        if content_type.startswith("multipart/encrypted;") or \
-                content_type.startswith("multipart/x-multi-encrypted;"):
-            response_content = self.encryption.unwrap_message(response.content,
-                                                              hostname)
+        if content_type.startswith("multipart/encrypted;") or content_type.startswith("multipart/x-multi-encrypted;"):
+            boundary = re.search('boundary=[''|\\"](.*)[''|\\"]', response.headers['content-type']).group(1)
+            response_content = self.encryption.unwrap_message(response.content, boundary)
             response_text = to_string(response_content)
         else:
             response_content = response.content
@@ -870,9 +880,6 @@ class _TransportHTTP(object):
         session.auth = HttpCredSSPAuth(username=self.username,
                                        password=self.password,
                                        **kwargs)
-        self.encryption = WinRMEncryption(
-            session.auth, WinRMEncryption.CREDSSP
-        )
 
     def _build_auth_kerberos(self, session):
         self._build_auth_negotiate(session, "kerberos")
@@ -885,9 +892,6 @@ class _TransportHTTP(object):
                                          auth_provider=auth_provider,
                                          wrap_required=self.wrap_required,
                                          **kwargs)
-        self.encryption = WinRMEncryption(
-            session.auth, WinRMEncryption.SPNEGO
-        )
 
     def _build_auth_ntlm(self, session):
         self._build_auth_negotiate(session, "ntlm")

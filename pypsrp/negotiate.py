@@ -129,6 +129,9 @@ class HTTPNegotiateAuth(AuthBase):
 
             out_token = token_gen.send(in_token)
 
+        # This is used by the message encryption to decide the MIME protocol.
+        setattr(context, 'response_auth_header', response_auth_header.lower())
+
         return response
 
     @staticmethod

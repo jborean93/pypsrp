@@ -13,43 +13,46 @@ class WinRMEncryption(object):
     SIXTEEN_KB = 16384
     MIME_BOUNDARY = "--Encrypted Boundary"
     CREDSSP = "application/HTTP-CredSSP-session-encrypted"
+    KERBEROS = "application/HTTP-Kerberos-session-encrypted"
     SPNEGO = "application/HTTP-SPNEGO-session-encrypted"
 
-    def __init__(self, auth, protocol):
-        log.debug("Initialising WinRMEncryption helper for protocol %s"
-                  % protocol)
-        self.auth = auth
+    def __init__(self, context, protocol):
+        log.debug("Initialising WinRMEncryption helper for protocol %s" % protocol)
+        self.context = context
         self.protocol = protocol
 
-        if protocol == self.SPNEGO:
-            self._wrap = self._wrap_spnego
-            self._unwrap = self._unwrap_spnego
-        else:
+        if protocol == self.CREDSSP:
             self._wrap = self._wrap_credssp
             self._unwrap = self._unwrap_credssp
+        else:
+            self._wrap = self._wrap_spnego
+            self._unwrap = self._unwrap_spnego
 
-    def wrap_message(self, message, hostname):
-        log.debug("Wrapping message for host: %s" % hostname)
+    def wrap_message(self, message):
+        log.debug("Wrapping message")
         if self.protocol == self.CREDSSP and len(message) > self.SIXTEEN_KB:
             content_type = "multipart/x-multi-encrypted"
             encrypted_msg = b""
             chunks = [message[i:i + self.SIXTEEN_KB] for i in
                       range(0, len(message), self.SIXTEEN_KB)]
             for chunk in chunks:
-                encrypted_chunk = self._wrap_message(chunk, hostname)
+                encrypted_chunk = self._wrap_message(chunk)
                 encrypted_msg += encrypted_chunk
         else:
             content_type = "multipart/encrypted"
-            encrypted_msg = self._wrap_message(message, hostname)
+            encrypted_msg = self._wrap_message(message)
 
         encrypted_msg += to_bytes("%s--\r\n" % self.MIME_BOUNDARY)
 
         log.debug("Created wrapped message of content type %s" % content_type)
         return content_type, encrypted_msg
 
-    def unwrap_message(self, message, hostname):
-        log.debug("Unwrapped message for host: %s" % hostname)
-        parts = message.split(to_bytes("%s\r\n" % self.MIME_BOUNDARY))
+    def unwrap_message(self, message, b_boundary):
+        log.debug("Unwrapped message")
+
+        # Talking to Exchange endpoints gives a non-compliant boundary that has a space between the -- {boundary}, not
+        # ideal but we just need to handle it.
+        parts = re.compile(to_bytes(r"--\s*%s\r\n" % re.escape(b_boundary))).split(message)
         parts = list(filter(None, parts))
 
         message = b""
@@ -60,13 +63,10 @@ class WinRMEncryption(object):
             expected_length = int(header.split(b"Length=")[1])
 
             # remove the end MIME block if it exists
-            if payload.endswith(to_bytes("%s--\r\n" % self.MIME_BOUNDARY)):
-                payload = payload[:len(payload) - 24]
+            payload = re.sub(to_bytes(r'--\s*%s--\r\n$') % to_bytes(b_boundary), b'', payload)
 
-            wrapped_data = payload.replace(
-                b"\tContent-Type: application/octet-stream\r\n", b""
-            )
-            unwrapped_data = self._unwrap(wrapped_data, hostname)
+            wrapped_data = payload.replace(b"\tContent-Type: application/octet-stream\r\n", b"")
+            unwrapped_data = self._unwrap(wrapped_data)
             actual_length = len(unwrapped_data)
 
             log.debug("Actual unwrapped length: %d, expected unwrapped length:"
@@ -80,15 +80,14 @@ class WinRMEncryption(object):
 
         return message
 
-    def _wrap_message(self, message, hostname):
+    def _wrap_message(self, message):
         msg_length = str(len(message))
-        wrapped_data = self._wrap(message, hostname)
+        wrapped_data = self._wrap(message)
 
         payload = "\r\n".join([
             self.MIME_BOUNDARY,
             "\tContent-Type: %s" % self.protocol,
-            "\tOriginalContent: type=application/soap+xml;charset=UTF-8;"
-            "Length=%s" % msg_length,
+            "\tOriginalContent: type=application/soap+xml;charset=UTF-8;Length=%s" % msg_length,
             self.MIME_BOUNDARY,
             "\tContent-Type: application/octet-stream",
             ""
@@ -97,33 +96,29 @@ class WinRMEncryption(object):
 
         return payload
 
-    def _wrap_spnego(self, data, hostname):
-        context = self.auth.contexts[hostname]
-        header, wrapped_data = context.wrap(data)
+    def _wrap_spnego(self, data):
+        header, wrapped_data = self.context.wrap(data)
 
         return struct.pack("<i", len(header)) + header + wrapped_data
 
-    def _wrap_credssp(self, data, hostname):
-        context = self.auth.contexts[hostname]
-        wrapped_data = context.wrap(data)
-        cipher_negotiated = context.tls_connection.get_cipher_name()
+    def _wrap_credssp(self, data):
+        wrapped_data = self.context.wrap(data)
+        cipher_negotiated = self.context.tls_connection.get_cipher_name()
         trailer_length = self._credssp_trailer(len(data), cipher_negotiated)
 
         return struct.pack("<i", trailer_length) + wrapped_data
 
-    def _unwrap_spnego(self, data, hostname):
-        context = self.auth.contexts[hostname]
+    def _unwrap_spnego(self, data):
         header_length = struct.unpack("<i", data[:4])[0]
         header = data[4:4 + header_length]
         wrapped_data = data[4 + header_length:]
-        data = context.unwrap(header, wrapped_data)
+        data = self.context.unwrap(header, wrapped_data)
 
         return data
 
-    def _unwrap_credssp(self, data, hostname):
-        context = self.auth.contexts[hostname]
+    def _unwrap_credssp(self, data):
         wrapped_data = data[4:]
-        data = context.unwrap(wrapped_data)
+        data = self.context.unwrap(wrapped_data)
 
         return data
 
