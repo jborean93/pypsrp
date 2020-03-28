@@ -47,12 +47,12 @@ class WinRMEncryption(object):
         log.debug("Created wrapped message of content type %s" % content_type)
         return content_type, encrypted_msg
 
-    def unwrap_message(self, message, b_boundary):
+    def unwrap_message(self, message, boundary):
         log.debug("Unwrapped message")
 
         # Talking to Exchange endpoints gives a non-compliant boundary that has a space between the -- {boundary}, not
         # ideal but we just need to handle it.
-        parts = re.compile(to_bytes(r"--\s*%s\r\n" % re.escape(b_boundary))).split(message)
+        parts = re.compile(to_bytes(r"--\s*%s\r\n" % re.escape(boundary))).split(message)
         parts = list(filter(None, parts))
 
         message = b""
@@ -63,7 +63,7 @@ class WinRMEncryption(object):
             expected_length = int(header.split(b"Length=")[1])
 
             # remove the end MIME block if it exists
-            payload = re.sub(to_bytes(r'--\s*%s--\r\n$') % to_bytes(b_boundary), b'', payload)
+            payload = re.sub(to_bytes(r'--\s*%s--\r\n$') % to_bytes(boundary), b'', payload)
 
             wrapped_data = payload.replace(b"\tContent-Type: application/octet-stream\r\n", b"")
             unwrapped_data = self._unwrap(wrapped_data)
