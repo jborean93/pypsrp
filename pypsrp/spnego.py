@@ -275,7 +275,8 @@ class SSPIContext(AuthContext):
 
     def wrap(self, data):
         enc_data, header = self._context.encrypt(data)
-        return header, enc_data
+        # TODO: verify padding for this
+        return header, enc_data, b""
 
     def unwrap(self, header, data):
         dec_data = self._context.decrypt(data, header)
@@ -393,10 +394,15 @@ class GSSAPIContext(AuthContext):
             iov = IOV(IOVBufferType.header, data, IOVBufferType.padding,
                       std_layout=False)
             wrap_iov(self._context, iov, confidential=True)
-            return iov[0].value, iov[1].value + (iov[2].value or b"")
+            return iov[0].value, iov[1].value, iov[2].value or b""
 
     def unwrap(self, header, data):
-        return self._context.unwrap(header + data)[0]
+        if self._context.mech == gssapi.OID.from_int_seq(self._AUTH_PROVIDERS['ntlm']):
+            return self._context.unwrap(header + data).message
+        else:
+            iov = IOV((IOVBufferType.header, False, header), data, IOVBufferType.data, std_layout=False)
+            gssapi.raw.unwrap_iov(self._context, iov)
+            return iov[1].value
 
     @staticmethod
     def _get_security_context(name_type, mech, spn, username, password, delegate, wrap_required,
@@ -534,7 +540,7 @@ class NTLMContext(AuthContext):
 
     def wrap(self, data):
         wrapped_data = self._context.wrap(data)
-        return wrapped_data[:16], wrapped_data[16:]
+        return wrapped_data[:16], wrapped_data[16:], b""
 
     def unwrap(self, header, data):
         return self._context.unwrap(header + data)

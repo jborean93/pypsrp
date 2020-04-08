@@ -81,8 +81,8 @@ class WinRMEncryption(object):
         return message
 
     def _wrap_message(self, message):
-        msg_length = str(len(message))
-        wrapped_data = self._wrap(message)
+        wrapped_data, padding_length = self._wrap(message)
+        msg_length = str(len(message) + padding_length)
 
         payload = "\r\n".join([
             self.MIME_BOUNDARY,
@@ -97,16 +97,16 @@ class WinRMEncryption(object):
         return payload
 
     def _wrap_spnego(self, data):
-        header, wrapped_data = self.context.wrap(data)
+        header, wrapped_data, padding = self.context.wrap(data)
 
-        return struct.pack("<i", len(header)) + header + wrapped_data
+        return struct.pack("<i", len(header)) + header + wrapped_data + padding, len(padding)
 
     def _wrap_credssp(self, data):
         wrapped_data = self.context.wrap(data)
         cipher_negotiated = self.context.tls_connection.get_cipher_name()
         trailer_length = self._credssp_trailer(len(data), cipher_negotiated)
 
-        return struct.pack("<i", trailer_length) + wrapped_data
+        return struct.pack("<i", trailer_length) + wrapped_data, 0
 
     def _unwrap_spnego(self, data):
         header_length = struct.unpack("<i", data[:4])[0]
