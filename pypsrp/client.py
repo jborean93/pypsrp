@@ -103,7 +103,7 @@ class Client(object):
             else:
                 out, err, failed = self.execute_ps("Write-Output {}".format(path))
 
-            if failed:
+            if not failed:
                 return out
             log.error("Failed to expand path. Using original string. Error: {}"
                       .format(err))
