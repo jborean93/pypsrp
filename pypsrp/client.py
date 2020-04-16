@@ -51,7 +51,7 @@ class Client(object):
         """
         self.wsman = WSMan(server, **kwargs)
 
-    def copy(self, src, dest, configuration_name=DEFAULT_CONFIGURATION_NAME):
+    def copy(self, src, dest, expand_variables="", configuration_name=DEFAULT_CONFIGURATION_NAME):
         """
         Copies a single file from the current host to the remote Windows host.
         This can be quite slow when it comes to large files due to the
@@ -64,7 +64,10 @@ class Client(object):
         actual file locally before copying the file to the path at dest.
 
         :param src: The path to the local file
-        :param dest: The path to the destionation file on the Windows host
+        :param dest: The path to the destination file on the Windows host
+        :param expand_variables: Expand variables in path. Disabled by default
+            "cmd" for cmd like expansion (for example %TMP% in path)
+            "ps" for PowerShell like expansion (for example $Env:tmp in path)
         :param configuration_name: The PowerShell configuration endpoint to
             use when copying the file.
         :return: The absolute path of the file on the Windows host
@@ -91,9 +94,25 @@ class Client(object):
                 if offset == 0:
                     yield [u"", to_unicode(base64.b64encode(to_bytes(sha1.hexdigest())))]
 
+        def expand_path(path):
+            if expand_variables not in ("cmd", "ps"):
+                return path
+            if expand_variables == "cmd":
+                out, err, failed = self.execute_cmd("echo {}".format(path))
+                out = out.rstrip()
+            else:
+                out, err, failed = self.execute_ps("Write-Output {}".format(path))
+
+            if failed:
+                return out
+            log.error("Failed to expand path. Using original string. Error: {}"
+                      .format(err))
+            return path
+
         src = os.path.expanduser(os.path.expandvars(src))
         b_src = to_bytes(src)
         src_size = os.path.getsize(b_src)
+        dest = expand_path(dest)
         log.info("Copying '%s' to '%s' with a total size of %d"
                  % (src, dest, src_size))
 
