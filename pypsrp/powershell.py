@@ -18,7 +18,7 @@ from pypsrp.complex_objects import ApartmentState, Command, CommandMetadata, \
     PipelineResultTypes, PSInvocationState, PSThreadOptions, \
     RemoteStreamOptions, RunspacePoolState
 from pypsrp.exceptions import FragmentError, InvalidPipelineStateError, \
-    InvalidPSRPOperation, InvalidRunspacePoolStateError, WSManFaultError
+    InvalidPSRPOperation, InvalidRunspacePoolStateError, WSManFaultError, WinRMError
 from pypsrp.messages import ConnectRunspacePool, CreatePipeline, Destination, \
     EndOfPipelineInput, GetAvailableRunspaces, GetCommandMetadata, \
     InitRunspacePool, Message, MessageType, PipelineHostResponse, \
@@ -1073,7 +1073,8 @@ class PowerShell(object):
 
     def invoke(self, input=None, add_to_history=False, apartment_state=None,
                redirect_shell_error_to_out=False,
-               remote_stream_options=RemoteStreamOptions.ADD_INVOCATION_INFO):
+               remote_stream_options=RemoteStreamOptions.ADD_INVOCATION_INFO,
+               on_error_message=""):
         """
         Invoke the command and return the output collection of return objects.
 
@@ -1087,11 +1088,18 @@ class PowerShell(object):
         :param remote_stream_options: Whether to return the invocation info on
             the various steams, see complex_objects.RemoteStreamOptions for the
             values. Will default to returning the invocation info on all
+        :param on_error_message: if message is specified, throws WinRMError
+            if any error occurred
         :return: A list of output objects
         """
         self.begin_invoke(input, add_to_history, apartment_state,
                           redirect_shell_error_to_out, remote_stream_options)
-        return self.end_invoke()
+        end_invoke = self.end_invoke()
+        if on_error_message and self.had_errors:
+            errors = self.streams.error
+            error = "\n".join([str(err) for err in errors])
+            raise WinRMError("%s: %s" % on_error_message, error)
+        return end_invoke
 
     def merge_previous(self, enabled=False):
         """

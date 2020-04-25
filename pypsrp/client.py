@@ -51,7 +51,8 @@ class Client(object):
         """
         self.wsman = WSMan(server, **kwargs)
 
-    def copy(self, src, dest, expand_variables="", configuration_name=DEFAULT_CONFIGURATION_NAME):
+    def copy(self, src, dest, configuration_name=DEFAULT_CONFIGURATION_NAME,
+             expand_variables=False):
         """
         Copies a single file from the current host to the remote Windows host.
         This can be quite slow when it comes to large files due to the
@@ -65,13 +66,13 @@ class Client(object):
 
         :param src: The path to the local file
         :param dest: The path to the destination file on the Windows host
-        :param expand_variables: Expand variables in path. Disabled by default
-            "cmd" for cmd like expansion (for example %TMP% in path)
-            "ps" for PowerShell like expansion (for example $Env:tmp in path)
         :param configuration_name: The PowerShell configuration endpoint to
             use when copying the file.
+        :param expand_variables: Expand variables in path. Disabled by default
+            Enable for cmd like expansion (for example %TMP% in path)
         :return: The absolute path of the file on the Windows host
         """
+
         def read_buffer(b_path, total_size, buffer_size):
             offset = 0
             sha1 = hashlib.sha1()
@@ -94,29 +95,17 @@ class Client(object):
                 if offset == 0:
                     yield [u"", to_unicode(base64.b64encode(to_bytes(sha1.hexdigest())))]
 
-        def expand_path(path):
-            if expand_variables not in ("cmd", "ps"):
-                return path
-            if expand_variables == "cmd":
-                out, err, failed = self.execute_cmd("echo {}".format(path))
-                out = out.rstrip()
-            else:
-                out, err, failed = self.execute_ps("Write-Output {}".format(path))
-
-            if not failed:
-                return out
-            log.error("Failed to expand path. Using original string. Error: {}"
-                      .format(err))
-            return path
-
-        src = os.path.expanduser(os.path.expandvars(src))
-        b_src = to_bytes(src)
-        src_size = os.path.getsize(b_src)
-        dest = expand_path(dest)
-        log.info("Copying '%s' to '%s' with a total size of %d"
-                 % (src, dest, src_size))
-
         with RunspacePool(self.wsman, configuration_name=configuration_name) as pool:
+            if expand_variables:
+                src = os.path.expanduser(os.path.expandvars(src))
+                dest = _expand_remote_path(pool, dest)
+
+            b_src = to_bytes(src)
+            src_size = os.path.getsize(b_src)
+
+            log.info("Copying '%s' to '%s' with a total size of %d"
+                     % (src, dest, src_size))
+
             # Get the buffer size of each fragment to send, subtract. Adjust to size of the base64 encoded bytes. Also
             # subtract 82 for the fragment, message, and other header info that PSRP adds.
             buffer_size = int((self.wsman.max_payload_size - 82) / 4 * 3)
@@ -128,16 +117,11 @@ class Client(object):
             log.debug("Starting to send file data to remote process")
             powershell = PowerShell(pool)
             powershell.add_script(command).add_argument(dest)
-            powershell.invoke(input=read_gen)
-            log.debug("Finished sending file data to remote process")
+            powershell.invoke(input=read_gen, on_error_message="Failed to copy file")
 
+        log.debug("Finished sending file data to remote process")
         for warning in powershell.streams.warning:
             warnings.warn(str(warning))
-
-        if powershell.had_errors:
-            errors = powershell.streams.error
-            error = "\n".join([str(err) for err in errors])
-            raise WinRMError("Failed to copy file: %s" % error)
 
         output_file = to_unicode(powershell.output[-1]).strip()
         log.info("Completed file transfer of '%s' to '%s'" % (src, output_file))
@@ -227,7 +211,8 @@ class Client(object):
         return "\n".join(powershell.output), powershell.streams, \
                powershell.had_errors
 
-    def fetch(self, src, dest, configuration_name=DEFAULT_CONFIGURATION_NAME):
+    def fetch(self, src, dest, configuration_name=DEFAULT_CONFIGURATION_NAME,
+              expand_variables=False):
         """
         Will fetch a single file from the remote Windows host and create a
         local copy. Like copy(), this can be slow when it comes to fetching
@@ -240,23 +225,24 @@ class Client(object):
         :param dest: The path on the localhost host to store the file as
         :param configuration_name: The PowerShell configuration endpoint to
             use when fetching the file.
+        :param expand_variables: Expand variables in path. Disabled by default
+            Enable for cmd like expansion (for example %TMP% in path)
         """
-        dest = os.path.expanduser(os.path.expandvars(dest))
-        log.info("Fetching '%s' to '%s'" % (src, dest))
 
         with RunspacePool(self.wsman, configuration_name=configuration_name) as pool:
+            if expand_variables:
+                src = _expand_remote_path(pool, src)
+                dest = os.path.expanduser(os.path.expandvars(dest))
+
+            log.info("Fetching '%s' to '%s'" % (src, dest))
             script = get_pwsh_script('fetch.ps1')
             powershell = PowerShell(pool)
             powershell.add_script(script).add_argument(src)
 
             log.debug("Starting remote process to output file data")
-            powershell.invoke()
+            powershell.invoke(on_error_message="Failed to fetch file %s" % src)
             log.debug("Finished remote process to output file data")
 
-            if powershell.had_errors:
-                errors = powershell.streams.error
-                error = "\n".join([str(err) for err in errors])
-                raise WinRMError("Failed to fetch file %s: %s" % (src, error))
             expected_hash = powershell.output[-1]
 
             temp_file, path = tempfile.mkstemp()
@@ -305,3 +291,11 @@ class Client(object):
             output = Serializer()._deserialize_string("".join(errors))
 
         return output
+
+
+def _expand_remote_path(runspace_pool, path):
+    expand_command = "[System.Environment]::ExpandEnvironmentVariables('%s')" % (path,)
+    powershell = PowerShell(runspace_pool)
+    powershell.add_script(expand_command)
+    powershell.invoke(on_error_message="Failed to expand path")
+    return powershell.output.pop()
