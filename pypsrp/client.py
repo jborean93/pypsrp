@@ -117,7 +117,8 @@ class Client(object):
             log.debug("Starting to send file data to remote process")
             powershell = PowerShell(pool)
             powershell.add_script(command).add_argument(dest)
-            powershell.invoke(input=read_gen, on_error_message="Failed to copy file")
+            powershell.invoke(input=read_gen)
+            _handle_powershell_error(powershell, "Failed to copy file")
 
         log.debug("Finished sending file data to remote process")
         for warning in powershell.streams.warning:
@@ -240,7 +241,8 @@ class Client(object):
             powershell.add_script(script).add_argument(src)
 
             log.debug("Starting remote process to output file data")
-            powershell.invoke(on_error_message="Failed to fetch file %s" % src)
+            powershell.invoke()
+            _handle_powershell_error(powershell, "Failed to fetch file %s" % src)
             log.debug("Finished remote process to output file data")
 
             expected_hash = powershell.output[-1]
@@ -296,6 +298,15 @@ class Client(object):
 def _expand_remote_path(runspace_pool, path):
     expand_command = "[System.Environment]::ExpandEnvironmentVariables('%s')" % (path,)
     powershell = PowerShell(runspace_pool)
+
     powershell.add_script(expand_command)
-    powershell.invoke(on_error_message="Failed to expand path")
+    powershell.invoke()
+    _handle_powershell_error(powershell, "Failed to expand path")
     return powershell.output.pop()
+
+
+def _handle_powershell_error(powershell, message):
+    if message and powershell.had_errors:
+        errors = powershell.streams.error
+        error = "\n".join([str(err) for err in errors])
+        raise WinRMError("%s: %s" % message, error)
