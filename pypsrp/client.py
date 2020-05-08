@@ -95,17 +95,14 @@ class Client(object):
                 if offset == 0:
                     yield [u"", to_unicode(base64.b64encode(to_bytes(sha1.hexdigest())))]
 
+        if expand_variables:
+            src = os.path.expanduser(os.path.expandvars(src))
+        b_src = to_bytes(src)
+        src_size = os.path.getsize(b_src)
+        log.info("Copying '%s' to '%s' with a total size of %d"
+                 % (src, dest, src_size))
+
         with RunspacePool(self.wsman, configuration_name=configuration_name) as pool:
-            if expand_variables:
-                src = os.path.expanduser(os.path.expandvars(src))
-                dest = _expand_remote_path(pool, dest)
-
-            b_src = to_bytes(src)
-            src_size = os.path.getsize(b_src)
-
-            log.info("Copying '%s' to '%s' with a total size of %d"
-                     % (src, dest, src_size))
-
             # Get the buffer size of each fragment to send, subtract. Adjust to size of the base64 encoded bytes. Also
             # subtract 82 for the fragment, message, and other header info that PSRP adds.
             buffer_size = int((self.wsman.max_payload_size - 82) / 4 * 3)
@@ -116,7 +113,9 @@ class Client(object):
             command = get_pwsh_script('copy.ps1')
             log.debug("Starting to send file data to remote process")
             powershell = PowerShell(pool)
-            powershell.add_script(command).add_argument(dest)
+            powershell.add_script(command) \
+                .add_argument(dest) \
+                .add_argument(expand_variables)
             powershell.invoke(input=read_gen)
             _handle_powershell_error(powershell, "Failed to copy file")
 
@@ -229,16 +228,16 @@ class Client(object):
         :param expand_variables: Expand variables in path. Disabled by default
             Enable for cmd like expansion (for example %TMP% in path)
         """
+        if expand_variables:
+            dest = os.path.expanduser(os.path.expandvars(dest))
+        log.info("Fetching '%s' to '%s'" % (src, dest))
 
         with RunspacePool(self.wsman, configuration_name=configuration_name) as pool:
-            if expand_variables:
-                src = _expand_remote_path(pool, src)
-                dest = os.path.expanduser(os.path.expandvars(dest))
-
-            log.info("Fetching '%s' to '%s'" % (src, dest))
             script = get_pwsh_script('fetch.ps1')
             powershell = PowerShell(pool)
-            powershell.add_script(script).add_argument(src)
+            powershell.add_script(script) \
+                .add_argument(src) \
+                .add_argument(expand_variables)
 
             log.debug("Starting remote process to output file data")
             powershell.invoke()
@@ -295,18 +294,8 @@ class Client(object):
         return output
 
 
-def _expand_remote_path(runspace_pool, path):
-    expand_command = "[System.Environment]::ExpandEnvironmentVariables('%s')" % (path,)
-    powershell = PowerShell(runspace_pool)
-
-    powershell.add_script(expand_command)
-    powershell.invoke()
-    _handle_powershell_error(powershell, "Failed to expand path")
-    return powershell.output.pop()
-
-
 def _handle_powershell_error(powershell, message):
     if message and powershell.had_errors:
         errors = powershell.streams.error
         error = "\n".join([str(err) for err in errors])
-        raise WinRMError("%s: %s" % message, error)
+        raise WinRMError("%s: %s" % (message, error))
