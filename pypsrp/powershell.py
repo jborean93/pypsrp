@@ -18,7 +18,7 @@ from pypsrp.complex_objects import ApartmentState, Command, CommandMetadata, \
     PipelineResultTypes, PSInvocationState, PSThreadOptions, \
     RemoteStreamOptions, RunspacePoolState
 from pypsrp.exceptions import FragmentError, InvalidPipelineStateError, \
-    InvalidPSRPOperation, InvalidRunspacePoolStateError, WSManFaultError, WinRMError
+    InvalidPSRPOperation, InvalidRunspacePoolStateError, WSManFaultError
 from pypsrp.messages import ConnectRunspacePool, CreatePipeline, Destination, \
     EndOfPipelineInput, GetAvailableRunspaces, GetCommandMetadata, \
     InitRunspacePool, Message, MessageType, PipelineHostResponse, \

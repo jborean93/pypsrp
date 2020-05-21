@@ -2,8 +2,12 @@
 
 ## 1.0.0 - TBD
 
+### Breaking changes
 * Dropped support for Python 2.6 and Python 3.4
+* Using `Client.copy()` and `Client.fetch()` doesn't expand variables in the local path by default.
 
+### Features
+* `Client.copy()` and `Client.fetch()` methods have new `expand_variables` parameter. This can be used to expand variables both in local and remote path.
 
 ## 0.4.0 - 2019-09-19
 
