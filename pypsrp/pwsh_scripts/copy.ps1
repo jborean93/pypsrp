@@ -104,7 +104,7 @@ begin {
         # Cannot rely on $args[0] as this isn't set in PowerShell v2, MyInvocation works just fine though.
         $raw_out_path = $MyInvocation.UnboundArguments[0]
         $expand_variables = $MyInvocation.UnboundArguments[1]
-        if ($expand_variables -eq "True") {
+        if ($expand_variables -eq $true) {
             $raw_out_path = [System.Environment]::ExpandEnvironmentVariables($raw_out_path)
         }
         $output_path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($raw_out_path)
