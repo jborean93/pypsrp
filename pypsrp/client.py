@@ -51,7 +51,8 @@ class Client(object):
         """
         self.wsman = WSMan(server, **kwargs)
 
-    def copy(self, src, dest, configuration_name=DEFAULT_CONFIGURATION_NAME):
+    def copy(self, src, dest, configuration_name=DEFAULT_CONFIGURATION_NAME,
+             expand_variables=False):
         """
         Copies a single file from the current host to the remote Windows host.
         This can be quite slow when it comes to large files due to the
@@ -64,11 +65,14 @@ class Client(object):
         actual file locally before copying the file to the path at dest.
 
         :param src: The path to the local file
-        :param dest: The path to the destionation file on the Windows host
+        :param dest: The path to the destination file on the Windows host
         :param configuration_name: The PowerShell configuration endpoint to
             use when copying the file.
+        :param expand_variables: Expand variables in path. Disabled by default
+            Enable for cmd like expansion (for example %TMP% in path)
         :return: The absolute path of the file on the Windows host
         """
+
         def read_buffer(b_path, total_size, buffer_size):
             offset = 0
             sha1 = hashlib.sha1()
@@ -91,7 +95,8 @@ class Client(object):
                 if offset == 0:
                     yield [u"", to_unicode(base64.b64encode(to_bytes(sha1.hexdigest())))]
 
-        src = os.path.expanduser(os.path.expandvars(src))
+        if expand_variables:
+            src = os.path.expanduser(os.path.expandvars(src))
         b_src = to_bytes(src)
         src_size = os.path.getsize(b_src)
         log.info("Copying '%s' to '%s' with a total size of %d"
@@ -108,17 +113,15 @@ class Client(object):
             command = get_pwsh_script('copy.ps1')
             log.debug("Starting to send file data to remote process")
             powershell = PowerShell(pool)
-            powershell.add_script(command).add_argument(dest)
+            powershell.add_script(command) \
+                .add_argument(dest) \
+                .add_argument(expand_variables)
             powershell.invoke(input=read_gen)
-            log.debug("Finished sending file data to remote process")
+            _handle_powershell_error(powershell, "Failed to copy file")
 
+        log.debug("Finished sending file data to remote process")
         for warning in powershell.streams.warning:
             warnings.warn(str(warning))
-
-        if powershell.had_errors:
-            errors = powershell.streams.error
-            error = "\n".join([str(err) for err in errors])
-            raise WinRMError("Failed to copy file: %s" % error)
 
         output_file = to_unicode(powershell.output[-1]).strip()
         log.info("Completed file transfer of '%s' to '%s'" % (src, output_file))
@@ -208,7 +211,8 @@ class Client(object):
         return "\n".join(powershell.output), powershell.streams, \
                powershell.had_errors
 
-    def fetch(self, src, dest, configuration_name=DEFAULT_CONFIGURATION_NAME):
+    def fetch(self, src, dest, configuration_name=DEFAULT_CONFIGURATION_NAME,
+              expand_variables=False):
         """
         Will fetch a single file from the remote Windows host and create a
         local copy. Like copy(), this can be slow when it comes to fetching
@@ -221,23 +225,25 @@ class Client(object):
         :param dest: The path on the localhost host to store the file as
         :param configuration_name: The PowerShell configuration endpoint to
             use when fetching the file.
+        :param expand_variables: Expand variables in path. Disabled by default
+            Enable for cmd like expansion (for example %TMP% in path)
         """
-        dest = os.path.expanduser(os.path.expandvars(dest))
+        if expand_variables:
+            dest = os.path.expanduser(os.path.expandvars(dest))
         log.info("Fetching '%s' to '%s'" % (src, dest))
 
         with RunspacePool(self.wsman, configuration_name=configuration_name) as pool:
             script = get_pwsh_script('fetch.ps1')
             powershell = PowerShell(pool)
-            powershell.add_script(script).add_argument(src)
+            powershell.add_script(script) \
+                .add_argument(src) \
+                .add_argument(expand_variables)
 
             log.debug("Starting remote process to output file data")
             powershell.invoke()
+            _handle_powershell_error(powershell, "Failed to fetch file %s" % src)
             log.debug("Finished remote process to output file data")
 
-            if powershell.had_errors:
-                errors = powershell.streams.error
-                error = "\n".join([str(err) for err in errors])
-                raise WinRMError("Failed to fetch file %s: %s" % (src, error))
             expected_hash = powershell.output[-1]
 
             temp_file, path = tempfile.mkstemp()
@@ -286,3 +292,10 @@ class Client(object):
             output = Serializer()._deserialize_string("".join(errors))
 
         return output
+
+
+def _handle_powershell_error(powershell, message):
+    if message and powershell.had_errors:
+        errors = powershell.streams.error
+        error = "\n".join([str(err) for err in errors])
+        raise WinRMError("%s: %s" % (message, error))

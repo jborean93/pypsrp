@@ -8,6 +8,10 @@
 
 $ErrorActionPreference = 'Stop'
 $raw_src_path = $MyInvocation.UnboundArguments[0]
+$expand_variables = $MyInvocation.UnboundArguments[1]
+if ($expand_variables -eq $true) {
+    $raw_src_path = [System.Environment]::ExpandEnvironmentVariables($raw_src_path)
+}
 $src_path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($raw_src_path)
 
 if (Test-Path -LiteralPath $src_path -PathType Container) {

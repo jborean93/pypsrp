@@ -32,7 +32,7 @@ class TestClient(object):
         return client
 
     @pytest.mark.parametrize('wsman_conn',
-                             [[False, 'test_client_copy_file']], indirect=True)
+                             [[True, 'test_client_copy_file']], indirect=True)
     def test_client_copy_file(self, wsman_conn):
         client = self._get_client(wsman_conn)
         test_string = b"abcdefghijklmnopqrstuvwxyz"
@@ -158,6 +158,34 @@ class TestClient(object):
         finally:
             os.close(temp_file)
             os.remove(path)
+
+    @pytest.mark.parametrize('wsman_conn',
+                             # Tested against a specific user name
+                             [[False, 'test_client_copy_expand_vars']],
+                             indirect=True)
+    def test_client_copy_expand_vars(self, wsman_conn):
+        client = self._get_client(wsman_conn)
+        test_string = b"abcdefghijklmnopqrstuvwxyz"
+
+        temp_file, path = tempfile.mkstemp()
+        try:
+            os.write(temp_file, test_string)
+            actual = client.copy(path, "%TEMP%\\test_file", expand_variables=True)
+
+            # run it a 2nd time to ensure it doesn't fail
+            actual = client.copy(path, actual)
+        finally:
+            os.close(temp_file)
+            os.remove(path)
+
+        try:
+            # verify the returned object is the full path
+            assert actual == "C:\\Users\\vagrant\\AppData\\Local\\Temp\\test_file"
+
+            actual_content = client.execute_cmd("powershell.exe Get-Content %s" % actual)[0].strip()
+            assert actual_content == to_unicode(test_string)
+        finally:
+            client.execute_cmd("powershell Remove-Item -Path '%s'" % actual)
 
     @pytest.mark.parametrize('wsman_conn',
                              [[True, 'test_client_execute_cmd']],
@@ -325,6 +353,38 @@ class TestClient(object):
             "Failed to fetch file C:\\temp\\file.txt, hash mismatch\n" \
             "Source: eec729d9a0fa275513bc44a4cb8d4ee973b81e1a\n" \
             "Fetched: c3499c2729730a7f807efb8676a92dcb6f8a3f8f"
+
+    @pytest.mark.parametrize('wsman_conn',
+                             # means we don't need to create files on the
+                             # remote side
+                             [[False, 'test_client_fetch_file_expand_vars']], indirect=True)
+    def test_client_fetch_file_expand_vars(self, wsman_conn):
+        client = self._get_client(wsman_conn)
+
+        # file was created with
+        # Set-Content -Path "$env:TEMP\file.txt" -Value ("abc`r`n")
+
+        temp_file, path = tempfile.mkstemp()
+        os.close(temp_file)
+        os.remove(path)
+        try:
+            client.fetch("%TEMP%\\file.txt", path, expand_variables=True)
+            expected_hash = b"\x22\xC1\xA7\x8E\xC5\xAD\xA1\xCD" \
+                            b"\x2F\x36\x65\xB5\x8B\x30\x49\x9E" \
+                            b"\x51\xA3\xB0\x29"
+
+            hash = hashlib.sha1()
+            with open(path, "rb") as temp_file:
+                while True:
+                    data = temp_file.read(65536)
+                    if not data:
+                        break
+                    hash.update(data)
+            actual_hash = hash.digest()
+            assert actual_hash == expected_hash
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
 
     def test_sanitise_clixml_with_error(self):
         clixml_path = os.path.join(os.path.dirname(__file__), 'data', 'test_sanitise_clixml_with_error.xml')
