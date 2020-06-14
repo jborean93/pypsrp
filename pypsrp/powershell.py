@@ -678,7 +678,7 @@ class RunspacePool(object):
 
         return_values = []
         for message in messages:
-            response_function = response_functions[message.message_type]
+            response_function = response_functions.get(message.message_type, None)
             if response_function is not None:
                 return_value = response_function(message)
                 return_values.append((message.message_type, return_value))
