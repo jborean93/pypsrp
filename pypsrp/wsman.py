@@ -781,6 +781,12 @@ class _TransportHTTP(object):
         session = requests.Session()
         session.headers['User-Agent'] = "Python PSRP Client"
 
+        # requests defaults to 'Accept-Encoding: gzip, default' which normally doesn't matter on vanila WinRM but for
+        # Exchange endpoints hosted on IIS they actually compress it with 1 of the 2 algorithms. By explicitly setting
+        # identity we are telling the server not to transform (compress) the data using the HTTP methods which we don't
+        # support. https://tools.ietf.org/html/rfc7231#section-5.3.4
+        session.headers['Accept-Encoding'] = 'identity'
+
         # get the env requests settings
         session.trust_env = True
         settings = session.merge_environment_settings(url=self.endpoint,
