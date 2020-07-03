@@ -806,7 +806,7 @@ class TestTransportHTTP(object):
                                    auth="credssp")
         session = transport._build_session()
         assert isinstance(session.auth, credssp.HttpCredSSPAuth)
-        assert session.auth.auth_mechanism == 'auto'
+        assert session.auth.auth_mechanism == 'negotiate'
         assert session.auth.disable_tlsv1_2 is False
         assert session.auth.minimum_version == 2
         assert session.auth.password == 'pass'

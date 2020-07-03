@@ -4,6 +4,8 @@
 import base64
 import logging
 import re
+import spnego
+import spnego.channel_bindings
 import sys
 import warnings
 
@@ -15,7 +17,6 @@ from requests.auth import AuthBase
 from requests.packages.urllib3.response import HTTPResponse
 
 from pypsrp.exceptions import AuthenticationError
-from pypsrp.spnego import get_auth_context
 from pypsrp._utils import to_bytes, get_hostname
 
 log = logging.getLogger(__name__)
@@ -31,9 +32,8 @@ class UnknownSignatureAlgorithmOID(Warning):
 
 class HTTPNegotiateAuth(AuthBase):
 
-    def __init__(self, username=None, password=None, auth_provider='auto',
-                 send_cbt=True, service='WSMAN', delegate=False,
-                 hostname_override=None, wrap_required=False):
+    def __init__(self, username=None, password=None, auth_provider='negotiate', send_cbt=True, service='WSMAN',
+                 delegate=False, hostname_override=None, wrap_required=False):
         """
         Creates a HTTP auth context that uses Microsoft's Negotiate protocol
         to complete the auth process. This currently only supports the NTLM
@@ -45,8 +45,8 @@ class HTTPNegotiateAuth(AuthBase):
         :param password: The password for username, if not specified this will
             try to use implicit credentials available to the user
         :param auth_provider: The authentication provider to use
-            'auto': Will try to use Kerberos if available and fallback to NTLM
-                if that fails
+            'negotiate': Will try to use Kerberos if available and fallback to
+                NTLM if that fails
             'ntlm': Will only use NTLM
             'kerberos': Will only use Kerberos and will fail if this is not
                 available
@@ -91,18 +91,37 @@ class HTTPNegotiateAuth(AuthBase):
 
     def handle_401(self, response, **kwargs):
         response_auth_header = kwargs.pop('_pypsrp_auth_provider')
-        host = get_hostname(response.url)
+        response_auth_header_l = response_auth_header.lower()
+        auth_provider = self.auth_provider
 
-        cbt_app_data = None
+        if response_auth_header_l != self.auth_provider:
+            if self.auth_provider == 'negotiate':
+                auth_provider = response_auth_header_l
+
+            elif response_auth_header_l != 'negotiate':
+                raise ValueError("Server responded with the auth protocol '%s' which is incompatible with the "
+                                 "specified auth_provider '%s'" % (response_auth_header, auth_provider))
+
+        host = get_hostname(response.url)
+        auth_hostname = self.hostname_override or host
+
+        cbt = None
         if self.send_cbt:
             cbt_app_data = HTTPNegotiateAuth._get_cbt_data(response)
+            if cbt_app_data:
+                cbt = spnego.channel_bindings.GssChannelBindings(application_data=cbt_app_data)
 
-        auth_hostname = self.hostname_override or host
-        context, token_gen, out_token = get_auth_context(self.username, self.password, self.auth_provider,
-                                                         cbt_app_data, auth_hostname, self.service, self.delegate,
-                                                         self.wrap_required, response_auth_header.lower())
+        context_req = spnego.ContextReq.default
+        if self.delegate:
+            context_req |= spnego.ContextReq.delegate
+
+        spnego_options = spnego.NegotiateOptions.wrapping_winrm if self.wrap_required else 0
+        context = spnego.client(self.username, self.password, hostname=auth_hostname, service=self.service,
+                                channel_bindings=cbt, context_req=context_req, protocol=auth_provider,
+                                options=spnego_options)
         self.contexts[host] = context
 
+        out_token = context.step()
         while not context.complete or out_token is not None:
             # consume content and release the original connection to allow the
             # new request to reuse the same one.
@@ -123,14 +142,13 @@ class HTTPNegotiateAuth(AuthBase):
             # break if there was no token received from the host and return the
             # last response
             if in_token in [None, b""]:
-                log.debug("Did not receive a http response with an auth "
-                          "response, stopping authentication process")
+                log.debug("Did not receive a http response with an auth response, stopping authentication process")
                 break
 
-            out_token = token_gen.send(in_token)
+            out_token = context.step(in_token)
 
         # This is used by the message encryption to decide the MIME protocol.
-        setattr(context, 'response_auth_header', response_auth_header.lower())
+        setattr(context, 'response_auth_header', response_auth_header_l)
 
         return response
 
@@ -188,9 +206,9 @@ class HTTPNegotiateAuth(AuthBase):
                 else:
                     socket = raw_response._fp.fp._sock
             except AttributeError as err:
-                warning = "Failed to get raw socket for CBT from urllib3 " \
-                          "resp: %s" % str(err)
+                warning = "Failed to get raw socket for CBT from urllib3 resp: %s" % str(err)
                 warnings.warn(warning, NoCertificateRetrievedWarning)
+
             else:
                 try:
                     cert = socket.getpeercert(True)
@@ -200,9 +218,8 @@ class HTTPNegotiateAuth(AuthBase):
                     cert_hash = HTTPNegotiateAuth._get_certificate_hash(cert)
                     app_data = b"tls-server-end-point:" + cert_hash
         else:
-            warning = "Requests is running with a non urllib3 backend, " \
-                      "cannot retrieve server cert for CBT. Raw type: %s" \
-                      % type(response).__name__
+            warning = "Requests is running with a non urllib3 backend, cannot retrieve server cert for CBT. Raw " \
+                      "type: %s" % type(response).__name__
             warnings.warn(warning, NoCertificateRetrievedWarning)
 
         return app_data
@@ -226,18 +243,16 @@ class HTTPNegotiateAuth(AuthBase):
 
         cert = x509.load_der_x509_certificate(certificate_der, backend)
 
+        hash_algorithm = None
         try:
             hash_algorithm = cert.signature_hash_algorithm
         except UnsupportedAlgorithm as ex:
-            warning = "Failed to get the signature algorithm from the " \
-                      "certificate, unable to pass channel bindings data: %s" \
-                      % str(ex)
-            warnings.warn(warning, UnknownSignatureAlgorithmOID)
-            return None
+            warnings.warn("Failed to get the signature algorithm from the certificate due to: %s" % str(ex),
+                          UnknownSignatureAlgorithmOID)
 
-        # if the cert signature algorithm is either md5 or sha1 then use sha256
-        # otherwise use the signature algorithm of the cert itself
-        if hash_algorithm.name in ['md5', 'sha1']:
+        # If the cert signature algorithm is unknown, md5, or sha1 then use sha256 otherwise use the signature
+        # algorithm of the cert itself.
+        if not hash_algorithm or hash_algorithm.name in ['md5', 'sha1']:
             digest = hashes.Hash(hashes.SHA256(), backend)
         else:
             digest = hashes.Hash(hash_algorithm, backend)

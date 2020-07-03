@@ -332,9 +332,9 @@ class TestCertificateHash(object):
                    b'D35JvzmqU05kSFV5eTvkhkaDObd7V55vokhm31+Li'
         cert_der = base64.b64decode(cert_der)
 
-        expected = None
-        expected_warning = "Failed to get the signature algorithm from the " \
-                           "certificate, unable to pass channel bindings data:"
+        expected = b'\x65\xE1\xC7\x51\xAC\x33\xE0\x68\x03\xC3\xC9\xC2\x23\x45\x48\x43' \
+                   b'\x43\x25\x45\xD6\x4B\x49\x25\xF3\xAE\xB2\xDD\xE5\x9B\x79\xF4\x39'
+        expected_warning = "Failed to get the signature algorithm from the certificate due to:"
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
