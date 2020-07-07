@@ -806,7 +806,6 @@ class TestTransportHTTP(object):
                                    auth="credssp")
         session = transport._build_session()
         assert isinstance(session.auth, credssp.HttpCredSSPAuth)
-        assert session.auth.auth_mechanism == 'negotiate'
         assert session.auth.disable_tlsv1_2 is False
         assert session.auth.minimum_version == 2
         assert session.auth.password == 'pass'
@@ -823,7 +822,6 @@ class TestTransportHTTP(object):
 
         session = transport._build_session()
         assert isinstance(session.auth, credssp.HttpCredSSPAuth)
-        assert session.auth.auth_mechanism == 'kerberos'
         assert session.auth.disable_tlsv1_2 is True
         assert session.auth.minimum_version == 5
         assert session.auth.password == 'pass'
@@ -864,7 +862,7 @@ class TestTransportHTTP(object):
         transport = _TransportHTTP("")
         session = transport._build_session()
         assert isinstance(session.auth, HTTPNegotiateAuth)
-        assert session.auth.auth_provider == "auto"
+        assert session.auth.auth_provider == "negotiate"
         assert session.auth.delegate is False
         assert session.auth.hostname_override is None
         assert session.auth.password is None
@@ -882,7 +880,7 @@ class TestTransportHTTP(object):
                                    negotiate_service="HTTP")
         session = transport._build_session()
         assert isinstance(session.auth, HTTPNegotiateAuth)
-        assert session.auth.auth_provider == "auto"
+        assert session.auth.auth_provider == "negotiate"
         assert session.auth.delegate is True
         assert session.auth.hostname_override == "host"
         assert session.auth.password == "pass"
@@ -1043,10 +1041,16 @@ class TestTransportHTTP(object):
 
     def test_send_with_encryption(self, monkeypatch):
         send_mock = MagicMock()
+
+        def send_request(self, *args, **kwargs):
+            self.session.auth.contexts['server'] = MagicMock()
+
+            return send_mock(*args, **kwargs)
+
         wrap_mock = MagicMock()
         wrap_mock.return_value = "multipart/encrypted", b"wrapped"
 
-        monkeypatch.setattr(_TransportHTTP, "_send_request", send_mock)
+        monkeypatch.setattr(_TransportHTTP, "_send_request", send_request)
         monkeypatch.setattr(WinRMEncryption, "wrap_message", wrap_mock)
 
         transport = _TransportHTTP("server", ssl=False)
@@ -1054,13 +1058,9 @@ class TestTransportHTTP(object):
         transport.send(b"message 2")
 
         assert send_mock.call_count == 3
-        actual_request1, actual_hostname1 = send_mock.call_args_list[0][0]
-        actual_request2, actual_hostname2 = send_mock.call_args_list[1][0]
-        actual_request3, actual_hostname3 = send_mock.call_args_list[2][0]
-
-        assert actual_hostname1 == "server"
-        assert actual_hostname2 == "server"
-        assert actual_hostname3 == "server"
+        actual_request1 = send_mock.call_args_list[0][0][0]
+        actual_request2 = send_mock.call_args_list[1][0][0]
+        actual_request3 = send_mock.call_args_list[2][0][0]
 
         assert actual_request1.body is None
         assert actual_request1.url == "http://server:5985/wsman"
@@ -1079,9 +1079,7 @@ class TestTransportHTTP(object):
 
         assert wrap_mock.call_count == 2
         assert wrap_mock.call_args_list[0][0][0] == b"message"
-        assert wrap_mock.call_args_list[0][0][1] == "server"
         assert wrap_mock.call_args_list[1][0][0] == b"message 2"
-        assert wrap_mock.call_args_list[1][0][1] == "server"
 
     def test_send_default(self, monkeypatch):
         response = requests.Response()
