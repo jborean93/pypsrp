@@ -510,6 +510,9 @@ class WSMan(object):
 
         return header
 
+    def close(self):
+        self.transport.close()
+
     @staticmethod
     def _parse_wsman_fault(xml_text):
         xml = ET.fromstring(xml_text)
@@ -697,6 +700,9 @@ class _TransportHTTP(object):
 
         # used when building tests, keep commented out
         # self._test_messages = []
+
+    def close(self):
+        self.session.close()
 
     def send(self, message):
         hostname = get_hostname(self.endpoint)
