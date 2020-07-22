@@ -49,7 +49,7 @@ def functional_transports():
 
     # can't really test kerberos in CI so it is missing from this list
     auths = ['negotiate', 'ntlm', 'credssp']
-    auths_ssl = ['basic', 'certificate']
+    auths_ssl = ['basic']
     if cert_dir is not None:
         auths_ssl.append('certificate')
         cert_key_pem = os.path.join(cert_dir, "cert_key.pem")
@@ -123,8 +123,6 @@ class TestPowerShellFunctional(object):
             assert actual[2] == u"host secret"
             assert str(ps.streams.verbose[0]) == large_string
 
-    @pytest.mark.skip("TODO: fix up appveyor issue (Code: 1359, Machine: "
-                      "127.0.0.1, Reason: An internal error occurred.)")
     def test_psrp_jea(self, functional_transports):
         for wsman in functional_transports:
             with RunspacePool(wsman, configuration_name="JEARole") as pool:

@@ -38,6 +38,7 @@ def to_unicode(obj, encoding='utf-8'):
 
     return obj.decode(encoding)
 
+
 """
 Python 2 and 3 handle native strings differently, 2 is like a byte string while
 3 uses unicode as the native string. The function to_string is used to easily

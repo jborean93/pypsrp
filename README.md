@@ -1,8 +1,8 @@
 # pypsrp - Python PowerShell Remoting Protocol Client library
 
-[![Build Status](https://travis-ci.org/jborean93/pypsrp.svg?branch=master)](https://travis-ci.org/jborean93/pypsrp)
-[![Build status](https://ci.appveyor.com/api/projects/status/ds45t1a8bqqr9kk2/branch/master?svg=true)](https://ci.appveyor.com/project/jborean93/pypsrp/branch/master)
-[![Coverage Status](https://coveralls.io/repos/github/jborean93/pypsrp/badge.svg)](https://coveralls.io/github/jborean93/pypsrp)
+[![Build Status](https://dev.azure.com/jborean93/jborean93/_apis/build/status/jborean93.pypsrp?branchName=master)](https://dev.azure.com/jborean93/jborean93/_build/latest?definitionId=3&branchName=master)
+[![codecov](https://codecov.io/gh/jborean93/pypsrp/branch/master/graph/badge.svg)](https://codecov.io/gh/jborean93/pypsrp)
+[![PyPI version](https://badge.fury.io/py/pypsrp.svg)](https://badge.fury.io/py/pypsrp)
 
 pypsrp is a Python client for the PowerShell Remoting Protocol (PSRP) and
 Windows Remove Management (WinRM) service. It allows your to execute commands

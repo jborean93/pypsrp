@@ -1,0 +1,202 @@
+trigger:
+  branches:
+    include:
+    - master
+  tags:
+    include:
+    - v*
+  paths:
+    exclude:
+    - CHANGELOG.md
+    - LICENSE
+    - README.md
+
+stages:
+- stage: Test
+  jobs:
+
+  - job: Test_Linux
+    pool:
+      vmImage: ubuntu-18.04
+    variables:
+      test_realm: domain.test
+    strategy:
+      matrix:
+        Python27:
+          python.version: 2.7
+        Python35:
+          python.version: 3.5
+        Python36:
+          python.version: 3.6
+        Python37:
+          python.version: 3.7
+        Python38:
+          python.version: 3.8
+
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: $(python.version)
+
+    - script: |
+        sudo apt-get install -y \
+          gcc \
+          gss-ntlmssp \
+          libkrb5-dev \
+          python-dev
+      displayName: Install system requirements
+
+    - script: |
+        echo "Installing baseline pip packages"
+        python -m pip install --upgrade pip setuptools wheel coverage -c tests/constraints.txt
+
+        echo "Installing test requirements"
+        python -m pip install -r requirements-test.txt -c tests/constraints.txt
+
+        echo "Installing package"
+        python -m pip install . -c tests/constraints.txt
+      displayName: Install
+
+    - script: |
+        python -m pycodestyle pypsrp --verbose --show-source --statistics
+      displayName: Lint
+
+    - script: |
+        pytest -v --junitxml junit/test-results.xml --cov pypsrp --cov-report xml --cov-report term-missing
+      displayName: Test
+
+    - task: PublishTestResults@2
+      inputs:
+        testResultsFiles: '**/test-*.xml'
+        testRunTitle: $(Agent.OS) - $(Build.BuildNumber) - Python $(python.version)
+      displayName: Publish test results
+      condition: succeededOrFailed()
+
+    - task: PublishCodeCoverageResults@1
+      inputs:
+        codeCoverageTool: Cobertura
+        summaryFileLocation: $(System.DefaultWorkingDirectory)/**/coverage.xml
+
+    - script: |
+        bash <(curl -s https://codecov.io/bash)
+      displayName: Upload to codecov.io
+      continueOnError: true
+      timeoutInMinutes: 3
+
+  - job: Test_Windows
+    pool:
+      vmImage: windows-2019
+    strategy:
+      matrix:
+        Python27-x86:
+          python.version: 2.7
+          python.arch: x86
+        Python27-x64:
+          python.version: 2.7
+          python.arch: x64
+        Python35-x86:
+          python.version: 3.5
+          python.arch: x86
+        Python35-x64:
+          python.version: 3.5
+          python.arch: x64
+        Python36-x86:
+          python.version: 3.6
+          python.arch: x86
+        Python36-x64:
+          python.version: 3.6
+          python.arch: x64
+        Python37-x86:
+          python.version: 3.7
+          python.arch: x86
+        Python37-x64:
+          python.version: 3.7
+          python.arch: x64
+        Python38-x86:
+          python.version: 3.8
+          python.arch: x86
+        Python38-x64:
+          python.version: 3.8
+          python.arch: x64
+
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: $(python.version)
+        architecture: $(python.arch)
+
+    - script: |
+        echo "Installing baseline pip packages"
+        python -m pip install --upgrade pip setuptools wheel coverage -c tests/constraints.txt
+
+        echo "Installing test requirements"
+        python -m pip install -r requirements-test.txt -c tests/constraints.txt
+
+        echo "Installing package"
+        python -m pip install . -c tests/constraints.txt
+      displayName: Install
+
+    - script: |
+        python -m pycodestyle pypsrp --verbose --show-source --statistics
+      displayName: Lint
+
+    - script: |
+        pytest -v --junitxml junit/test-results.xml --cov pypsrp --cov-report xml --cov-report term-missing
+      displayName: Test
+
+    - task: PublishTestResults@2
+      inputs:
+        testResultsFiles: '**/test-*.xml'
+        testRunTitle: $(Agent.OS) - $(Build.BuildNumber) - Python $(python.version) $(python.arch)
+      displayName: Publish test results
+      condition: succeededOrFailed()
+
+    - task: PublishCodeCoverageResults@1
+      inputs:
+        codeCoverageTool: Cobertura
+        summaryFileLocation: $(System.DefaultWorkingDirectory)/**/coverage.xml
+
+    - script: |
+        choco.exe install codecov --yes --no-progress
+        codecov.exe -f coverage.xml
+      displayName: Upload to codecov.io
+      continueOnError: true
+      timeoutInMinutes: 3
+
+- stage: Publish
+  jobs:
+
+  - job: Publish
+    pool:
+      vmImage: ubuntu-18.04
+
+    steps:
+    - task: UsePythonVersion@0
+      inputs:
+        versionSpec: 3.8
+
+    - script: |
+        python -m pip install twine wheel -c tests/constraints.txt
+      displayName: Install build requirements
+
+    - script: |
+        python setup.py bdist_wheel --universal
+        python setup.py sdist
+      displayName: Build universal wheel and sdist
+
+    - task: PublishBuildArtifacts@1
+      inputs:
+        pathToPublish: dist
+        artifactName: wheels
+
+    - task: TwineAuthenticate@1
+      displayName: Twine Authenticate
+      condition: and(succeeded(), startsWith(variables['build.sourceBranch'], 'refs/tags/v'))
+      inputs:
+        pythonUploadServiceConnection: pypi
+
+    - script: |
+        python -m twine upload -r pypi --config-file $(PYPIRC_PATH) wheels/*
+      condition: and(succeeded(), startsWith(variables['build.sourceBranch'], 'refs/tags/v'))
+      displayName: Publish artifact to Pypi
+
