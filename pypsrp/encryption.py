@@ -1,6 +1,5 @@
 import logging
 import re
-import spnego.iov
 import struct
 
 from pypsrp._utils import to_bytes
@@ -98,25 +97,9 @@ class WinRMEncryption(object):
         return payload
 
     def _wrap_spnego(self, data):
-        if self.context.negotiated_protocol == 'ntlm':
-            # NTLM doesn't have IOV wrapping but we know the header size as it's always the 16 bytes long.
-            enc_data = self.context.wrap(data).data
-            header = enc_data[:16]
-            wrapped_data = enc_data[16:]
-            padding = b""
+        header, wrapped_data, padding_length = self.context.wrap_winrm(data)
 
-        else:
-            buffer = [
-                spnego.iov.BufferType.header,
-                data,
-                spnego.iov.BufferType.padding,
-            ]
-            enc_buffers = self.context.wrap_iov(buffer).buffers
-            header = enc_buffers[0].data
-            wrapped_data = enc_buffers[1].data
-            padding = enc_buffers[2].data or b""
-
-        return struct.pack("<i", len(header)) + header + wrapped_data + padding, len(padding)
+        return struct.pack("<i", len(header)) + header + wrapped_data, padding_length
 
     def _wrap_credssp(self, data):
         wrapped_data = self.context.wrap(data)
@@ -130,17 +113,7 @@ class WinRMEncryption(object):
         header = data[4:4 + header_length]
         wrapped_data = data[4 + header_length:]
 
-        if self.context.negotiated_protocol == 'ntlm':
-            data = self.context.unwrap(header + wrapped_data).data
-
-        else:
-            buffer = [
-                spnego.iov.IOVBuffer(spnego.iov.BufferType.header, header),
-                wrapped_data,
-                spnego.iov.BufferType.data,  # Blank padding in case it was used (RC4 encryption).
-            ]
-            dec_buffers = self.context.unwrap_iov(buffer).buffers
-            data = dec_buffers[1].data
+        data = self.context.unwrap_winrm(header, wrapped_data)
 
         return data
 
