@@ -8,6 +8,7 @@ import sys
 import time
 import types
 import uuid
+import warnings
 
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -42,6 +43,10 @@ PROTOCOL_VERSION = "2.3"
 PS_VERSION = "2.0"
 SERIALIZATION_VERSION = "1.1.0.1"
 DEFAULT_CONFIGURATION_NAME = "Microsoft.PowerShell"
+
+
+class RunspacePoolWarning(Warning):
+    pass
 
 
 class RunspacePool(object):
@@ -643,19 +648,15 @@ class RunspacePool(object):
             # While the docs say we should verify, they are out of date with
             # the possible responses and so we will just ignore for now
             MessageType.SESSION_CAPABILITY: self._process_session_capability,
-            MessageType.ENCRYPTED_SESSION_KEY:
-                self._process_encrypted_session_key,
+            MessageType.ENCRYPTED_SESSION_KEY: self._process_encrypted_session_key,
             MessageType.PUBLIC_KEY_REQUEST: self.exchange_keys,
-            MessageType.RUNSPACEPOOL_INIT_DATA:
-                self._process_runspacepool_init_data,
-            MessageType.RUNSPACE_AVAILABILITY:
-                self._process_runspacepool_availability,
+            MessageType.RUNSPACEPOOL_INIT_DATA: self._process_runspacepool_init_data,
+            MessageType.RUNSPACE_AVAILABILITY: self._process_runspacepool_availability,
             MessageType.RUNSPACEPOOL_STATE: self._process_runspacepool_state,
             MessageType.USER_EVENT: self._process_user_event,
-            MessageType.APPLICATION_PRIVATE_DATA:
-                self._process_application_private_data,
-            MessageType.RUNSPACEPOOL_HOST_CALL:
-                self._process_runspacepool_host_call,
+            MessageType.APPLICATION_PRIVATE_DATA: self._process_application_private_data,
+            MessageType.RUNSPACEPOOL_HOST_CALL: self._process_runspacepool_host_call,
+            MessageType.WARNING_RECORD: self._process_runspacepool_warning,
         }
 
         if pipeline is not None:
@@ -669,16 +670,20 @@ class RunspacePool(object):
                 MessageType.VERBOSE_RECORD: pipeline._process_verbose_record,
                 MessageType.WARNING_RECORD: pipeline._process_warning_record,
                 MessageType.PROGRESS_RECORD: pipeline._process_progress_record,
-                MessageType.INFORMATION_RECORD:
-                    pipeline._process_information_record,
-                MessageType.PIPELINE_HOST_CALL:
-                    pipeline._process_pipeline_host_call,
+                MessageType.INFORMATION_RECORD: pipeline._process_information_record,
+                MessageType.PIPELINE_HOST_CALL: pipeline._process_pipeline_host_call,
             }
             response_functions.update(pipeline_response_functions)
 
         return_values = []
         for message in messages:
-            response_function = response_functions[message.message_type]
+            if message.message_type not in response_functions:
+                log.warning("Unsupported message type '%s' received" % message.message_type)
+                response_function = None
+
+            else:
+                response_function = response_functions[message.message_type]
+
             if response_function is not None:
                 return_value = response_function(message)
                 return_values.append((message.message_type, return_value))
@@ -754,6 +759,9 @@ class RunspacePool(object):
                 % str(message.data.error_record)
             )
         return message.data
+
+    def _process_runspacepool_warning(self, message):
+        warnings.warn("RunspacePool warning: %s" % str(message.data), RunspacePoolWarning)
 
     def _process_application_private_data(self, message):
         self._application_private_data = message.data
