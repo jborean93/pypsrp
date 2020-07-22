@@ -26,34 +26,14 @@ class MockAuthCREDSSP(object):
 
 class MockAuthSPNEGO(object):
 
-    negotiated_protocol = 'ntlm'
+    def __init__(self, padding=False):
+        self.padding = padding
 
-    def wrap(self, data):
-        return WrapResult(data=b"reallylongheader" + data + b"-encrypted")
+    def wrap_winrm(self, data):
+        return b"reallylongheader", data + b"-encrypted", 1 if self.padding else 0
 
-    def unwrap(self, data):
-        data = data[16:]
-        return WrapResult(data=data[:len(data) - 10])
-
-
-class MockAuthKerberos(object):
-
-    negotiated_protocol = 'kerberos'
-
-    def wrap_iov(self, iov):
-        return WrapIOVResult(buffers=[
-            WrapResult(data=b"header "),
-            WrapResult(data=iov[1] + b"-encrypted"),
-            WrapResult(data=None),
-        ])
-
-    def unwrap_iov(self, iov):
-        data = iov[1]
-        return WrapIOVResult(buffers=[
-            WrapResult(data=iov[0].data),
-            WrapResult(data=data[:len(data) - 10]),
-            WrapResult(data=None),
-        ])
+    def unwrap_winrm(self, header, data):
+        return data[:len(data) - 10]
 
 
 class TestWinRMEncryption(object):
@@ -72,14 +52,28 @@ class TestWinRMEncryption(object):
         assert "multipart/encrypted" == actual_type
         assert expected == actual
 
+    def test_wrap_spnego_padded(self):
+        plaintext = b"plaintext"
+        encryption = WinRMEncryption(MockAuthSPNEGO(padding=True), WinRMEncryption.SPNEGO)
+        expected = b"--Encrypted Boundary\r\n\tContent-Type: application" \
+                   b"/HTTP-SPNEGO-session-encrypted\r\n\tOriginalContent: " \
+                   b"type=application/soap+xml;charset=UTF-8;Length=10\r\n" \
+                   b"--Encrypted Boundary\r\n\tContent-Type: application/" \
+                   b"octet-stream\r\n\x10\x00\x00\x00reallylongheaderplaintext-" \
+                   b"encrypted--Encrypted Boundary--\r\n"
+        actual_type, actual = encryption.wrap_message(plaintext)
+
+        assert "multipart/encrypted" == actual_type
+        assert expected == actual
+
     def test_wrap_small_kerberos(self):
         plaintext = b"plaintext"
-        encryption = WinRMEncryption(MockAuthKerberos(), WinRMEncryption.KERBEROS)
+        encryption = WinRMEncryption(MockAuthSPNEGO(), WinRMEncryption.KERBEROS)
         expected = b"--Encrypted Boundary\r\n\tContent-Type: application" \
                    b"/HTTP-Kerberos-session-encrypted\r\n\tOriginalContent: " \
                    b"type=application/soap+xml;charset=UTF-8;Length=9\r\n" \
                    b"--Encrypted Boundary\r\n\tContent-Type: application/" \
-                   b"octet-stream\r\n\x07\x00\x00\x00header plaintext-" \
+                   b"octet-stream\r\n\x10\x00\x00\x00reallylongheaderplaintext-" \
                    b"encrypted--Encrypted Boundary--\r\n"
         actual_type, actual = encryption.wrap_message(plaintext)
 
@@ -116,12 +110,12 @@ class TestWinRMEncryption(object):
 
     def test_wrap_large_kerberos(self):
         plaintext = b"a" * 20000
-        encryption = WinRMEncryption(MockAuthKerberos(), WinRMEncryption.KERBEROS)
+        encryption = WinRMEncryption(MockAuthSPNEGO(), WinRMEncryption.KERBEROS)
         expected = b"--Encrypted Boundary\r\n\tContent-Type: application" \
                    b"/HTTP-Kerberos-session-encrypted\r\n\tOriginalContent: " \
                    b"type=application/soap+xml;charset=UTF-8;Length=20000" \
                    b"\r\n--Encrypted Boundary\r\n\tContent-Type: application" \
-                   b"/octet-stream\r\n\x07\x00\x00\x00header " + plaintext + \
+                   b"/octet-stream\r\n\x10\x00\x00\x00reallylongheader" + plaintext + \
                    b"-encrypted--Encrypted Boundary--\r\n"
         actual_type, actual = encryption.wrap_message(plaintext)
 
@@ -174,14 +168,14 @@ class TestWinRMEncryption(object):
 
     def test_unwrap_small_kerberos(self):
         expected = b"plaintext"
-        encryption = WinRMEncryption(MockAuthKerberos(), WinRMEncryption.KERBEROS)
+        encryption = WinRMEncryption(MockAuthSPNEGO(), WinRMEncryption.KERBEROS)
 
         # The spaces after -- on each boundary is on purpose, some MS implementations do this.
         bwrapped = b"-- Encrypted Boundary\r\n\tContent-Type: application" \
                    b"/HTTP-Kerberos-session-encrypted\r\n\tOriginalContent: " \
                    b"type=application/soap+xml;charset=UTF-8;Length=9\r\n" \
                    b"-- Encrypted Boundary\r\n\tContent-Type: application/" \
-                   b"octet-stream\r\n\x07\x00\x00\x00header plaintext-" \
+                   b"octet-stream\r\n\x10\x00\x00\x00reallylongheaderplaintext-" \
                    b"encrypted-- Encrypted Boundary--\r\n"
         actual = encryption.unwrap_message(bwrapped, "Encrypted Boundary")
         assert expected == actual
@@ -214,12 +208,12 @@ class TestWinRMEncryption(object):
 
     def test_unwrap_large_kerberos(self):
         expected = b"a" * 20000
-        encryption = WinRMEncryption(MockAuthKerberos(), WinRMEncryption.KERBEROS)
+        encryption = WinRMEncryption(MockAuthSPNEGO(), WinRMEncryption.KERBEROS)
         bwrapped = b"--Encrypted Boundary\r\n\tContent-Type: application" \
                    b"/HTTP-Kerberos-session-encrypted\r\n\tOriginalContent: " \
                    b"type=application/soap+xml;charset=UTF-8;Length=20000" \
                    b"\r\n--Encrypted Boundary\r\n\tContent-Type: application" \
-                   b"/octet-stream\r\n\x07\x00\x00\x00header " + expected + \
+                   b"/octet-stream\r\n\x10\x00\x00\x00reallylongheader" + expected + \
                    b"-encrypted--Encrypted Boundary--\r\n"
         actual = encryption.unwrap_message(bwrapped, "Encrypted Boundary")
 
