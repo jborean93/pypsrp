@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 - TBD
+## 0.5.0 - TBD
 
 ### Breaking changes
 * Dropped support for Python 2.6 and Python 3.4

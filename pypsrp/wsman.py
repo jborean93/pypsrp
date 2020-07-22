@@ -908,13 +908,13 @@ class _TransportHTTP(object):
             from requests.packages.urllib3.exceptions import \
                 InsecurePlatformWarning
             warnings.simplefilter('ignore', category=InsecurePlatformWarning)
-        except:  # pragma: no cover
+        except:  # NOQA: E722; # pragma: no cover
             pass
 
         try:
             from requests.packages.urllib3.exceptions import SNIMissingWarning
             warnings.simplefilter('ignore', category=SNIMissingWarning)
-        except:  # pragma: no cover
+        except:  # NOQA: E722; # pragma: no cover
             pass
 
         # if we're explicitly ignoring validation, try to suppress
@@ -925,7 +925,7 @@ class _TransportHTTP(object):
                     InsecureRequestWarning
                 warnings.simplefilter('ignore',
                                       category=InsecureRequestWarning)
-            except:  # pragma: no cover
+            except:  # NOQA: E722; # pragma: no cover
                 pass
 
     @staticmethod

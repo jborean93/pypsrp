@@ -211,7 +211,7 @@ Function New-CertificateAuthBinding
         [String]$Name
     )
 
-    $output_path = "$($env:USERPROFILE)\Documents"
+    $output_path = "C:\Windows\TEMP"
 
     Write-Information -MessageData "Generating self signed certificate for authentication of user $Name"
     $cert = New-SelfSignedCertificate -Type Custom `

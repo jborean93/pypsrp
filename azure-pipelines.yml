@@ -59,7 +59,7 @@ stages:
       displayName: Install
 
     - script: |
-        python -m pycodestyle . --verbose --show-source --statistics
+        python -m pycodestyle pypsrp --verbose --show-source --statistics
       displayName: Lint
 
     - script: |
@@ -138,7 +138,7 @@ stages:
       displayName: Install
 
     - script: |
-        python -m pycodestyle . --verbose --show-source --statistics
+        python -m pycodestyle pypsrp --verbose --show-source --statistics
       displayName: Lint
 
     - script: |
