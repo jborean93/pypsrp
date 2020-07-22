@@ -1,4 +1,5 @@
 import base64
+import re
 import requests
 import warnings
 
@@ -31,19 +32,19 @@ class TestTokenHelpers(object):
     def test_auth_not_supported(self):
         response = requests.Response()
         response.headers['www-authenticate'] = "CredSSP"
-        with pytest.raises(AuthenticationError) as err:
-            HTTPNegotiateAuth._check_auth_supported(response, "Negotiate")
-        assert str(err.value) == \
-            "The server did not response with the authentication method of " \
-            "Negotiate - actual: 'CredSSP'"
+
+        expected = "The server did not response with one of the following authentication methods Negotiate - " \
+                   "actual: 'CredSSP'"
+        with pytest.raises(AuthenticationError, match=re.escape(expected)):
+            HTTPNegotiateAuth._check_auth_supported(response, ["Negotiate"])
 
     def test_auth_not_supported_no_header(self):
         response = requests.Response()
-        with pytest.raises(AuthenticationError) as err:
-            HTTPNegotiateAuth._check_auth_supported(response, "Negotiate")
-        assert str(err.value) == \
-            "The server did not response with the authentication method of " \
-            "Negotiate - actual: ''"
+
+        expected = "The server did not response with one of the following authentication methods Negotiate - " \
+                   "actual: ''"
+        with pytest.raises(AuthenticationError, match=re.escape(expected)):
+            HTTPNegotiateAuth._check_auth_supported(response, ["Negotiate"])
 
     def test_set_auth_token(self):
         request = requests.Request('GET', '')
@@ -67,10 +68,19 @@ class TestTokenHelpers(object):
         actual = HTTPNegotiateAuth._get_auth_token(response, auth._regex)
         assert actual == expected
 
+    @pytest.mark.parametrize('header', ['Kerberos', 'Negotiate', 'NTLM'])
+    def test_get_auth_token_kerberos_auth(self, header):
+        auth = HTTPNegotiateAuth()
+        response = requests.Response()
+        response.headers['www-authenticate'] = "%s YWJj" % header
+        expected = b'abc'
+        actual = HTTPNegotiateAuth._get_auth_token(response, auth._regex)
+        assert actual == expected
+
     def test_get_auth_token_different_auth(self):
         auth = HTTPNegotiateAuth()
         response = requests.Response()
-        response.headers['www-authenticate'] = "Kerberos YWJj"
+        response.headers['www-authenticate'] = "Fake YWJj"
         expected = None
         actual = HTTPNegotiateAuth._get_auth_token(response, auth._regex)
         assert actual == expected
@@ -322,9 +332,9 @@ class TestCertificateHash(object):
                    b'D35JvzmqU05kSFV5eTvkhkaDObd7V55vokhm31+Li'
         cert_der = base64.b64decode(cert_der)
 
-        expected = None
-        expected_warning = "Failed to get the signature algorithm from the " \
-                           "certificate, unable to pass channel bindings data:"
+        expected = b'\x65\xE1\xC7\x51\xAC\x33\xE0\x68\x03\xC3\xC9\xC2\x23\x45\x48\x43' \
+                   b'\x43\x25\x45\xD6\x4B\x49\x25\xF3\xAE\xB2\xDD\xE5\x9B\x79\xF4\x39'
+        expected_warning = "Failed to get the signature algorithm from the certificate due to:"
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")

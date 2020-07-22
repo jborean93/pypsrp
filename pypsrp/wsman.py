@@ -5,6 +5,7 @@ from __future__ import division
 
 import ipaddress
 import logging
+import re
 import requests
 import sys
 import uuid
@@ -708,7 +709,16 @@ class _TransportHTTP(object):
             if self.wrap_required:
                 request = requests.Request('POST', self.endpoint, data=None)
                 prep_request = self.session.prepare_request(request)
-                self._send_request(prep_request, hostname)
+                self._send_request(prep_request)
+
+                protocol = WinRMEncryption.SPNEGO
+                if isinstance(self.session.auth, HttpCredSSPAuth):
+                    protocol = WinRMEncryption.CREDSSP
+                elif self.session.auth.contexts[hostname].response_auth_header == 'kerberos':
+                    # When Kerberos (not Negotiate) was used, we need to send a special protocol value and not SPNEGO.
+                    protocol = WinRMEncryption.KERBEROS
+
+                self.encryption = WinRMEncryption(self.session.auth.contexts[hostname], protocol)
 
         log.debug("Sending message: %s" % message)
         # for testing, keep commented out
@@ -717,8 +727,7 @@ class _TransportHTTP(object):
 
         headers = self.session.headers
         if self.wrap_required:
-            content_type, payload = self.encryption.wrap_message(message,
-                                                                 hostname)
+            content_type, payload = self.encryption.wrap_message(message)
             type_header = '%s;protocol="%s";boundary="Encrypted Boundary"' \
                           % (content_type, self.encryption.protocol)
             headers.update({
@@ -732,18 +741,17 @@ class _TransportHTTP(object):
         request = requests.Request('POST', self.endpoint, data=payload,
                                    headers=headers)
         prep_request = self.session.prepare_request(request)
-        return self._send_request(prep_request, hostname)
+        return self._send_request(prep_request)
 
-    def _send_request(self, request, hostname):
+    def _send_request(self, request):
         response = self.session.send(request, timeout=(
             self.connection_timeout, self.read_timeout
         ))
 
         content_type = response.headers.get('content-type', "")
-        if content_type.startswith("multipart/encrypted;") or \
-                content_type.startswith("multipart/x-multi-encrypted;"):
-            response_content = self.encryption.unwrap_message(response.content,
-                                                              hostname)
+        if content_type.startswith("multipart/encrypted;") or content_type.startswith("multipart/x-multi-encrypted;"):
+            boundary = re.search('boundary=[''|\\"](.*)[''|\\"]', response.headers['content-type']).group(1)
+            response_content = self.encryption.unwrap_message(response.content, to_unicode(boundary))
             response_text = to_string(response_content)
         else:
             response_content = response.content
@@ -772,6 +780,12 @@ class _TransportHTTP(object):
 
         session = requests.Session()
         session.headers['User-Agent'] = "Python PSRP Client"
+
+        # requests defaults to 'Accept-Encoding: gzip, default' which normally doesn't matter on vanila WinRM but for
+        # Exchange endpoints hosted on IIS they actually compress it with 1 of the 2 algorithms. By explicitly setting
+        # identity we are telling the server not to transform (compress) the data using the HTTP methods which we don't
+        # support. https://tools.ietf.org/html/rfc7231#section-5.3.4
+        session.headers['Accept-Encoding'] = 'identity'
 
         # get the env requests settings
         session.trust_env = True
@@ -870,14 +884,11 @@ class _TransportHTTP(object):
         session.auth = HttpCredSSPAuth(username=self.username,
                                        password=self.password,
                                        **kwargs)
-        self.encryption = WinRMEncryption(
-            session.auth, WinRMEncryption.CREDSSP
-        )
 
     def _build_auth_kerberos(self, session):
         self._build_auth_negotiate(session, "kerberos")
 
-    def _build_auth_negotiate(self, session, auth_provider="auto"):
+    def _build_auth_negotiate(self, session, auth_provider="negotiate"):
         kwargs = self._get_auth_kwargs('negotiate')
 
         session.auth = HTTPNegotiateAuth(username=self.username,
@@ -885,9 +896,6 @@ class _TransportHTTP(object):
                                          auth_provider=auth_provider,
                                          wrap_required=self.wrap_required,
                                          **kwargs)
-        self.encryption = WinRMEncryption(
-            session.auth, WinRMEncryption.SPNEGO
-        )
 
     def _build_auth_ntlm(self, session):
         self._build_auth_negotiate(session, "ntlm")
