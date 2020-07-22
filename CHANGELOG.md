@@ -10,10 +10,14 @@
 ### Features
 
 * Support endpoints that only have `Kerberos` enabled and not just `Negotiate`.
-* On Linux, use Kerberos if the `auto` auth provider is specified and no username or password is set. There is still no `NTLM` fallback but `Kerberos` is ideal in this scenario.
 * `Client.copy()` and `Client.fetch()` methods have new `expand_variables` parameter. This can be used to expand variables both in local and remote path.
 * Changed authentication library for `Kerberos` and `NTLM` auth to [pyspnego](https://github.com/jborean93/pyspnego).
+
+### Bugfixes
+
+* On Linux, use Kerberos if the `auto` auth provider is specified and no username or password is set. There is still no `NTLM` fallback but `Kerberos` is ideal in this scenario.
 * Use SHA256 when calculating the channel bindings token hash if an unknown algorithm is encountered.
+* Handle warning messages that are sent to the RunspacePool instead of raising an exception.
 
 
 ## 0.4.0 - 2019-09-19

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import logging
 import time
 import warnings
 
@@ -16,8 +17,8 @@ from pypsrp.exceptions import InvalidPipelineStateError, \
     InvalidPSRPOperation, InvalidRunspacePoolStateError, FragmentError, \
     WSManFaultError
 from pypsrp.messages import Destination, Message, MessageType, PipelineInput, \
-    RunspacePoolHostCall, RunspacePoolStateMessage, UserEvent
-from pypsrp.powershell import Fragmenter, RunspacePool, PowerShell
+    RunspacePoolHostCall, RunspacePoolStateMessage, UserEvent, WarningRecord, ErrorRecordMessage
+from pypsrp.powershell import Fragment, Fragmenter, RunspacePool, PowerShell, RunspacePoolWarning
 from pypsrp.serializer import Serializer
 from pypsrp.wsman import WSMan
 
@@ -415,6 +416,35 @@ class TestRunspacePool(object):
         rs._process_user_event(msg)
         assert len(rs.user_events) == 1
         assert rs.user_events[0] == msg.data
+
+    def test_psrp_warning(self):
+        wsman = WSMan("")
+        rs = RunspacePool(wsman)
+
+        msg = Message(Destination.CLIENT, None, None, WarningRecord(message='warning msg'), None)
+        msg.data._to_string = 'warning msg'
+
+        with pytest.warns(RunspacePoolWarning, match="warning msg"):
+            rs._process_runspacepool_warning(msg)
+
+    def test_psrp_receive_unknown_message_type(self, caplog):
+        wsman = WSMan("")
+        rs = RunspacePool(wsman)
+
+        # ERROR_RECORD
+        msg_data = b"\x01\x00\x00\x00\x05\x10\x04\x00" + b"\x00" * 32
+        msg_data += b'<Obj RefId="0"><TN RefId="0"><T>System.Management.Automation.ErrorRecord</T><T>System.Object</T></TN><ToString>error</ToString>' \
+                    b'<MS><B N="SerializeExtendedInfo">false</B><S N="FullyQualifiedErrorId">ErrorId</S><I32 N="ErrorCategory_Category">1</I32></MS></Obj>'
+        fragment = Fragment(0, 0, msg_data, start=True, end=True).pack()
+
+        with caplog.at_level(logging.WARNING, logger="pypsrp.powershell"):
+            actual = rs._parse_responses(fragment)
+
+        assert len(actual) == 1
+        assert actual[0][0] == 266245
+        assert str(actual[0][1].data) == 'error'
+        assert len(caplog.messages) == 1
+        assert caplog.messages[0] == "Unsupported message type '266245' received"
 
 
 class TestPSRPScenarios(object):
