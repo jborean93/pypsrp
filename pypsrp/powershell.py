@@ -761,7 +761,7 @@ class RunspacePool(object):
         return message.data
 
     def _process_runspacepool_warning(self, message):
-        warnings.warn("RunspacePool warning: %s" % str(message.data), RunspacePoolWarning)
+        warnings.warn(str(message.data), RunspacePoolWarning)
 
     def _process_application_private_data(self, message):
         self._application_private_data = message.data
