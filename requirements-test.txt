@@ -1,8 +1,8 @@
 gssapi >= 1.5.0 ; sys_platform != 'win32'
-mock ; python_version < "3.0"
+pycodestyle
 pytest
 pytest-cov
-pytest-pep8
+pytest-mock
 pyyaml
 requests-credssp >= 1.0.0
 xmldiff
