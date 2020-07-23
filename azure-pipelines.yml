@@ -196,7 +196,7 @@ stages:
         pythonUploadServiceConnection: pypi
 
     - script: |
-        python -m twine upload -r pypi --config-file $(PYPIRC_PATH) wheels/*
+        python -m twine upload -r pypi --config-file $(PYPIRC_PATH) dist/*
       condition: and(succeeded(), startsWith(variables['build.sourceBranch'], 'refs/tags/v'))
       displayName: Publish artifact to Pypi
 
