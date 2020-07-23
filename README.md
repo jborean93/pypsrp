@@ -41,15 +41,11 @@ libraries to be isntalled.
 
 See `How to Install` for more details
 
-* CPython 2.6-2.7, 3.4-3.7
+* CPython 2.7, 3.4-3.7
 * [cryptography](https://github.com/pyca/cryptography)
+* [pyspnego](https://github.com/jborean93/pyspnego)
 * [requests](https://github.com/requests/requests)
-* [ntlm-auth](https://github.com/jborean93/ntlm-auth)
 * [six](https://github.com/benjaminp/six)
-
-_Note: while Python 2.6 is supported it may be dropped in the future if it is
-too much work in the future. You should really be using at least Python 2.7 but
-preferably Python 3.5+_
 
 ### Optional Requirements
 
@@ -57,7 +53,6 @@ The following Python libraries can be installed to add extra features that do
 not come with the base package
 
 * [python-gssapi](https://github.com/pythongssapi/python-gssapi) for Kerberos authentication on Linux
-* [pywin32](https://github.com/mhammond/pywin32) for Kerberos authentication on Windows
 * [requests-credssp](https://github.com/jborean93/requests-credssp) for CredSSP authentication
 
 
@@ -71,8 +66,8 @@ pip install pypsrp
 
 ### Kerberos Authentication
 
-While pypsrp supports Kerberos authentication, it isn't included by default due
-to it's reliance on system packages to be present.
+While pypsrp supports Kerberos authentication, it isn't included by default for
+Linux hosts due to it's reliance on system packages to be present.
 
 To install these packages, run the below
 
@@ -118,11 +113,6 @@ Once installed you can install the Python packages with
 ```
 pip install pypsrp[kerberos]
 ```
-
-For Windows, running the pip install command above is usually enough but there
-are cases where this will fail. The alternative is to the binary based on the
-[recent release of pywin32](https://github.com/mhammond/pywin32/releases)
-instead of installing through pip.
 
 Kerberos also needs to be configured to talk to the domain but that is outside
 the scope of this page.
@@ -510,5 +500,10 @@ tests.
 
 ## Backlog
 
-* Look into adding SSH as a transport option
+* Look at implementing the following transport options
+    * Named pipes
+    * SSH
+* Update CI to use named pipes for integration tests
+* Add Ansible playbook for better integration tests
+* Improved serialization between Python and .NET objects
 * Live interactive console for PSRP
