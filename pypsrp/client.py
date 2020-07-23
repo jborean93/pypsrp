@@ -266,6 +266,9 @@ class Client(object):
                 os.close(temp_file)
                 os.remove(path)
 
+    def close(self):
+        self.wsman.close()
+
     @staticmethod
     def sanitise_clixml(clixml):
         """
