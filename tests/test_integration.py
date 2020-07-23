@@ -78,7 +78,7 @@ class TestPowerShellFunctional(object):
 
     def test_winrs(self, functional_transports):
         for wsman in functional_transports:
-            with WinRS(wsman) as shell:
+            with wsman, WinRS(wsman) as shell:
                 process = Process(shell, "echo", ["hi"])
                 process.invoke()
                 process.signal(SignalCode.CTRL_C)
@@ -88,7 +88,7 @@ class TestPowerShellFunctional(object):
 
     def test_psrp(self, functional_transports):
         for wsman in functional_transports:
-            with RunspacePool(wsman) as pool:
+            with wsman, RunspacePool(wsman) as pool:
                 pool.exchange_keys()
                 ps = PowerShell(pool)
                 ps.add_cmdlet("Get-Item").add_parameter("Path", "C:\\Windows")
@@ -125,7 +125,7 @@ class TestPowerShellFunctional(object):
 
     def test_psrp_jea(self, functional_transports):
         for wsman in functional_transports:
-            with RunspacePool(wsman, configuration_name="JEARole") as pool:
+            with wsman, RunspacePool(wsman, configuration_name="JEARole") as pool:
                 ps = PowerShell(pool)
                 wsman_path = "WSMan:\\localhost\\Service\\AllowUnencrypted"
                 ps.add_cmdlet("Get-Item").add_parameter("Path", wsman_path)

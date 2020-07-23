@@ -242,6 +242,12 @@ class WSMan(object):
         # this information for you.
         self.max_payload_size = self._calc_envelope_size(max_envelope_size)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
     def command(self, resource_uri, resource, option_set=None,
                 selector_set=None, timeout=None):
         res = self.invoke(WSManAction.COMMAND, resource_uri, resource,
@@ -703,7 +709,8 @@ class _TransportHTTP(object):
         # self._test_messages = []
 
     def close(self):
-        self.session.close()
+        if self.session:
+            self.session.close()
 
     def send(self, message):
         hostname = get_hostname(self.endpoint)
