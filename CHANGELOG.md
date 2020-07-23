@@ -12,6 +12,7 @@
 * Support endpoints that only have `Kerberos` enabled and not just `Negotiate`.
 * `Client.copy()` and `Client.fetch()` methods have new `expand_variables` parameter. This can be used to expand variables both in local and remote path.
 * Changed authentication library for `Kerberos` and `NTLM` auth to [pyspnego](https://github.com/jborean93/pyspnego).
+* Added a context manager for `pypsrp.client.Client` and `pypsrp.wsman.WSMan`. This ensures any resources that the transport utilises will be closed if possible
 
 ### Bugfixes
 

@@ -51,6 +51,12 @@ class Client(object):
         """
         self.wsman = WSMan(server, **kwargs)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
     def copy(self, src, dest, configuration_name=DEFAULT_CONFIGURATION_NAME,
              expand_variables=False):
         """

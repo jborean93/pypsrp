@@ -78,6 +78,9 @@ class TransportFake(object):
         else:
             self._test_msg_key = "messages"
 
+    def close(self):
+        return
+
     def send(self, message):
         current_msg = self._test_meta[self._test_msg_key][self._msg_counter]
         actual = self._normalise_xml(message, generify=False,
@@ -317,7 +320,9 @@ def wsman_conn(request, monkeypatch):
                                   "password", ssl, "wsman", auth)
         wsman = WSMan("")
         wsman.transport = transport
-    yield wsman
+
+    with wsman:
+        yield wsman
 
     # used as an easy way to be results for a test, requires the _test_messages
     # to be uncommented in pypsrp/wsman.py
