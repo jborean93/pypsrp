@@ -16,9 +16,9 @@ import uuid
 import xml.etree.ElementTree as ET
 
 try:
-    from queue import Queue
+    from queue import Queue, Empty
 except ImportError:
-    from Queue import Queue
+    from Queue import Queue, Empty
 
 try:
     from typing import (
@@ -35,6 +35,7 @@ except ImportError:
 from pypsrp._utils import (
     to_bytes,
     to_unicode,
+    version_equal_or_newer,
 )
 
 from pypsrp.complex_objects import (
@@ -87,6 +88,7 @@ def select_connection(runspace, connection, configuration_name):
 class ConnectionBase:
 
     def __init__(self, runspace):  # type: (Runspace) -> None
+        self.msg_queue = Queue()
         self.runspace = runspace
         self._runspace_queue = Queue()
         self._pipeline_queue = Queue()
@@ -102,30 +104,28 @@ class ConnectionBase:
         pass
 
     @abc.abstractmethod
+    def close(self):  # type: () -> None
+        pass
+
+    @abc.abstractmethod
+    def command(self, ps_guid):  # type: (str) -> None
+        pass
+
+    @abc.abstractmethod
     def connect(self):  # type: () -> None
         pass
 
     @abc.abstractmethod
-    def disconnect(self):
-        pass
-
-    @abc.abstractmethod
-    def create(self, data):  # type: (bytes) -> None
-        self._start_workers()
-
-    @abc.abstractmethod
-    def close(self):  # type: () -> None
-        self._end_workers()
-
-    @abc.abstractmethod
-    def send(self, data, priority_type, ps_guid=None):
-        pass
-
-    def _start_workers(self):
+    def create(self):  # type: () -> None
         self._t_runspace.start()
         self._t_pipeline.start()
 
-    def _end_workers(self):
+    @abc.abstractmethod
+    def disconnect(self):  # type: () -> None
+        pass
+
+    @abc.abstractmethod
+    def dispose(self):  # type: () -> None
         if self._t_runspace.is_alive():
             self._runspace_queue.put(None)
             self._t_runspace.join()
@@ -133,6 +133,14 @@ class ConnectionBase:
         if self._t_pipeline.is_alive():
             self._pipeline_queue.put(None)
             self._t_pipeline.join()
+
+    @abc.abstractmethod
+    def send(self):  # type: () -> None
+        pass
+
+    @abc.abstractmethod
+    def signal(self, ps_guid):  # type: () -> None
+        pass
 
     def _process_queue(self, queue):  # type: (Queue) -> None
         while True:
@@ -143,12 +151,9 @@ class ConnectionBase:
 
             pipeline = None
             if data.ps_guid:
-                pipeline = self.runspace.pipelines[data.ps_guid]
+                pipeline = self.runspace.pipelines[data.ps_guid.upper()]
 
-            # TODO: process the PSRP messages.
-            messages = self.runspace._fragmenter.defragment(data.data)
-            for msg in messages:
-                log.info("Received message %s" % msg.message_type)
+            self.runspace._parse_responses(data.data, pipeline=pipeline)
 
 
 class WSManConnection(ConnectionBase):
@@ -163,16 +168,28 @@ class WSManConnection(ConnectionBase):
 
     @property
     def max_fragment_size(self):
+        version = self.runspace.protocol_version
+
+        # If the default envelope size was set but PowerShell has reported it's on 2.2 or newer then we are dealing
+        # with Windows 8 or newer which has a higher developer envelope size. Update the defaults so we can send
+        # larger fragments.
+        if self._wsman.max_envelope_size == 153600 and version and version_equal_or_newer(version, '2.2'):
+            self._wsman.update_max_payload_size(512000)
+
         return self._wsman.max_payload_size
 
+    def close(self):
+        super(WSManConnection, self).close()
+
+    def command(self, ps_guid):
+        super(WSManConnection, self).close()
+
     def connect(self):
-        pass
+        super(WSManConnection, self).connect()
 
-    def disconnect(self):
-        pass
-
-    def create(self, data):
-        super(WSManConnection, self).create(data)
+    def create(self):
+        super(WSManConnection, self).create()
+        data = b""
 
         open_context = ET.Element('creationXml', xmlns='http://schemas.microsoft.com/powershell')
         open_context.text = to_unicode(base64.b64encode(data))
@@ -182,11 +199,17 @@ class WSManConnection(ConnectionBase):
         self._shell.open(options, open_context)
         self.runspace.state = RunspacePoolState.NEGOTIATION_SENT
 
-    def close(self):
-        super(WSManConnection, self).close()
+    def disconnect(self):
+        super(WSManConnection, self).disconnect()
 
-    def send(self, data, priority_type, ps_guid=None):
-        pass
+    def dispose(self):
+        super(WSManConnection, self).dispose()
+
+    def send(self):
+        super(WSManConnection, self).send()
+
+    def signal(self, ps_guid):
+        super(WSManConnection, self).signal(ps_guid)
 
 
 class OutOfProcConnection(ConnectionBase):
@@ -206,35 +229,61 @@ class OutOfProcConnection(ConnectionBase):
         # https://github.com/PowerShell/PowerShell/blob/0d5d017f0f1d89a7de58d217fa9f4a37ad62cc94/src/System.Management.Automation/engine/remoting/common/RemoteSessionNamedPipe.cs#L355
         return 32768
 
+    def close(self, ps_guid=None):
+        super(OutOfProcConnection, self).close()
+
+        self._process.write(self._process.ps_guid_packet("Close", ps_guid))
+
+    def command(self, ps_guid):
+        super(OutOfProcConnection, self).command(ps_guid)
+        self._process.write(self._process.ps_guid_packet('Command', ps_guid))
+        self.send()
+
     def connect(self):
         raise NotImplementedError('OutOfProcConnections do not support disconnections and connections')
 
-    def disconnect(self):
-        raise NotImplementedError('OutOfProcConnections do not support disconnections and connections')
+    def create(self):
+        super(OutOfProcConnection, self).create()
 
-    def create(self, data):
-        super(OutOfProcConnection, self).create(data)
         self._process.open()
         self._t_stdout.start()
         self._t_stderr.start()
 
-        shell_create = self._process.data_packet(data)
-        self._process.write(shell_create + b"\n")
+        self.send_one()
 
-    def close(self):
-        super(OutOfProcConnection, self).close()
+    def disconnect(self):
+        raise NotImplementedError('OutOfProcConnections do not support disconnections and connections')
+
+    def dispose(self):
+        super(OutOfProcConnection, self).dispose()
 
         self._process.close()
+        [getattr(self, '_t_%s' % n).join() for n in ['stdout', 'stderr']]
 
-        for thread_type in ['stdout', 'stderr']:
-            thread = getattr(self, '_t_%s' % thread_type)
-            if thread and thread.is_alive():
-                thread.join()
+    def send(self):
+        super(OutOfProcConnection, self).send()
 
-            setattr(self, '_t_%s' % thread_type, None)
+        while self.send_one():
+            pass
 
-    def send(self, data, priority_type, ps_guid=None):
-        pass
+    def send_one(self):
+        try:
+            msg = self.msg_queue.get(block=False)
+            ps_guid = None
+            if isinstance(msg, tuple):
+                msg, ps_guid = msg
+
+            # TODO: Figure out how to get this info.
+            data_packet = self._process.data_packet(msg, 'Default', ps_guid)
+            self._process.write(data_packet)
+            return True
+
+        except Empty:
+            return False
+
+    def signal(self, ps_guid):
+        super(OutOfProcConnection, self).signal(ps_guid)
+        self._process.write(self._process.ps_guid_packet('Signal', ps_guid))
 
     def _process_output(self, name):  # type: (str) -> None
         while True:

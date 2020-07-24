@@ -44,7 +44,7 @@ class OutOfProcBase:
 
         log.info("Staring OutOfProc process with command '%s'" % (' '.join(self.command),))
         self._process = subprocess.Popen(self.command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                         stdin=subprocess.PIPE, shell=False)
+                                         stdin=subprocess.PIPE, shell=False, bufsize=0)
         log.debug("OutOfProc process started with pid %s" % self._process.pid)
 
     def close(self):
@@ -87,8 +87,8 @@ class OutOfProcBase:
             raise ValueError('The stream_type must be Default or PromptResponse not %s' % stream_type)
 
         ps_guid = ps_guid or b'00000000-0000-0000-0000-000000000000'
-        return b"<Data Stream='%s' PSGuid='%s'>%s</Data>" % (to_bytes(stream_type), to_bytes(ps_guid),
-                                                             base64.b64encode(data))
+        return b"<Data Stream='%s' PSGuid='%s'>%s</Data>\n" % (to_bytes(stream_type), to_bytes(ps_guid),
+                                                              base64.b64encode(data))
 
     @staticmethod
     def ps_guid_packet(element, ps_guid=None):  # type: (str, Optional[str]) -> bytes
@@ -105,7 +105,7 @@ class OutOfProcBase:
             bytes: The encoded PSGuid packet.
         """
         ps_guid = ps_guid or b'00000000-0000-0000-0000-000000000000'
-        return b"<%s PSGuid='%s' />" % (to_bytes(element), to_bytes(ps_guid))
+        return b"<%s PSGuid='%s' />\n" % (to_bytes(element), to_bytes(ps_guid))
 
 
 class PowerShellProcess(OutOfProcBase):

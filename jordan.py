@@ -13,4 +13,10 @@ log.addHandler(handler)
 
 
 with pypsrp.PowerShellProcess() as ps_proc, pypsrp.RunspacePool(ps_proc) as runspace:
-    a = ''
+    ps = pypsrp.PowerShell(runspace)
+    ps.add_script('$PSVersionTable')
+    output = ps.invoke()
+    ps.stop()
+
+
+print(output)
