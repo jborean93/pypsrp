@@ -6,6 +6,28 @@ import logging
 import logging.config
 import os
 
+from pypsrp.client import (
+    Client,
+)
+
+from pypsrp.named_pipe import (
+    PowerShellProcess,
+)
+
+from pypsrp.powershell import (
+    RunspacePool,
+    PowerShell,
+)
+
+from pypsrp.shell import (
+    WinRS,
+    Process,
+)
+
+from pypsrp.wsman import (
+    WSMan,
+)
+
 try:
     from logging import NullHandler
 except ImportError:  # pragma: no cover

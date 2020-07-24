@@ -4,15 +4,19 @@
 import base64
 import logging
 import struct
-import sys
 import time
 import types
 import uuid
 import warnings
+import xml.etree.ElementTree as ET
 
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
+
+from pypsrp._transport import (
+    select_connection,
+)
 
 from pypsrp.complex_objects import ApartmentState, Command, CommandMetadata, \
     CommandParameter, CommandType, HostInfo, ObjectMeta, Pipeline, \
@@ -30,12 +34,6 @@ from pypsrp.shell import SignalCode, WinRS
 from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet
 from pypsrp._utils import version_equal_or_newer
 
-if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
-    # ElementTree in Python 2.6 does not support namespaces so we need to use
-    # lxml instead for this version
-    from lxml import etree as ET
-else:  # pragma: no cover
-    import xml.etree.ElementTree as ET
 
 log = logging.getLogger(__name__)
 
@@ -50,54 +48,42 @@ class RunspacePoolWarning(Warning):
 
 
 class RunspacePool(object):
+    """A runspace pool on a remote host.
 
-    def __init__(self, connection, apartment_state=ApartmentState.UNKNOWN,
-                 thread_options=PSThreadOptions.DEFAULT, host=None,
-                 configuration_name=DEFAULT_CONFIGURATION_NAME, min_runspaces=1,
-                 max_runspaces=1, session_key_timeout_ms=60000):
-        """
-        Represents a Runspace pool on a remote host. This pool can contain
-        one or more running PowerShell instances.
+    This represents a runspace pool on a remote host. This pool can contain one or more running PowerShell instances.
+    This is meant to be a close representation of the `System.Management.Automation.Runspaces.RunspacePool`_ .NET
+    class.
 
-        This is meant to be a near representation of the
-        System.Management.Automation.Runspaces.RunspacePool .NET class
+    Args:
+        connection: The connection object used to send the command over to the remote host.
+        apartment_state: The ApartmentState enum int values that specify the apartment state of the remote thread
+        thread_options: The ThreadOptions enum int values that specify what type of thread of create
+        host: An implementation of pypsrp.host.PSHost that defines the current host and what it supports
+        configuration_name: The PSRP configuration name to connect to, by default this is Microsoft.PowerShell which
+            opens a full PowerShell endpoint, use this to specify the JEA configuration to connect to. This is only
+            supported when connection is a WSMan connection.
+        min_runspaces: The minimum number of runspaces that a pool can hold
+        max_runspaces: The maximum number of runspaces that a pool can hold
+        session_key_timeout_ms: The maximum time to wait for a session key transfer from the server
 
-        :param connection: The connection object used to send the command over
-            to the remote host. Right now only pypsrp.wsman.WSMan is supported
-        :param apartment_state: The ApartmentState enum int values that specify
-            the apartment state of the remote thread
-        :param thread_options: The ThreadOptions enum int values that specify
-            what type of thread of create
-        :param host: An implementation of pypsrp.host.PSHost that defines
-            the current host and what it supports
-        :param configuration_name: The PSRP configuration name to connect to,
-            by default this is Microsoft.PowerShell which opens a full
-            PowerShell endpoint, use this to specify the JEA configuration to
-            connect to
-        :param min_runspaces: The minimum number of runspaces that a pool can
-            hold
-        :param max_runspaces: The maximum number of runspaces that a pool can
-            hold
-        :param session_key_timeout_ms: The maximum time to wait for a session
-            key transfer from the server
-        """
-        log.info("Initialising RunspacePool object for configuration %s"
-                 % configuration_name)
+    .. _System.Management.Automation.RUnspaces.RunspacePool:
+        https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.runspaces.runspacepool?view=powershellsdk-7.0.0
+    """
+
+    def __init__(self, connection, apartment_state=ApartmentState.UNKNOWN, thread_options=PSThreadOptions.DEFAULT,
+                 host=None, configuration_name=DEFAULT_CONFIGURATION_NAME, min_runspaces=1, max_runspaces=1,
+                 session_key_timeout_ms=60000):
+        log.info("Initialising RunspacePool object for configuration %s" % configuration_name)
+
         # The below are defined in some way at
         # https://msdn.microsoft.com/en-us/library/ee176015.aspx
         self.id = str(uuid.uuid4()).upper()
         self.state = RunspacePoolState.BEFORE_OPEN
-        self.connection = connection
-        resource_uri = "http://schemas.microsoft.com/powershell/%s" \
-                       % configuration_name
-        self.shell = WinRS(connection, resource_uri=resource_uri, id=self.id,
-                           input_streams='stdin pr', output_streams='stdout')
         self.ci_table = {}
         self.pipelines = {}
         self.session_key_timeout_ms = session_key_timeout_ms
 
-        # Extra properties that are important and can control the RunspacePool
-        # behaviour
+        # Extra properties that are important and can control the RunspacePool behaviour
         self.apartment_state = apartment_state
         self.thread_options = thread_options
         self.host = host
@@ -106,12 +92,12 @@ class RunspacePool(object):
         self.serialization_version = None
         self.user_events = []
 
+        self._connection = select_connection(self, connection,configuration_name)
         self._application_private_data = None
         self._min_runspaces = min_runspaces
         self._max_runspaces = max_runspaces
         self._serializer = Serializer()
-        self._fragmenter = Fragmenter(self.connection.max_payload_size,
-                                      self._serializer)
+        self._fragmenter = Fragmenter(self._connection, self._serializer)
         self._exchange_key = None
         self._key_exchanged = False
         self._new_client = False
@@ -220,7 +206,7 @@ class RunspacePool(object):
                           RunspacePoolState.BROKEN]:
             return
 
-        self.shell.close()
+        self._connection.close()
         self.state = RunspacePoolState.CLOSED
 
     def connect(self):
@@ -502,15 +488,7 @@ class RunspacePool(object):
         msgs = [session_capability, init_runspace_pool]
         fragments = self._fragmenter.fragment_multiple(msgs, self.id)
 
-        open_content = ET.Element(
-            "creationXml", xmlns="http://schemas.microsoft.com/powershell"
-        )
-        open_content.text = base64.b64encode(fragments.pop(0)).decode('utf-8')
-
-        options = OptionSet()
-        options.add_option("protocolversion", PROTOCOL_VERSION,
-                           {"MustComply": "true"})
-        self.shell.open(options, open_content)
+        self._connection.create(fragments[0])
         self.state = RunspacePoolState.NEGOTIATION_SENT
 
         responses = []
@@ -1373,11 +1351,16 @@ class PSDataStreams(object):
 
 class Fragmenter(object):
 
-    def __init__(self, max_size, serializer):
+    def __init__(self, connection, serializer):
         self.incoming_buffer = {}
         self.outgoing_counter = 1
-        self.max_size = max_size - 21  # take away the fragment header size
         self.serializer = serializer
+        self._connection = connection
+
+    @property
+    def max_size(self):
+        # take away the fragment header size
+        return self._connection.max_fragment_size - 21
 
     def fragment(self, data, rpid, pid=None, remaining_size=None):
         msg = Message(Destination.SERVER, rpid, pid, data, self.serializer)
