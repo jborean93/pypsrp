@@ -66,6 +66,7 @@ class RunspacePool(object):
         min_runspaces: The minimum number of runspaces that a pool can hold
         max_runspaces: The maximum number of runspaces that a pool can hold
         session_key_timeout_ms: The maximum time to wait for a session key transfer from the server
+        application_arguments: A dict to set to $PSSenderInfo.ApplicationArguments in the runspace.
 
     .. _System.Management.Automation.RUnspaces.RunspacePool:
         https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.runspaces.runspacepool?view=powershellsdk-7.0.0
@@ -73,7 +74,7 @@ class RunspacePool(object):
 
     def __init__(self, connection, apartment_state=ApartmentState.UNKNOWN, thread_options=PSThreadOptions.DEFAULT,
                  host=None, configuration_name=DEFAULT_CONFIGURATION_NAME, min_runspaces=1, max_runspaces=1,
-                 session_key_timeout_ms=60000):
+                 session_key_timeout_ms=60000, application_arguments=None):
         log.info("Initialising RunspacePool object for configuration %s" % configuration_name)
 
         # The below are defined in some way at
@@ -92,10 +93,11 @@ class RunspacePool(object):
         self.serialization_version = None
         self.user_events = []
 
+        self._application_arguments = application_arguments
         self._state_condition = threading.Condition()
         self._state = RunspacePoolState.BEFORE_OPEN
 
-        self._connection = select_connection(self, connection,configuration_name)
+        self._connection = select_connection(self, connection, configuration_name)
         self._application_private_data = None
         self._min_runspaces = min_runspaces
         self._max_runspaces = max_runspaces
@@ -486,6 +488,9 @@ class RunspacePool(object):
             runspace host. These can then be accessed in a PowerShell instance
             of the runspace with $PSSenderInfo.ApplicationArguments
         """
+        if not application_arguments:
+            application_arguments = self._application_arguments
+
         log.info("Openning a new Runspace Pool on remote host")
         if self.state == RunspacePoolState.OPENED:
             return

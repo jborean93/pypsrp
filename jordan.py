@@ -12,7 +12,8 @@ handler.setFormatter(formatter)
 log.addHandler(handler)
 
 
-with pypsrp.PowerShellProcess() as ps_proc, pypsrp.RunspacePool(ps_proc) as runspace:
+#with pypsrp.PowerShellProcess() as ps_proc, pypsrp.RunspacePool(ps_proc) as runspace:
+with pypsrp.WSMan('server2019.domain.local', ssl=False) as wsman, pypsrp.RunspacePool(wsman) as runspace:
     ps = pypsrp.PowerShell(runspace)
     ps.add_script('$PSVersionTable')
     output = ps.invoke()

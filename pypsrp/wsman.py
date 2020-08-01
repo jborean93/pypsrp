@@ -702,7 +702,7 @@ class _TransportHTTP(object):
         self.endpoint = self._create_endpoint(self.ssl, self.server, self.port,
                                               self.path)
         log.debug("Initialising HTTP transport for endpoint: %s, auth: %s, "
-                  "user: %s" % (self.endpoint, self.username, self.auth))
+                  "user: %s" % (self.endpoint, self.auth, self.username))
         self.session = None
 
         # used when building tests, keep commented out

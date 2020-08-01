@@ -10,7 +10,7 @@ from pypsrp.client import (
     Client,
 )
 
-from pypsrp.named_pipe import (
+from pypsrp.out_of_proc import (
     PowerShellProcess,
 )
 

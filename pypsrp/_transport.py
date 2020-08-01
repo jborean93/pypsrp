@@ -49,11 +49,16 @@ from pypsrp.complex_objects import (
     RunspacePoolState,
 )
 
-from pypsrp.named_pipe import (
+from pypsrp.exceptions import (
+    WSManFaultError,
+)
+
+from pypsrp.out_of_proc import (
     OutOfProcBase,
 )
 
 from pypsrp.shell import (
+    SignalCode,
     WinRS,
 )
 
@@ -87,9 +92,10 @@ def select_connection(runspace, connection, configuration_name):
 @six.add_metaclass(abc.ABCMeta)
 class ConnectionBase:
 
-    def __init__(self, runspace):  # type: (Runspace) -> None
+    def __init__(self, runspace, powershell=None):  # type: (Runspace, Optional[PowerShell]) -> None
         self.msg_queue = Queue()
         self.runspace = runspace
+        self._powershell = powershell
         self._runspace_queue = Queue()
         self._pipeline_queue = Queue()
         self._t_runspace = threading.Thread(target=self._process_queue, name='runspace-%s' % runspace.id,
@@ -163,8 +169,11 @@ class WSManConnection(ConnectionBase):
 
         resource_uri = 'http://schemas.microsoft.com/powershell/%s' % configuration_name
         self._wsman = wsman
-        self._shell = WinRS(self.wsman, resource_uri=resource_uri, id=runspace.id, input_streams='stdin pr',
+        self._shell = WinRS(self._wsman, resource_uri=resource_uri, id=runspace.id, input_streams='stdin pr',
                             output_streams='stdout')
+
+        self._t_receive = threading.Thread(target=self._receive, name='shell-receive-%s' % runspace.id)
+        self._t_pipelines = []
 
     @property
     def max_fragment_size(self):
@@ -180,16 +189,24 @@ class WSManConnection(ConnectionBase):
 
     def close(self):
         super(WSManConnection, self).close()
+        self._shell.close()
 
     def command(self, ps_guid):
-        super(WSManConnection, self).close()
+        super(WSManConnection, self).command(ps_guid)
+        data = self.msg_queue.get(block=False)[0]
+        frag = to_unicode(base64.b64encode(data))
+        self._shell.command('', arguments=[frag], command_id=ps_guid)
+        self._t_pipelines.append(threading.Thread(target=self._receive, name='pipeline-receive-%s' % ps_guid,
+                                                  args=(ps_guid,)))
+        self._t_pipelines[-1].start()
+        self.send()
 
     def connect(self):
         super(WSManConnection, self).connect()
 
     def create(self):
         super(WSManConnection, self).create()
-        data = b""
+        data = self.msg_queue.get(block=False)
 
         open_context = ET.Element('creationXml', xmlns='http://schemas.microsoft.com/powershell')
         open_context.text = to_unicode(base64.b64encode(data))
@@ -197,7 +214,7 @@ class WSManConnection(ConnectionBase):
         options = OptionSet()
         options.add_option('protocolversion', '2.3', {'MustComply': 'true'})
         self._shell.open(options, open_context)
-        self.runspace.state = RunspacePoolState.NEGOTIATION_SENT
+        self._t_receive.start()
 
     def disconnect(self):
         super(WSManConnection, self).disconnect()
@@ -208,8 +225,41 @@ class WSManConnection(ConnectionBase):
     def send(self):
         super(WSManConnection, self).send()
 
+        while True:
+            try:
+                msg = self.msg_queue.get(block=False)
+                command_id = None
+                if isinstance(msg, tuple):
+                    msg, command_id = msg
+
+                # TODO: Figure out how to get the stream name.
+                self._shell.send(msg, 'stdin', command_id=command_id)
+
+            except Empty:
+                break
+
     def signal(self, ps_guid):
         super(WSManConnection, self).signal(ps_guid)
+        self._shell.signal(SignalCode.PS_CTRL_C, ps_guid)
+
+    def _receive(self, command_id=None):
+        while True:
+            try:
+                response = self._shell.receive('stdout', command_id=command_id)[2]['stdout']
+            except WSManFaultError as exc:
+                # If a command exceeds the OperationTimeout set, we will get a WSManFaultError with the code
+                # 2150858793. We ignore this as it just meant no output during that operation.
+                if exc.code == 2150858793:
+                    continue
+
+                raise
+
+            process_queue = self._runspace_queue
+            if command_id:
+                process_queue = self._pipeline_queue
+
+            psrp_response = PSRPResponse(response, 'Default', command_id)
+            process_queue.put(psrp_response)
 
 
 class OutOfProcConnection(ConnectionBase):
@@ -325,7 +375,7 @@ class OutOfProcConnection(ConnectionBase):
             elif element.tag == 'CommandAck':
                 if not ps_guid:
                     raise Exception('A runspace should not receive a CommandAck')
-                print("Received command ack for %s" % ps_guid)
+                self.send_one()
 
             elif element.tag == 'Close':
                 raise Exception('Client should not receive a Close packet')
@@ -342,3 +392,12 @@ class OutOfProcConnection(ConnectionBase):
 
             else:
                 raise Exception("Unknown element tag: %s" % element.tag)
+
+
+class Base:
+
+    def create(self):
+        pass
+
+    def on_create(self):
+        a = ''
