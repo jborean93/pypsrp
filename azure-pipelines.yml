@@ -24,14 +24,22 @@ stages:
       matrix:
         Python27:
           python.version: 2.7
+          credssp: "requests-credssp"
         Python35:
           python.version: 3.5
+          credssp: "requests-credssp"
         Python36:
           python.version: 3.6
+          credssp: "requests-credssp"
         Python37:
           python.version: 3.7
+          credssp: "requests-credssp"
         Python38:
           python.version: 3.8
+          credssp: "requests-credssp"
+        Python38-nocredssp:
+          python.version: 3.8
+          credssp: ""
 
     steps:
     - task: UsePythonVersion@0
@@ -51,7 +59,7 @@ stages:
         python -m pip install --upgrade pip setuptools wheel coverage -c tests/constraints.txt
 
         echo "Installing test requirements"
-        python -m pip install -r requirements-test.txt -c tests/constraints.txt
+        python -m pip install $(credssp) -r requirements-test.txt -c tests/constraints.txt
 
         echo "Installing package"
         python -m pip install . -c tests/constraints.txt
@@ -91,33 +99,47 @@ stages:
         Python27-x86:
           python.version: 2.7
           python.arch: x86
+          credssp: "requests-credssp"
         Python27-x64:
           python.version: 2.7
           python.arch: x64
+          credssp: "requests-credssp"
         Python35-x86:
           python.version: 3.5
           python.arch: x86
+          credssp: "requests-credssp"
         Python35-x64:
           python.version: 3.5
           python.arch: x64
+          credssp: "requests-credssp"
         Python36-x86:
           python.version: 3.6
           python.arch: x86
+          credssp: "requests-credssp"
         Python36-x64:
           python.version: 3.6
           python.arch: x64
+          credssp: "requests-credssp"
         Python37-x86:
           python.version: 3.7
           python.arch: x86
+          credssp: "requests-credssp"
         Python37-x64:
           python.version: 3.7
           python.arch: x64
+          credssp: "requests-credssp"
         Python38-x86:
           python.version: 3.8
           python.arch: x86
+          credssp: "requests-credssp"
         Python38-x64:
           python.version: 3.8
           python.arch: x64
+          credssp: "requests-credssp"
+        Python38-x64-nocredssp:
+          python.version: 3.8
+          python.arch: x64
+          credssp: ""
 
     steps:
     - task: UsePythonVersion@0
@@ -130,7 +152,7 @@ stages:
         python -m pip install --upgrade pip setuptools wheel coverage -c tests/constraints.txt
 
         echo "Installing test requirements"
-        python -m pip install -r requirements-test.txt -c tests/constraints.txt
+        python -m pip install $(credssp) -r requirements-test.txt -c tests/constraints.txt
 
         echo "Installing package"
         python -m pip install . -c tests/constraints.txt

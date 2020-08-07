@@ -19,13 +19,17 @@ from pypsrp.exceptions import AuthenticationError, WinRMError, \
 from pypsrp.negotiate import HTTPNegotiateAuth
 from pypsrp._utils import to_string, to_unicode, get_hostname
 
-HAS_CREDSSP = True
-CREDSSP_IMP_ERR = None
 try:
     from requests_credssp import HttpCredSSPAuth
 except ImportError as err:  # pragma: no cover
-    HAS_CREDSSP = False
-    CREDSSP_IMP_ERR = err
+    _requests_credssp_import_error = (
+        "Cannot use CredSSP auth as requests-credssp is not installed: %s"
+        % err
+    )
+
+    class HttpCredSSPAuth(object):
+        def __init__(self, *args, **kwargs):
+            raise ImportError(_requests_credssp_import_error)
 
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
     # ElementTree in Python 2.6 does not support namespaces so we need to use
@@ -882,10 +886,6 @@ class _TransportHTTP(object):
                                            "https/mutual"
 
     def _build_auth_credssp(self, session):
-        if not HAS_CREDSSP:
-            raise ImportError("Cannot use CredSSP auth as requests-credssp is "
-                              "not installed: %s" % str(CREDSSP_IMP_ERR))
-
         if self.username is None:
             raise ValueError("For credssp auth, the username must be "
                              "specified")

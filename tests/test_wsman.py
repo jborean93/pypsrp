@@ -19,22 +19,17 @@ try:
 except ImportError:
     from mock import MagicMock
 
+try:
+    import requests_credssp
+except ImportError:
+    requests_credssp = None
+
 if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
     # ElementTree in Python 2.6 does not support namespaces so we need to use
     # lxml instead for this version
     from lxml import etree as ET
 else:  # pragma: no cover
     import xml.etree.ElementTree as ET
-
-
-@pytest.fixture('function')
-def reset_imports():
-    # ensure the changes to these globals aren't persisted after each test
-    orig_has_credssp = pypsrp_wsman.HAS_CREDSSP
-    orig_credssp_imp_err = pypsrp_wsman.CREDSSP_IMP_ERR
-    yield None
-    pypsrp_wsman.HAS_CREDSSP = orig_has_credssp
-    pypsrp_wsman.CREDSSP_IMP_ERR = orig_credssp_imp_err
 
 
 class _TransportTest(object):
@@ -684,6 +679,7 @@ class TestSelectorSet(object):
         assert str(selector_set) == "{'key1': 'value1', 'key2': 'value2'}"
 
 
+
 class TestTransportHTTP(object):
 
     def test_not_supported_auth(self):
@@ -773,26 +769,29 @@ class TestTransportHTTP(object):
             "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/" \
             "https/mutual"
 
-    def test_build_credssp_not_imported(self, reset_imports):
-        pypsrp_wsman.HAS_CREDSSP = False
-        pypsrp_wsman.CREDSSP_IMP_ERR = "import failed"
-        transport = _TransportHTTP("")
-        with pytest.raises(ImportError) as err:
+    @pytest.mark.skipif(
+        requests_credssp,
+        reason="only raises if requests-credssp is not installed",
+    )
+    def test_build_credssp_not_imported(self):
+        transport = _TransportHTTP("", username="user", password="password")
+        with pytest.raises(
+            ImportError,
+            match=(
+                r"Cannot use CredSSP auth as requests-credssp is not "
+                r"installed: No module named '?requests_credssp'?"
+            ),
+        ):
             transport._build_auth_credssp(None)
-        assert str(err.value) == \
-            "Cannot use CredSSP auth as requests-credssp is not " \
-            "installed: import failed"
 
-    def test_build_credssp_no_username(self, reset_imports):
-        pypsrp_wsman.HAS_CREDSSP = True
+    def test_build_credssp_no_username(self):
         transport = _TransportHTTP("")
         with pytest.raises(ValueError) as err:
             transport._build_auth_credssp(None)
         assert str(err.value) == \
             "For credssp auth, the username must be specified"
 
-    def test_build_credssp_no_password(self, reset_imports):
-        pypsrp_wsman.HAS_CREDSSP = True
+    def test_build_credssp_no_password(self):
         transport = _TransportHTTP("", username="user")
         with pytest.raises(ValueError) as err:
             transport._build_auth_credssp(None)
