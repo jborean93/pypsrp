@@ -18,7 +18,7 @@ with open(abs_path('README.md'), mode='rb') as fd:
 
 setup(
     name='pypsrp',
-    version='0.5.0rc1',
+    version='0.5.0',
     packages=['pypsrp', 'pypsrp.pwsh_scripts'],
     include_package_data=True,
     install_requires=[

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 - TBD
+## 0.5.0 - 2020-08-13
 
 ### Breaking changes
 
