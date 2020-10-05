@@ -5,7 +5,7 @@
 [![PyPI version](https://badge.fury.io/py/pypsrp.svg)](https://badge.fury.io/py/pypsrp)
 
 pypsrp is a Python client for the PowerShell Remoting Protocol (PSRP) and
-Windows Remove Management (WinRM) service. It allows your to execute commands
+Windows Remote Management (WinRM) service. It allows your to execute commands
 on a remote Windows host from any machine that can run Python.
 
 This library exposes 4 different types of APIs;
