@@ -135,7 +135,7 @@ class WSMan(object):
                  connection_timeout=30, encryption='auto', proxy=None,
                  no_proxy=False, locale='en-US', data_locale=None,
                  read_timeout=30, reconnection_retries=0,
-                 reconnection_backoff=2.0, **kwargs):
+                 reconnection_backoff=2.0, enable_test_messages=False, **kwargs):
         """
         Class that handles WSMan transport over HTTP. This exposes a method per
         action that takes in a resource and the header metadata required by
@@ -186,6 +186,8 @@ class WSMan(object):
         :param float reconnection_backoff: Number of seconds to backoff in
             between reconnection attempts (first sleeps X, then sleeps 2*X,
             4*X, 8*X, ...)
+        :param enable_test_messages: Enable gathering of request and responses
+            for constructing tests with.
         :param kwargs: Dynamic kwargs based on the auth protocol set
             # auth='certificate'
             certificate_key_pem: The path to the cert key pem file
@@ -223,9 +225,10 @@ class WSMan(object):
                                         connection_timeout, encryption, proxy,
                                         no_proxy, read_timeout,
                                         reconnection_retries,
-                                        reconnection_backoff, **kwargs)
+                                        reconnection_backoff, enable_test_messages, **kwargs)
         self.max_envelope_size = max_envelope_size
         self.operation_timeout = operation_timeout
+        self._enable_test_messages = enable_test_messages
 
         # register well known namespace prefixes so ElementTree doesn't
         # randomly generate them, saving packet space
@@ -649,7 +652,7 @@ class _TransportHTTP(object):
                  cert_validation=True, connection_timeout=30,
                  encryption='auto', proxy=None, no_proxy=False,
                  read_timeout=30, reconnection_retries=0,
-                 reconnection_backoff=2.0, **kwargs):
+                 reconnection_backoff=2.0, enable_test_messages=False, **kwargs):
         self.server = server
         self.port = port if port is not None else (5986 if ssl else 5985)
         self.username = username
@@ -667,6 +670,7 @@ class _TransportHTTP(object):
         self.read_timeout = read_timeout
         self.reconnection_retries = reconnection_retries
         self.reconnection_backoff = reconnection_backoff
+        self._enable_test_messages = enable_test_messages
 
         # determine the message encryption logic
         if encryption not in ["auto", "always", "never"]:
@@ -709,8 +713,8 @@ class _TransportHTTP(object):
                   "user: %s" % (self.endpoint, self.username, self.auth))
         self.session = None
 
-        # used when building tests, keep commented out
-        # self._test_messages = []
+        if self._enable_test_messages:
+            self._test_messages = []
 
     def close(self):
         if self.session:
@@ -738,9 +742,9 @@ class _TransportHTTP(object):
                 self.encryption = WinRMEncryption(self.session.auth.contexts[hostname], protocol)
 
         log.debug("Sending message: %s" % message)
-        # for testing, keep commented out
-        # self._test_messages.append({"request": message.decode('utf-8'),
-        #                             "response": None})
+        if self._enable_test_messages:
+            self._test_messages.append({"request": message.decode('utf-8'),
+                                        "response": None})
 
         headers = self.session.headers
         if self.wrap_required:
@@ -775,8 +779,8 @@ class _TransportHTTP(object):
             response_text = response.text if response_content else ''
 
         log.debug("Received message: %s" % response_text)
-        # for testing, keep commented out
-        # self._test_messages[-1]['response'] = response_text
+        if self._enable_test_messages:
+            self._test_messages[-1]['response'] = response_text
         try:
             response.raise_for_status()
         except requests.HTTPError as err:
