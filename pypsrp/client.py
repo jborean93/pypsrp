@@ -52,6 +52,7 @@ class Client(object):
         self.wsman = WSMan(server, **kwargs)
 
     def __enter__(self):
+        self.wsman.__enter__()
         return self
 
     def __exit__(self, type, value, traceback):
