@@ -181,13 +181,6 @@ class PSRPMessage:
         fragment_id = self._fragment_counter
         self._fragment_counter += 1
         return fragment_id
-    
-    def append(
-            self,
-            data: typing.Union[bytes, bytearray],
-    ):
-        """ Append bytes or a bytearray to the internal data buffer. """
-        self._data += data
 
     def fragment(
             self,
@@ -325,7 +318,7 @@ def _unpack_fragment(
 
 def state_check(
         action: typing.Optional[str] = None,
-        require_state: typing.Optional[typing.Union[PSInvocationState, RunspacePoolState]] = None,
+        require_states: typing.Optional[typing.List[typing.Union[PSInvocationState, RunspacePoolState]]] = None,
         require_version: typing.Optional[PSVersion] = None,
         skip_states: typing.Optional[typing.List[typing.Union[PSInvocationState, RunspacePoolState]]] = None,
 ):
@@ -336,7 +329,7 @@ def state_check(
 
     Args:
         action: A human description of the action for the error message.
-        require_state: The state that the Runspace Pool or Pipeline must be in to run the function.
+        require_states: The state(s) that the Runspace Pool or Pipeline must be in to run the function.
         require_version: The protocolversion that the peer must be equal to or greater for this function.
         skip_states: A list of states that define whether the function is skipped if the Runspace Pool or Pipeline
             state is in.
@@ -361,8 +354,8 @@ def state_check(
             if skip_states is not None and current_state in skip_states:
                 return
 
-            if require_state is not None and current_state != require_state:
-                raise state_exp(action_desc, current_state, require_state)
+            if require_states and current_state not in require_states:
+                raise state_exp(action_desc, current_state, require_states)
 
             their_capability = runspace.their_capability
             current_version = getattr(their_capability, 'protocolversion', require_version)
@@ -591,6 +584,15 @@ class _RunspacePoolBase:
         # Need more data from te peer to produce an event.
         raise RunspacePoolWantRead()
 
+    @state_check(
+        'send PSRP message',
+        require_states=[
+            RunspacePoolState.Opened,
+            RunspacePoolState.Opening,
+            RunspacePoolState.NegotiationSent,
+            RunspacePoolState.NegotiationSucceeded,
+        ],
+    )
     def prepare_message(
             self,
             message: PSObject,
@@ -733,9 +735,11 @@ class RunspacePool(_RunspacePoolBase):
         self._ci_table[ci] = lambda e: setattr(self, '_min_runspaces', value)
         self.prepare_message(SetMinRunspaces(MinRunspaces=value, ci=ci))
 
-    @state_check('connect to Runspace Pool',
-                 require_state=RunspacePoolState.Disconnected,
-                 skip_states=[RunspacePoolState.Opened])
+    @state_check(
+        'connect to Runspace Pool',
+        require_states=[RunspacePoolState.Disconnected],
+        skip_states=[RunspacePoolState.Opened],
+    )
     def connect(self):
         self.state = RunspacePoolState.Connecting
 
@@ -747,7 +751,9 @@ class RunspacePool(_RunspacePoolBase):
         )
         self.prepare_message(connect_pool)
 
-    @state_check(skip_states=[RunspacePoolState.Closed, RunspacePoolState.Closing, RunspacePoolState.Broken])
+    @state_check(
+        skip_states=[RunspacePoolState.Closed, RunspacePoolState.Closing, RunspacePoolState.Broken],
+    )
     def close(self):
         """Closes the RunspacePool.
 
@@ -759,8 +765,10 @@ class RunspacePool(_RunspacePoolBase):
             raise PSRPError('Must close these pipelines first')
         self.state = RunspacePoolState.Closing
 
-    @state_check('get available Runspaces',
-                 require_state=RunspacePoolState.Opened)
+    @state_check(
+        'get available Runspaces',
+        require_states=[RunspacePoolState.Opened],
+    )
     def get_available_runspaces(self):
         """Get the number of Runspaces available.
 
@@ -771,9 +779,11 @@ class RunspacePool(_RunspacePoolBase):
         self._ci_table[ci] = None
         self.prepare_message(GetAvailableRunspaces(ci=ci))
 
-    @state_check('open Runspace Pool',
-                 require_state=RunspacePoolState.BeforeOpen,
-                 skip_states=[RunspacePoolState.Opened])
+    @state_check(
+        'open Runspace Pool',
+        require_states=[RunspacePoolState.BeforeOpen],
+        skip_states=[RunspacePoolState.Opened],
+    )
     def open(self):
         """Opens the RunspacePool.
 
@@ -794,8 +804,10 @@ class RunspacePool(_RunspacePoolBase):
         )
         self.prepare_message(init_runspace_pool)
 
-    @state_check('start session key exchange',
-                 require_state=RunspacePoolState.Opened)
+    @state_check(
+        'start session key exchange',
+        require_states=[RunspacePoolState.Opened],
+    )
     def exchange_key(self):
         """Exchange session specific key.
 
@@ -809,8 +821,10 @@ class RunspacePool(_RunspacePoolBase):
 
         self.prepare_message(PublicKey(PublicKey=b64_public_key))
 
-    @state_check('response to host call',
-                 require_state=RunspacePoolState.Opened)
+    @state_check(
+        'response to host call',
+        require_states=[RunspacePoolState.Opened],
+    )
     def host_response(
             self,
             ci: int,
@@ -842,10 +856,12 @@ class RunspacePool(_RunspacePoolBase):
 
         self.prepare_message(host_call, pipeline_id=pipeline_id, stream_type=StreamType.prompt_response)
 
-    @state_check('reset Runspace Pool state',
-                 require_state=RunspacePoolState.Opened,
-                 require_version=PSVersion('2.3'),
-                 skip_states=[RunspacePoolState.BeforeOpen])
+    @state_check(
+        'reset Runspace Pool state',
+        require_states=[RunspacePoolState.Opened],
+        require_version=PSVersion('2.3'),
+        skip_states=[RunspacePoolState.BeforeOpen],
+    )
     def reset_runspace_state(self):
         """Reset the Runspace Pool state.
 
@@ -983,8 +999,10 @@ class ServerRunspacePool(_RunspacePoolBase):
             application_private_data=application_private_data or {},
         )
 
-    @state_check('create host call',
-                 require_state=RunspacePoolState.Opened)
+    @state_check(
+        'create host call',
+        require_states=[RunspacePoolState.Opened],
+    )
     def host_call(
             self,
             method: HostMethodIdentifier,
@@ -1003,8 +1021,10 @@ class ServerRunspacePool(_RunspacePoolBase):
 
         return ci
 
-    @state_check('request exchange key',
-                 require_state=RunspacePoolState.Opened)
+    @state_check(
+        'request exchange key',
+        require_states=[RunspacePoolState.Opened],
+    )
     def request_key(self):
         if self._cipher:
             return
@@ -1236,7 +1256,7 @@ class _ServerPipeline(_PipelineBase[ServerRunspacePool]):
     
     @state_check(
         'Close pipeline',
-        skip_states=[PSInvocationState.Stopped]
+        skip_states=[PSInvocationState.Stopped],
     )
     def close(self):
         super().close()

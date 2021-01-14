@@ -155,16 +155,17 @@ class _InvalidState(PSRPError):
             self,
             action: str,
             current_state,
-            expected_state,
+            expected_states,
     ):
         self.action = action
         self.current_state = current_state
-        self.expected_state = expected_state
+        self.expected_states = expected_states
 
     @property
     def message(self) -> str:
-        return f'{self._STATE_OBJ} state must be {self.expected_state!s} to {self.action}, current state is ' \
-               f'{self.current_state!s}'
+        expected_states = ', '.join(self.expected_states)
+        return f"{self._STATE_OBJ} state must be one of '{expected_states}' to {self.action}, current state is " \
+               f"{self.current_state!s}"
 
     def __str__(self):
         return self.message
