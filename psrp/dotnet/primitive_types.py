@@ -113,7 +113,7 @@ class PSString(_PSStringBase):
 
     This is the string primitive type which represents the following types:
 
-        Python: :obj:`str`
+        Python: :class:`str`
 
         Native Serialization: yes
 
@@ -147,7 +147,7 @@ class PSChar(PSObject, int):
 
     This is the char primitive type which represents the following types:
 
-        Python: :obj:`int`
+        Python: :class:`int`
 
         Native Serialization: no
 
@@ -206,7 +206,7 @@ PSBool = bool
 
 This is the bool primitive type which represents the following types:
 
-    Python: :obj:`bool`
+    Python: :class:`bool`
 
     Native Serialization: yes
 
@@ -334,7 +334,7 @@ class PSDuration(PSObject, datetime.timedelta):
 
     This is the duration primitive type which represents the following types:
 
-        Python: :obj:`datetime.timedelta`
+        Python: :class:`datetime.timedelta`
 
         Native Serialization: yes
 
@@ -499,7 +499,7 @@ class PSByte(PSIntegerBase):
     This is the unsigned byte primitive type which represents the following
     types:
 
-        Python: :obj:`int`
+        Python: :class:`int`
 
         Native Serialization: no
 
@@ -528,7 +528,7 @@ class PSSByte(PSIntegerBase):
     This is the signed byte primitive type which represents the following
     types:
 
-        Python: :obj:`int`
+        Python: :class:`int`
 
         Native Serialization: no
 
@@ -557,7 +557,7 @@ class PSUInt16(PSIntegerBase):
     This is the unsigned short primitive type which represents the following
     types:
 
-        Python: :obj:`int`
+        Python: :class:`int`
 
         Native Serialization: no
 
@@ -586,7 +586,7 @@ class PSInt16(PSIntegerBase):
     This is the signed short primitive type which represents the following
     types:
 
-        Python: :obj:`int`
+        Python: :class:`int`
 
         Native Serialization: no
 
@@ -615,7 +615,7 @@ class PSUInt(PSIntegerBase):
     This is the unsigned integer primitive type which represents the following
     types:
 
-        Python: :obj:`int`
+        Python: :class:`int`
 
         Native Serialization: no
 
@@ -643,7 +643,7 @@ class PSInt(PSIntegerBase):
 
     This is the signed int primitive type which represents the following types:
 
-        Python: :obj:`int`
+        Python: :class:`int`
 
         Native Serialization: yes
 
@@ -672,7 +672,7 @@ class PSUInt64(PSIntegerBase):
     This is the unsigned long primitive type which represents the following
     types:
 
-        Python: :obj:`int`
+        Python: :class:`int`
 
         Native Serialization: no
 
@@ -701,7 +701,7 @@ class PSInt64(PSIntegerBase):
     This is the signed long primitive type which represents the following
     types:
 
-        Python: :obj:`int`
+        Python: :class:`int`
 
         Native Serialization: no
 
@@ -729,7 +729,7 @@ class PSSingle(PSObject, float):
 
     This is the single primitive type which represents the following types:
 
-        Python: :obj:`float`
+        Python: :class:`float`
 
         Native Serialization: yes
 
@@ -754,7 +754,7 @@ class PSDouble(PSObject, float):
 
     This is the double primitive type which represents the following types:
 
-        Python: :obj:`float`
+        Python: :class:`float`
 
         Native Serialization: no
 
@@ -779,7 +779,7 @@ class PSDecimal(PSObject, decimal.Decimal):
 
     This is the decimal primitive type which represents the following types:
 
-        Python: :obj:`decimal.Decimal`
+        Python: :class:`decimal.Decimal`
 
         Native Serialization: yes
 
@@ -804,7 +804,7 @@ class PSByteArray(PSObject, bytes):
 
     This is the byte array primitive type which represents the following types:
 
-        Python: :obj:`bytes`
+        Python: :class:`bytes`
 
         Native Serialization: yes
 
@@ -835,7 +835,7 @@ class PSGuid(PSObject, uuid.UUID):
 
     This is the GUID/UUID primitive type which represents the following types:
 
-        Python: :obj:`uuid.UUID`
+        Python: :class:`uuid.UUID`
 
         Native Serialization: yes
 
@@ -874,7 +874,7 @@ class PSUri(_PSStringBase):
 
     This is the URI primitive type which represents the following types:
 
-        Python: :obj:`str`
+        Python: :class:`str`
 
         Native Serialization: no
 
@@ -884,7 +884,7 @@ class PSUri(_PSStringBase):
 
     While the primitive type represents a URI, this is merely a URI as a string
     in Python. You will need need to use a separate function to parse this URI
-    like :obj:`urllib.parse.urlparse()`.
+    like :func:`urllib.parse.urlparse`.
 
     .. _[MS-PSRP] 2.2.5.1.19 URI:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/4ac73ac2-5cf7-4669-b4de-c8ba19a13186
@@ -945,10 +945,10 @@ class PSVersion(PSObject):
         revision: The optional revision when not using version_str.
 
     Attributes:
-        major (:obj:`int`): See parameters.
-        minor (:obj:`int`): See parameters.
-        build (:obj:`int`, optional): See parameters.
-        revision (:obj:`int`, optional): See parameters.
+        major (:class:`int`): See parameters.
+        minor (:class:`int`): See parameters.
+        build (:class:`int`, optional): See parameters.
+        revision (:class:`int`, optional): See parameters.
 
     .. _[MS-PSRP] 2.2.5.1.21 Version:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/390db910-e035-4f97-80fd-181a008ff6f8
@@ -1072,7 +1072,7 @@ class PSXml(_PSStringBase):
     This is the XML Document primitive type which represents the following
     types:
 
-        Python: :obj:`str`
+        Python: :class:`str`
 
         Native Serialization: no
 
@@ -1099,7 +1099,7 @@ class PSScriptBlock(_PSStringBase):
     This is the PowerShell ScriptBlock primitive type which represents the
     following types:
 
-        Python: :obj:`str`
+        Python: :class:`str`
 
         Native Serialization: no
 
@@ -1127,7 +1127,7 @@ class PSSecureString(_PSStringBase):
     This is the PowerShell secure string primitive type which represents the
     following types:
 
-        Python: :obj:`str`
+        Python: :class:`str`
 
         Native Serialization: no
 

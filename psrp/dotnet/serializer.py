@@ -11,7 +11,10 @@ import queue
 import re
 import typing
 import uuid
-import xml.etree.ElementTree as ElementTree
+
+from xml.etree import (
+    ElementTree,
+)
 
 from .ps_base import (
     add_note_property,
@@ -119,7 +122,7 @@ def deserialize(
 
 
 def serialize(
-        value: typing.Optional[any],
+        value: typing.Optional[typing.Any],
         cipher: typing.Optional[CryptoProvider] = None,
 ) -> ElementTree.Element:
     """Serialize the Python object to CLIXML.
@@ -427,12 +430,12 @@ class _Serializer:
         self._tn_ref_list: typing.List[str] = []
 
         # Used for deserialization
-        self._obj_ref_map: typing.Dict[str, any] = {}
+        self._obj_ref_map: typing.Dict[str, typing.Any] = {}
         self._tn_ref_map: typing.Dict[str, typing.List[str]] = {}
 
     def serialize(
             self,
-            value: any,
+            value: typing.Any,
     ) -> ElementTree.Element:
         """ Serialize a Python object to a XML element based on the CLIXML value. """
         element = None
@@ -671,7 +674,7 @@ class _Serializer:
     def deserialize(
             self,
             element: ElementTree.Element,
-    ) -> any:
+    ) -> typing.Any:
         """ Deserializes a XML element of the CLIXML value to a Python type. """
         # These types are pure primitive types and we don't need to do anything special when de-serializing
         element_tag = element.tag

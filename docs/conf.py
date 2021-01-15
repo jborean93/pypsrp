@@ -48,6 +48,16 @@ extensions = [
 apidoc_module_dir = '../psrp'
 apidoc_output_dir = 'source'
 
+nitpick_ignore = [
+    #('py:class', 'dict'),
+    ('py:class', 'enum.Enum'),
+    ('py:class', 'httpx.Auth'),
+    ('py:class', 'httpx.Request'),
+    ('py:class', 'httpx.Response'),
+    #('py:class', 'list'),
+    ('py:class', 'xml.etree.ElementTree.Element'),
+]
+
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = [
@@ -121,7 +131,12 @@ def autodoc_process_docstring(app, what, name, obj, options, lines):
             continue
             
         param_type = prop.ps_type if prop.ps_type is not None else PSObject
-        param_type_str = f'{param_type.__module__}.{param_type.__qualname__}'
+        if param_type.__module__ == 'builtins':
+            param_type_str = param_type.__qualname__
+            
+        else:
+            param_type_str = f'{param_type.__module__}.{param_type.__name__}'
+
         type_line = f':type {param_name}: :obj:`{param_type_str}`'
         lines.insert(idx + insertion_offset, type_line)
         insertion_offset += 1
@@ -147,7 +162,12 @@ def autodoc_process_signature(app, what, name, obj, options, signature,
     kwargs = []
     for prop in prop_entries.values():
         ps_type = prop.ps_type if prop.ps_type is not None else PSObject
-        ps_type_str = f'{ps_type.__module__}.{ps_type.__qualname__}'
+
+        if ps_type.__module__ == 'builtins':
+            ps_type_str = ps_type.__name__
+
+        else:
+            ps_type_str = f'{ps_type.__module__}.{ps_type.__name__}'
 
         if prop.mandatory:
             entry = f'{prop.name}: {ps_type_str}'

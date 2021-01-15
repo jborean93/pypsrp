@@ -88,7 +88,7 @@ class PSStack(PSStackBase):
 
     This is the stack complex type which represents the following types:
 
-        Python: :obj:`list`
+        Python: :class:`list`
 
         Native Serialization: no
 
@@ -97,7 +97,7 @@ class PSStack(PSStackBase):
         .NET: `System.Collections.Stack`_
 
     A stack is a last-in, first-out setup but Python does not have a native
-    stack type so this just uses a :obj:`list`.
+    stack type so this just uses a :class:`list`.
 
     .. _[MS-PSRP] 2.2.5.2.6.1 Stack:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/e9cf648e-38fe-42ba-9ca3-d89a9e0a856a
@@ -113,7 +113,7 @@ class PSQueue(PSQueueBase):
 
     This is the queue complex type which represents the following types:
 
-        Python: :obj:`queue.Queue`
+        Python: :class:`queue.Queue`
 
         Native Serialization: yes
 
@@ -135,7 +135,7 @@ class PSList(PSListBase):
 
     This is the queue complex type which represents the following types:
 
-        Python: :obj:`list`
+        Python: :class:`list`
 
         Native Serialization: yes
 
@@ -165,7 +165,7 @@ class PSGenericList(PSGenericBase, PSListBase):
     Note:
         While the CLIXML will contain the proper type information, when
         PowerShell deserializes this object it will become an ArrayList as
-        represented by :obj:`PSList`. This is a limitation of PowerShell
+        represented by :class:`PSList`. This is a limitation of PowerShell
         Remoting and not something done by pypsrp.
 
     Examples:
@@ -214,7 +214,7 @@ class PSDict(PSDictBase):
 
     This is the dictionary complex type which represents the following types:
 
-        Python: :obj:`dict`
+        Python: :class:`dict`
 
         Native Serialization: yes
 
@@ -236,7 +236,7 @@ class ConsoleColor(PSEnumBase, PSInt):
 
     Specifies constants that define foreground and background colors for the
     console. This is also documented under `[MS-PSRP] 2.2.3.3 Color`_ but in
-    the :obj:`HostInfo` default data format.
+    the :class:`HostInfo` default data format.
 
     Note:
         This is an auto-generated Python class for the `System.ConsoleColor`_
@@ -394,8 +394,8 @@ class RunspacePoolState(PSEnumBase, PSInt):
     Disconnected = 7  #: The RunspacePool has been disconnected.
     Connecting = 8  #: The RunspacePool is being connected.
     # Referenced as 6 and 7 in MS-PSRP but are internal only so just use a random value
-    NegotiationSent = 100  #: :obj:`psrp.dotnet.psrp_messages.SessionCapability` sent to peer.
-    NegotiationSucceeded = 101  #: :obj:`psrp.dotnet.psrp_messages.SessionCapability` received from peer.
+    NegotiationSent = 100  #: :class:`psrp.dotnet.psrp_messages.SessionCapability` sent to peer.
+    NegotiationSucceeded = 101  #: :class:`psrp.dotnet.psrp_messages.SessionCapability` received from peer.
 
 
 class PSInvocationState(PSEnumBase, PSInt):
@@ -506,10 +506,10 @@ class RemoteStreamOptions(PSFlagBase, PSInt):
         ],
     )
     none = 0  #: InvocationInfo is not added to any stream record.
-    AddInvocationInfoToErrorRecord = 1  #: InvocationInfo is added to any :obj:`PSRPErrorRecord`.
-    AddInvocationInfoToWarningRecord = 2  #: InvocationInfo is added to any `Warning` :obj:`InformationalRecord`.
-    AddInvocationInfoToDebugRecord = 4  #: InvocationInfo is added to any `Debug` :obj:`InformationalRecord`.
-    AddInvocationInfoToVerboseRecord = 8  #: InvocationInfo is added to any `Verbose` :obj:`InformationalRecord`.
+    AddInvocationInfoToErrorRecord = 1  #: InvocationInfo is added to any :class:`PSRPErrorRecord`.
+    AddInvocationInfoToWarningRecord = 2  #: InvocationInfo is added to any `Warning` :class:`InformationalRecord`.
+    AddInvocationInfoToDebugRecord = 4  #: InvocationInfo is added to any `Debug` :class:`InformationalRecord`.
+    AddInvocationInfoToVerboseRecord = 8  #: InvocationInfo is added to any `Verbose` :class:`InformationalRecord`.
     AddInvocationInfo = 15  #: InvocationInfo is added to all stream records.
 
 
@@ -576,7 +576,7 @@ class HostMethodIdentifier(PSEnumBase, PSInt):
     documented in PSRP under `[MS-PSRP] 2.2.3.17 Host Method Identifier`_.
 
     The values are used to reference what method to invoke on
-    :obj:`psrp.host.PSHost`.
+    :class:`psrp.host.PSHost`.
 
     .. _[MS-PSRP] 2.2.3.17 Host Method Identifier:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/ddd2a4d1-797d-4d73-8372-7a77a62fb204
@@ -803,7 +803,7 @@ class Coordinates(PSObject):
     Represents an x,y coordinate pair. This is the actual .NET type
     `System.Management.Automation.Host.Coordinates`_. It is documented under
     `[MS-PSRP] 2.2.3.1 Coordinates`_ but the PSRP documentation represents how
-    this value is serialized under :obj:`HostDefaultData`.
+    this value is serialized under :class:`HostDefaultData`.
 
     Args:
         X: X coordinate (0 is the leftmost column).
@@ -834,7 +834,7 @@ class Size(PSObject):
     Represents a width and height pair. This is the actual .NET type
     `System.Management.Automation.Host.Size`_. It is documented under
     `[MS-PSRP] 2.2.3.2 Size`_ but the PSRP documentation represents how this
-    value is serialized under :obj:`HostDefaultData`.
+    value is serialized under :class:`HostDefaultData`.
 
     Args:
         Width: The width of an area.
@@ -909,7 +909,7 @@ class PSRPCommand(PSObject):
 
     Args:
         Cmd: The name of the command or text of script to execute.
-        Args: List of :obj:`PSRPCommandParameter` objects that define the
+        Args: List of :class:`PSRPCommandParameter` objects that define the
             parameters, positional arguments, and switches to the command.
         IsScript: Indicate to the higher layer whether the command to execute
             is a script.
@@ -997,12 +997,12 @@ class PSRPCommand(PSObject):
 class PSRPExtraCmds(PSObject):
     """PSRP Extra Cmds.
 
-    This is used by :obj:`PSRPPipeline` in the `ExtraCmds` property to
+    This is used by :class:`PSRPPipeline` in the `ExtraCmds` property to
     serialize multiple statements. This isn't documented in MS-PSRP or the .NET
     docs but the behaviour seen when looking at PSRP packets over the wire.
 
     Args:
-        Cmds: A list of :obj:`PSRPCommand` objects that form a single
+        Cmds: A list of :class:`PSRPCommand` objects that form a single
             statement.
     """
     PSObject = PSObjectMeta(
@@ -1022,9 +1022,9 @@ class PSRPPipeline(PSObject):
     rather a custom format used by PSRP.
 
     Args:
-        Cmds: List of :obj:`PSRPCommand` to run in a single statement for the
-            pipeline.
-        ExtraCmds: List of :obj:`PSRPExtraCmds` object that contains other
+        Cmds: List of :class:`PSRPCommand` to run in a single statement for
+            the pipeline.
+        ExtraCmds: List of :class:`PSRPExtraCmds` object that contains other
             statements to run for the pipeline.
         IsNested: Indicates to the higher layer that this is a nested pipeline.
         History: The history information of the pipeline.
@@ -1058,25 +1058,25 @@ class HostDefaultData(PSObject):
     `hostDefaultData` property documented at `[MS-PSRP] 2.2.3.14 HostInfo`_.
 
     Args:
-        foreground_color (:obj:`ConsoleColor`): Color of the character on the
+        foreground_color (:class:`ConsoleColor`): Color of the character on the
             screen buffer.
-        background_color (:obj:`ConsoleColor`): Color behind characters on the
-            screen buffer.
-        cursor_position (:obj:`Coordinates`): Cursor position in the screen
+        background_color (:class:`ConsoleColor`): Color behind characters on
+            the screen buffer.
+        cursor_position (:class:`Coordinates`): Cursor position in the screen
             buffer.
-        window_position (:obj:`Coordinates`): Position of the view window
+        window_position (:class:`Coordinates`): Position of the view window
             relative to the screen buffer.
-        cursor_size (:obj:`Union[PSInt, int]`): Cursor size as a percentage
+        cursor_size (:class:`Union[PSInt, int]`): Cursor size as a percentage
             0..100.
-        buffer_size (:obj:`Size`): Current size of the screen buffer, measured
-            in character cells.
-        window_size (:obj:`Size`): Current view window size, measured in
+        buffer_size (:class:`Size`): Current size of the screen buffer,
+            measured in character cells.
+        window_size (:class:`Size`): Current view window size, measured in
             character cells.
-        max_window_size (:obj:`Size`):  Size of the largest window position for
-            the current buffer.
-        max_physical_window_size (:obj:`Size`): Largest window possible
+        max_window_size (:class:`Size`):  Size of the largest window position
+            for the current buffer.
+        max_physical_window_size (:class:`Size`): Largest window possible
             ignoring the current buffer dimensions.
-        window_title (:obj:`Union[PSString, str]`) The titlebar text of the
+        window_title (:class:`Union[PSString, str]`) The titlebar text of the
             current view window.
 
     .. _[MS-PSRP] 2.2.3.14 HostInfo:
@@ -1184,16 +1184,16 @@ class HostInfo(PSObject):
     `[MS-PSRP] 2.2.3.14 HostInfo`_.
 
     Args:
-        is_host_null (:obj:`PSBool`): Whether there is a PSHost ``False`` or
+        is_host_null (:class:`PSBool`): Whether there is a PSHost ``False`` or
             not ``True``.
-        is_host_ui_null (:obj:`PSBool`): Whether the PSHost implements the `UI`
+        is_host_ui_null (:class:`PSBool`): Whether the PSHost implements the `UI`
             implementation methods ``False`` or not ``True``.
-        is_host_raw_ui_null (:obj:`PSBool`): Whether the PSHost UI implements
+        is_host_raw_ui_null (:class:`PSBool`): Whether the PSHost UI implements
             the ``RawUI`` implementation methods ``False`` or not ``True``.
-        use_runspace_host (:obj:`PSBool`): When creating a pipeline, set this
+        use_runspace_host (:class:`PSBool`): When creating a pipeline, set this
             to ``True`` to get it to use the associated RunspacePool host.
-        host_default_data (:obj:`HostDefaultData`): Host default data
-            associated with the :obj:`psrp.host.PSHostRawUI` implementation.
+        host_default_data (:class:`HostDefaultData`): Host default data
+            associated with the :class:`psrp.host.PSHostRawUI` implementation.
             Can be ``None`` if not implemented.
 
     .. _[MS-PSRP] 2.2.3.14 HostInfo:
@@ -1493,7 +1493,7 @@ class PSRPChoiceDescription(PSObject):
     """ChoiceDescription.
 
     Represents a description of a field for use by
-    :obj:`psrp.host.PSHostUI.prompt_for_choice`.. It isn't documented in
+    :class:`psrp.host.PSHostUI.prompt_for_choice`.. It isn't documented in
     MS-PSRP but the properties are based on what has been seen across the wire.
     This is not the same as the actual
     `System.Management.Automation.Host.ChoiceDescription`_ .NET type but rather
@@ -1519,7 +1519,7 @@ class PSRPFieldDescription(PSObject):
     """FieldDescription.
 
     Represents a description of a field for use by
-    :obj:`psrp.host.PSHostUI.prompt`. It isn't documented in MS-PSRP but the
+    :class:`psrp.host.PSHostUI.prompt`. It isn't documented in MS-PSRP but the
     properties are based on what has been seen across the wire. This is not the
     same as the actual `System.Management.Automation.Host.FieldDescription`_
     .NET type but rather a custom format used by PSRP.

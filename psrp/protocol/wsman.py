@@ -8,11 +8,17 @@ import ipaddress
 import logging
 import typing
 import uuid
-import xml.etree.ElementTree as ElementTree
 
-from urllib.parse import urlparse, ParseResult
+from urllib.parse import (
+    urlparse,
+    ParseResult,
+)
 
-from psrp.exceptions import (
+from xml.etree import (
+    ElementTree,
+)
+
+from ..exceptions import (
     WSManFault,
 )
 
