@@ -58,7 +58,7 @@ class PSHost:
         Pipeline, if an explicit PSHost was specified.
 
         Returns:
-            The HostInfo object that defines the current PSHost.
+            HostInfo: The HostInfo object that defines the current PSHost.
         """
         ui = self.ui
         raw_ui = ui.raw_ui if ui else None
@@ -81,7 +81,7 @@ class PSHost:
         locally and is never invoked by a remote HostCall event.
 
         Returns:
-            The user friendly application identifier.
+            PSString: The user friendly application identifier.
         """
         raise NotImplementedError()
 
@@ -92,7 +92,7 @@ class PSHost:
         invoked by a remote HostCall event.
 
         Returns:
-            The hosting application version number.
+            HostInfo: The hosting application version number.
         """
         raise NotImplementedError()
 
@@ -103,7 +103,7 @@ class PSHost:
         never invoked by a remote HostCall event.
 
         Returns:
-            A GUID that uniquely identifies the hosting application.
+            PSGuid: A GUID that uniquely identifies the hosting application.
         """
         raise NotImplementedError()
 
@@ -114,9 +114,9 @@ class PSHost:
         `ECMA-335`_. THis value is only used locally and is never invoked by a remote HostCall event.
 
         Returns:
-            The hosts culture.
+            PSString: The hosts culture.
 
-        .. ECMA-335:
+        .. _ECMA-335:
             https://www.ecma-international.org/publications/files/ECMA-ST/ECMA-335.pdf
         """
         raise NotImplementedError()
@@ -128,9 +128,9 @@ class PSHost:
         `ECMA-335`_. THis value is only used locally and is never invoked by a remote HostCall event.
 
         Returns:
-            The hosts UI culture.
+            PSString: The hosts UI culture.
 
-        .. ECMA-335:
+        .. _ECMA-335:
             https://www.ecma-international.org/publications/files/ECMA-ST/ECMA-335.pdf
         """
         raise NotImplementedError()
@@ -315,7 +315,7 @@ class PSHostUI:
 class PSHostRawUI:
 
     def get_host_default_data(self) -> HostDefaultData:
-        """Get the PSRP HostDefaultData..
+        """Get the PSRP HostDefaultData.
 
         Gets the PSRP HostDefaultData object for the current PSHostRawUI. This is called when creating the RunspacePool
         and Pipeline, if an explicit PSHost with a UI and RawUI implementation was specified.

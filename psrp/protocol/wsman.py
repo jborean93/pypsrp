@@ -327,16 +327,16 @@ class WSMan:
     """WSMan connection object.
 
     This handles creating and processing WSMan envelopes in an IO-less way. Based on the `hyper-h2`_ project in which
-    this focusess exclusively on the WSMan protocol.
+    this focuses exclusively on the WSMan protocol.
 
-    Param:
+    Parameters:
         connection_uri:
         max_envelope_size:
         operation_timeout:
         locale:
         data_locale:
 
-    .. hyper-h2:
+    .. _hyper-h2:
         https://github.com/python-hyper/hyper-h2
     """
 

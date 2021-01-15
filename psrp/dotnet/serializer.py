@@ -287,7 +287,7 @@ def _serialize_datetime(
         value: The PSDateTime or datetime.datetime object to serialize as a .NET DateTime CLIXML string.
 
     Returns:
-        (str): The .NET DateTime CLIXML string value.
+        str: The .NET DateTime CLIXML string value.
     """
     fraction_seconds = ""
     nanoseconds = getattr(value, 'nanosecond', None)
@@ -320,7 +320,7 @@ def _serialize_duration(
         value: The PSDuration or datetime.timedelta object to serialize as a .NET TimeSpan CLIXML string.
 
     Returns:
-        (str): The .NET TimeSpan CLIXML string value.
+        str: The .NET TimeSpan CLIXML string value.
     """
     # We can only go to 100s of nanoseconds in .NET.
     total_ticks = _timedelta_total_nanoseconds(value) // 100
@@ -362,7 +362,7 @@ def _serialize_secure_string(
         cipher: The CryptoProvider that encrypts the string.
 
     Returns:
-        (str): The CLIXML SecureString value.
+        str: The CLIXML SecureString value.
     """
     if cipher is None:
         raise MissingCipherError()
@@ -386,7 +386,7 @@ def _serialize_string(
         value: The string value to serialize to CLIXML.
 
     Returns:
-        (str): The string value as a valid CLIXML escaped string.
+        str: The string value as a valid CLIXML escaped string.
     """
     def rplcr(matchobj):
         surrogate_char = matchobj.group(0)

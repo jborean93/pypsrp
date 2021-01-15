@@ -88,7 +88,7 @@ class WSManAuth(httpx.Auth):
     The WSMan HTTP authentication handler for any request sent over the WSMan client. This handles Negotiate, Kerberos,
     NTLM, and CredSSP authentication through the pyspnego library.
 
-    Params:
+    Args:
         username: The username to use.
         password: The password to use.
         protocol: The protocol to use, can be negotiate, kerberos, ntlm, or credssp.

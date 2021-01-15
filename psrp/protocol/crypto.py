@@ -113,7 +113,7 @@ class CryptoProvider(metaclass=abc.ABCMeta):
             value: The encrypted bytes to decrypt.
 
         Returns:
-            (bytes): The decrypted bytes.
+            bytes: The decrypted bytes.
         """
         pass  # pragma: no cover
 
@@ -130,7 +130,7 @@ class CryptoProvider(metaclass=abc.ABCMeta):
             value: The bytes to encrypt.
 
         Returns:
-            (bytes): The encrypted bytes.
+            bytes: The encrypted bytes.
         """
         pass  # pragma: no cover
 

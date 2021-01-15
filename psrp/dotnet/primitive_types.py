@@ -2,14 +2,16 @@
 # Copyright: (c) 2021, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
-"""Defines the PSRP/.NET Primitive Types.
+"""PSRP/.NET Primitive Types.
 
-This file contains the PSRP/.NET Primitive Type class definitions. A primitive type is a fundamental type, like
-strings, ints, etc, that typically only represent a single value. Some of the lines are blurred with certain types
-but the ones defined here are what is documented under `MS-PSRP 2.2.5.1 Serialization of Primitive Type Objects`_ with
-the exception of the Progress and Information records which are complex types.
+The PSRP/.NET Primitive Type class definitions. A primitive type is a
+fundamental type, like strings, ints, etc, that typically only represent a
+single value. Some of the lines are blurred with certain types but the ones
+defined here are what is documented under
+`MS-PSRP 2.2.5.1 Serialization of Primitive Type Objects`_ with the exception
+of the Progress and Information records which are complex types.
 
-.. MS-PSRP 2.2.5.1 Serialization of Primitive Type Objects:
+.. _MS-PSRP 2.2.5.1 Serialization of Primitive Type Objects:
     https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/c8c85974-ffd7-4455-84a8-e49016c20683
 """
 
@@ -68,16 +70,19 @@ def _timedelta_total_nanoseconds(
 ) -> int:
     """Get the duration in nanoseconds of a timedelta object.
 
-    The datetime.timedelta class has a `total_seconds()` func but on some platforms it looses microsecond accuracy
-    when the duration exceeds 270 years. This can be an issue because a .NET TimeSpan can span to ~30000 years. So this
-    provides the total nanoseconds as one integer rather than the seconds as a float with limited decimal precision.
-    This is used by both the PSDuration `func:__new__()` method and by the serializer.py code.
+    The datetime.timedelta class has a `total_seconds()` func but on some
+    platforms it looses microsecond accuracy when the duration exceeds 270
+    years. This can be an issue because a .NET TimeSpan can span to ~30000
+    years. So this provides the total nanoseconds as one integer rather than
+    the seconds as a float with limited decimal precision. This is used by both
+    the PSDuration `__new__()` method and by the serializer.py code.
 
     Args:
-        timedelta: The PSDuration or timedelta object to get the total nanosecond duration for.
+        timedelta: The PSDuration or timedelta object to get the total
+            nanosecond duration for.
 
     Returns:
-        (int): The total number of nanoseconds the timedelta represents.
+        int: The total number of nanoseconds the timedelta represents.
     """
     # nanoseconds are an extra attribute added by PSDuration but not present in datetime.timedelta
     nanoseconds = getattr(timedelta, 'nanoseconds', 0)
@@ -108,15 +113,18 @@ class PSString(_PSStringBase):
 
     This is the string primitive type which represents the following types:
 
-        Python: str
+        Python: :obj:`str`
+
         Native Serialization: yes
+
         PSRP: `[MS-PSRP] 2.2.5.1.1 String`_
+
         .NET: `System.String`_
 
-    .. [MS-PSRP] 2.2.5.1.1 String:
+    .. _[MS-PSRP] 2.2.5.1.1 String:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/052b8c32-735b-49c0-8c24-bb32a5c871ce
 
-    .. System.String:
+    .. _System.String:
         https://docs.microsoft.com/en-us/dotnet/api/system.string?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.String', 'System.Object'], tag='S')
@@ -139,22 +147,28 @@ class PSChar(PSObject, int):
 
     This is the char primitive type which represents the following types:
 
-        Python: int
+        Python: :obj:`int`
+
         Native Serialization: no
+
         PSRP: `[MS-PSRP] 2.2.5.1.2 Character`_
+
         .NET: `System.Char`_
 
-    A char in .NET represents a UTF-16 codepoint from `\u0000` to `\uFFFF`. The codepoint may represent an invalid
-    unicode character, say it's 1 half of a surrogate pair, but it's still a valid Char. A PSChar can be initialized
-    just like an `int()` as long as the value is from `0` to `65535` inclusive. A PSChar can also be initialized from
-    a single string character like `PSChar('a')`, any byte strings will be encoded as UTF-8 when getting the character.
-    If a decimal value is used as a string then the PSChar instance will be the value of that codepoint of the
-    character and not the decimal value itself.
+    A char in .NET represents a UTF-16 codepoint from `u0000` to `uFFFF`.
+    The codepoint may represent an invalid unicode character, say it's 1 half
+    of a surrogate pair, but it's still a valid Char. A PSChar can be
+    initialized just like an `int()` as long as the value is from `0` to
+    `65535` inclusive. A PSChar can also be initialized from a single string
+    character like `PSChar('a')`, any byte strings will be encoded as UTF-8
+    when getting the character. If a decimal value is used as a string then the
+    PSChar instance will be the value of that codepoint of the character and
+    not the decimal value itself.
 
-    .. [MS-PSRP] 2.2.5.1.2 Character:
+    .. _[MS-PSRP] 2.2.5.1.2 Character:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/ff6f9767-a0a5-4cca-b091-4f15afc6e6d8
 
-    .. System.Char:
+    .. _System.Char:
         https://docs.microsoft.com/en-us/dotnet/api/system.char?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.Char', 'System.ValueType', 'System.Object'], tag='C')
@@ -192,18 +206,21 @@ PSBool = bool
 
 This is the bool primitive type which represents the following types:
 
-    Python: bool
+    Python: :obj:`bool`
+
     Native Serialization: yes
+
     PSRP: `[MS-PSRP] 2.2.5.1.3 Boolean`_
+
     .NET: `System.Boolean`_
 
-Cannot subclass bool due to a limitation on Python. This unfortunately means we can't represent an extended primitive
-object of this type in Python as well.
+Cannot subclass bool due to a limitation on Python. This unfortunately means
+we can't represent an extended primitive object of this type in Python as well.
 
-.. [MS-PSRP] 2.2.5.1.3 Boolean:
+.. _[MS-PSRP] 2.2.5.1.3 Boolean:
     https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/8b4b1067-4b58-46d5-b1c9-b881b6e7a0aa
 
-.. System.Boolean:
+.. _System.Boolean:
     https://docs.microsoft.com/en-us/dotnet/api/system.boolean?view=net-5.0
 """
 
@@ -213,19 +230,24 @@ class PSDateTime(PSObject, datetime.datetime):
 
     This is the datetime primitive type which represents the following types:
 
-        Python: datetime.datetime
+        Python: obj:`datetime.datetime`
+
         Native Serialization: yes
+
         PSRP: `[MS-PSRP] 2.2.5.1.4 Date/Time`_
+
         .NET: `System.DateTime`_
 
-    This extends the Python datetime.datetime class and adds a `nanosecond` attribute to track the nanoseconds. While
-    the class can have a nanosecond precision, a serialized DateTime object can only go up to a .NET Tick which is
-    100s of nanoseconds.
 
-    .. [MS-PSRP] 2.2.5.1.4 Date/Time:
+    This extends the Python datetime.datetime class and adds a `nanosecond`
+    attribute to track the nanoseconds. While the class can have a nanosecond
+    precision, a serialized DateTime object can only go up to a .NET Tick which
+    is 100s of nanoseconds.
+
+    .. _[MS-PSRP] 2.2.5.1.4 Date/Time:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/a3b75b8d-ad7e-4649-bb82-cfa70f54fb8c
 
-    .. System.DateTime:
+    .. _System.DateTime:
         https://docs.microsoft.com/en-us/dotnet/api/system.datetime?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.DateTime', 'System.ValueType', 'System.Object'], tag='DT')
@@ -312,19 +334,23 @@ class PSDuration(PSObject, datetime.timedelta):
 
     This is the duration primitive type which represents the following types:
 
-        Python: datetime.timedelta
+        Python: :obj:`datetime.timedelta`
+
         Native Serialization: yes
+
         PSRP: `[MS-PSRP] 2.2.5.1.5 Duration`_
+
         .NET: `System.TimeSpan`_
 
-    This extends the Python datetime.timespan class and adds a `nanoseconds` attribute to track the nanoseconds. While
-    the class can have a nanosecond precision, a serialized Duration object can only go up to a .NET Tick which is
-    100s of nanoseconds.
+    This extends the Python datetime.timespan class and adds a `nanoseconds`
+    attribute to track the nanoseconds. While the class can have a nanosecond
+    precision, a serialized Duration object can only go up to a .NET Tick which
+    is 100s of nanoseconds.
 
-    .. [MS-PSRP] 2.2.5.1.5 Duration:
+    .. _[MS-PSRP] 2.2.5.1.5 Duration:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/434cd15d-8fb3-462c-a004-bcd0d3a60201
 
-    .. System.TimeSpan:
+    .. _System.TimeSpan:
         https://docs.microsoft.com/en-us/dotnet/api/system.timespan?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.TimeSpan', 'System.ValueType', 'System.Object'], tag='TS')
@@ -470,19 +496,24 @@ PSDuration.resolution = PSDuration(nanoseconds=100)
 class PSByte(PSIntegerBase):
     """The Unsigned byte primitive type.
 
-    This is the unsigned byte primitive type which represents the following types:
+    This is the unsigned byte primitive type which represents the following
+    types:
 
-        Python: int
+        Python: :obj:`int`
+
         Native Serialization: no
+
         PSRP: `[MS-PSRP] 2.2.5.1.6 Unsigned Byte`_
+
         .NET: `System.Byte`_
 
-    While this represents an int in Python it is artificially limited to values between 0 and 255 like a Byte on .NET.
+    While this represents an int in Python it is artificially limited to values
+    between 0 and 255 like a Byte on .NET.
 
-    .. [MS-PSRP] 2.2.5.1.6 Unsigned Byte:
+    .. _[MS-PSRP] 2.2.5.1.6 Unsigned Byte:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/6e25153d-77b6-4e21-b5fa-6f986895171a
 
-    .. System.Byte:
+    .. _System.Byte:
         https://docs.microsoft.com/en-us/dotnet/api/system.byte?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.Byte', 'System.ValueType', 'System.Object'], tag='By')
@@ -494,20 +525,24 @@ class PSByte(PSIntegerBase):
 class PSSByte(PSIntegerBase):
     """The Signed byte primitive type.
 
-    This is the signed byte primitive type which represents the following types:
+    This is the signed byte primitive type which represents the following
+    types:
 
-        Python: int
+        Python: :obj:`int`
+
         Native Serialization: no
+
         PSRP: `[MS-PSRP] 2.2.5.1.7 Signed Byte`_
+
         .NET: `System.SByte`_
 
-    While this represents an int in Python it is artificially limited to values between -128 and 127 like an SByte on
-    .NET.
+    While this represents an int in Python it is artificially limited to values
+    between -128 and 127 like an SByte on .NET.
 
-    .. [MS-PSRP] 2.2.5.1.7 Signed Byte:
+    .. _[MS-PSRP] 2.2.5.1.7 Signed Byte:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/8046c418-1531-4c43-9b9d-fb9bceace0db
 
-    .. System.SByte:
+    .. _System.SByte:
         https://docs.microsoft.com/en-us/dotnet/api/system.sbyte?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.SByte', 'System.ValueType', 'System.Object'], tag='SB')
@@ -519,20 +554,24 @@ class PSSByte(PSIntegerBase):
 class PSUInt16(PSIntegerBase):
     """The Unsigned short primitive type.
 
-    This is the unsigned short primitive type which represents the following types:
+    This is the unsigned short primitive type which represents the following
+    types:
 
-        Python: int
+        Python: :obj:`int`
+
         Native Serialization: no
+
         PSRP: `[MS-PSRP] 2.2.5.1.8 Unsigned Short`_
+
         .NET: `System.UInt16`_
 
-    While this represents an int in Python it is artificially limited to values between 0 and 65535 like a UInt16 on
-    .NET.
+    While this represents an int in Python it is artificially limited to values
+    between 0 and 65535 like a UInt16 on .NET.
 
-    .. [MS-PSRP] 2.2.5.1.8 Unsigned Short:
+    .. _[MS-PSRP] 2.2.5.1.8 Unsigned Short:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/33751ca7-90d0-4b5e-a04f-2d8798cfb419
 
-    .. System.UInt16:
+    .. _System.UInt16:
         https://docs.microsoft.com/en-us/dotnet/api/system.uint16?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.UInt16', 'System.ValueType', 'System.Object'], tag='U16')
@@ -544,20 +583,24 @@ class PSUInt16(PSIntegerBase):
 class PSInt16(PSIntegerBase):
     """The Signed short primitive type.
 
-    This is the signed short primitive type which represents the following types:
+    This is the signed short primitive type which represents the following
+    types:
 
-        Python: int
+        Python: :obj:`int`
+
         Native Serialization: no
+
         PSRP: `[MS-PSRP] 2.2.5.1.9 Signed Short`_
+
         .NET: `System.Int16`_
 
-    While this represents an int in Python it is artificially limited to values between -32768 and 32767 like an Int16
-    on .NET.
+    While this represents an int in Python it is artificially limited to values
+    between -32768 and 32767 like an Int16 on .NET.
 
-    .. [MS-PSRP] 2.2.5.1.9 Signed Short:
+    .. _[MS-PSRP] 2.2.5.1.9 Signed Short:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/e0ed596d-0aea-40bb-a254-285b71188214
 
-    .. System.Int16:
+    .. _System.Int16:
         https://docs.microsoft.com/en-us/dotnet/api/system.int16?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.Int16', 'System.ValueType', 'System.Object'], tag='I16')
@@ -569,20 +612,24 @@ class PSInt16(PSIntegerBase):
 class PSUInt(PSIntegerBase):
     """The Unsigned int primitive type.
 
-    This is the unsigned integer primitive type which represents the following types:
+    This is the unsigned integer primitive type which represents the following
+    types:
 
-        Python: int
+        Python: :obj:`int`
+
         Native Serialization: no
+
         PSRP: `[MS-PSRP] 2.2.5.1.10 Unsigned Int`_
+
         .NET: `System.UInt32`_
 
-    While this represents an int in Python it is artificially limited to values between 0 and 4294967295 like a UInt32
-    on .NET.
+    While this represents an int in Python it is artificially limited to values
+    between 0 and 4294967295 like a UInt32 on .NET.
 
-    .. [MS-PSRP] 2.2.5.1.10 Unsigned Int:
+    .. _[MS-PSRP] 2.2.5.1.10 Unsigned Int:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/7b904471-3519-4a6a-900b-8053ad975c08
 
-    .. System.UInt32:
+    .. _System.UInt32:
         https://docs.microsoft.com/en-us/dotnet/api/system.uint32?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.UInt32', 'System.ValueType', 'System.Object'], tag='U32')
@@ -596,18 +643,21 @@ class PSInt(PSIntegerBase):
 
     This is the signed int primitive type which represents the following types:
 
-        Python: int
+        Python: :obj:`int`
+
         Native Serialization: yes
+
         PSRP: `[MS-PSRP] 2.2.5.1.11 Signed Int`_
+
         .NET: `System.Int32`_
 
-    While this represents an int in Python it is artificially limited to values between -2147483648 and 2147483647 like
-    an Int32 on .NET.
+    While this represents an int in Python it is artificially limited to values
+    between -2147483648 and 2147483647 like an Int32 on .NET.
 
-    .. [MS-PSRP] 2.2.5.1.11 Signed Int:
+    .. _[MS-PSRP] 2.2.5.1.11 Signed Int:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/9eef96ba-1876-427b-9450-75a1b28f5668
 
-    .. System.Int32:
+    .. _System.Int32:
         https://docs.microsoft.com/en-us/dotnet/api/system.int32?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.Int32', 'System.ValueType', 'System.Object'], tag='I32')
@@ -619,20 +669,24 @@ class PSInt(PSIntegerBase):
 class PSUInt64(PSIntegerBase):
     """The Unsigned long primitive type.
 
-    This is the unsigned long primitive type which represents the following types:
+    This is the unsigned long primitive type which represents the following
+    types:
 
-        Python: int
+        Python: :obj:`int`
+
         Native Serialization: no
+
         PSRP: `[MS-PSRP] 2.2.5.1.12 Unsigned Long`_
+
         .NET: `System.UInt64`_
 
-    While this represents an int in Python it is artificially limited to values between 0 and 18446744073709551615 like
-    a UInt64 on .NET.
+    While this represents an int in Python it is artificially limited to values
+    between 0 and 18446744073709551615 like a UInt64 on .NET.
 
-    .. [MS-PSRP] 2.2.5.1.12 Unsigned Long:
+    .. _[MS-PSRP] 2.2.5.1.12 Unsigned Long:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/d92cd5d2-59c6-4a61-b517-9fc48823cb4d
 
-    .. System.UInt64:
+    .. _System.UInt64:
         https://docs.microsoft.com/en-us/dotnet/api/system.uint64?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.UInt64', 'System.ValueType', 'System.Object'], tag='U64')
@@ -644,20 +698,24 @@ class PSUInt64(PSIntegerBase):
 class PSInt64(PSIntegerBase):
     """The Signed long primitive type.
 
-    This is the signed long primitive type which represents the following types:
+    This is the signed long primitive type which represents the following
+    types:
 
-        Python: int
+        Python: :obj:`int`
+
         Native Serialization: no
+
         PSRP: `[MS-PSRP] 2.2.5.1.13 Signed Long`_
+
         .NET: `System.Int64`_
 
-    While this represents an int in Python it is artificially limited to values between -9223372036854775808 and
-    9223372036854775807 like an Int64 on .NET.
+    While this represents an int in Python it is artificially limited to values
+    between -9223372036854775808 and 9223372036854775807 like an Int64 on .NET.
 
-    .. [MS-PSRP] 2.2.5.1.13 Signed Long:
+    .. _[MS-PSRP] 2.2.5.1.13 Signed Long:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/de124e86-3f8c-426a-ab75-47fdb4597c62
 
-    .. System.Int64:
+    .. _System.Int64:
         https://docs.microsoft.com/en-us/dotnet/api/system.int64?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.Int64', 'System.ValueType', 'System.Object'], tag='I64')
@@ -671,15 +729,18 @@ class PSSingle(PSObject, float):
 
     This is the single primitive type which represents the following types:
 
-        Python: float
+        Python: :obj:`float`
+
         Native Serialization: yes
+
         PSRP: `[MS-PSRP] 2.2.5.1.14 Float`_
+
         .NET: `System.Single`_
 
-    .. [MS-PSRP] 2.2.5.1.14 Float:
+    .. _[MS-PSRP] 2.2.5.1.14 Float:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/d8a5a9ab-5f52-4175-96a3-c29afb7b82b8
 
-    .. System.Single:
+    .. _System.Single:
         https://docs.microsoft.com/en-us/dotnet/api/system.single?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.Single', 'System.ValueType', 'System.Object'], tag='Sg')
@@ -693,15 +754,18 @@ class PSDouble(PSObject, float):
 
     This is the double primitive type which represents the following types:
 
-        Python: float
+        Python: :obj:`float`
+
         Native Serialization: no
+
         PSRP: `[MS-PSRP] 2.2.5.1.15 Double`_
+
         .NET: `System.Single`_
 
-    .. [MS-PSRP] 2.2.5.1.15 Double:
+    .. _[MS-PSRP] 2.2.5.1.15 Double:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/02fa08c5-139c-4e98-a13e-45784b4eabde
 
-    .. System.Double:
+    .. _System.Double:
         https://docs.microsoft.com/en-us/dotnet/api/system.double?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.Double', 'System.ValueType', 'System.Object'], tag='Db')
@@ -715,15 +779,18 @@ class PSDecimal(PSObject, decimal.Decimal):
 
     This is the decimal primitive type which represents the following types:
 
-        Python: decimal.Decimal
+        Python: :obj:`decimal.Decimal`
+
         Native Serialization: yes
+
         PSRP: `[MS-PSRP] 2.2.5.1.16 Decimal`_
+
         .NET: `System.Decimal`_
 
-    .. [MS-PSRP] 2.2.5.1.16 Decimal:
+    .. _[MS-PSRP] 2.2.5.1.16 Decimal:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/0f760f90-fa46-49bd-8868-001e2c29eb50
 
-    .. System.Decimal:
+    .. _System.Decimal:
         https://docs.microsoft.com/en-us/dotnet/api/system.decimal?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.Decimal', 'System.ValueType', 'System.Object'], tag='D')
@@ -737,12 +804,15 @@ class PSByteArray(PSObject, bytes):
 
     This is the byte array primitive type which represents the following types:
 
-        Python: bytes
+        Python: :obj:`bytes`
+
         Native Serialization: yes
+
         PSRP: `[MS-PSRP] 2.2.5.1.17 Array of Bytes`_
+
         .NET: System.Byte[]
 
-    .. [MS-PSRP] 2.2.5.1.17 Array of Bytes:
+    .. _[MS-PSRP] 2.2.5.1.17 Array of Bytes:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/489ed886-34d2-4306-a2f5-73843c219b14
     """
     PSObject = PSObjectMeta(['System.Byte[]', 'System.Array', 'System.Object'], tag='BA')
@@ -765,15 +835,18 @@ class PSGuid(PSObject, uuid.UUID):
 
     This is the GUID/UUID primitive type which represents the following types:
 
-        Python: uuid.UUID
+        Python: :obj:`uuid.UUID`
+
         Native Serialization: yes
+
         PSRP: `[MS-PSRP] 2.2.5.1.18 GUID`_
+
         .NET: `System.Guid`_
 
-    .. [MS-PSRP] 2.2.5.1.18 GUID:
+    .. _[MS-PSRP] 2.2.5.1.18 GUID:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/c30c37fa-692d-49c7-bb86-b3179a97e106
 
-    .. System.Guid:
+    .. _System.Guid:
         https://docs.microsoft.com/en-us/dotnet/api/system.guid?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.Guid', 'System.ValueType', 'System.Object'], tag='G')
@@ -801,18 +874,22 @@ class PSUri(_PSStringBase):
 
     This is the URI primitive type which represents the following types:
 
-        Python: str
+        Python: :obj:`str`
+
         Native Serialization: no
+
         PSRP: `[MS-PSRP] 2.2.5.1.19 URI`_
+
         .NET: `System.Uri`_
 
-    While the primitive type represents a URI, this is merely a URI as a string in Python. You will need need to use a
-    separate function to parse this URI like `func:urllib.parse.urlparse()`.
+    While the primitive type represents a URI, this is merely a URI as a string
+    in Python. You will need need to use a separate function to parse this URI
+    like :obj:`urllib.parse.urlparse()`.
 
-    .. [MS-PSRP] 2.2.5.1.19 URI:
+    .. _[MS-PSRP] 2.2.5.1.19 URI:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/4ac73ac2-5cf7-4669-b4de-c8ba19a13186
 
-    .. System.Uri:
+    .. _System.Uri:
         https://docs.microsoft.com/en-us/dotnet/api/system.uri?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.Uri', 'System.Object'], tag='URI')
@@ -824,14 +901,17 @@ PSNull = None
 This is the Null Value primitive type which represents the following types:
 
     Python: None
+
     Native Serialization: yes
+
     PSRP: `[MS-PSRP] 2.2.5.1.20 Null Value`_
+
     .NET: null/$null
 
 This isn't a type but rather just a placeholder for `None` in PSRP.
 
-.. [MS-PSRP] 2.2.5.1.19 URI:
-    https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/4ac73ac2-5cf7-4669-b4de-c8ba19a13186
+.. _[MS-PSRP] 2.2.5.1.20 Null Value:
+    https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/402f2a78-5771-45ae-bf33-59f6e57767ca
 """
 
 
@@ -841,33 +921,39 @@ class PSVersion(PSObject):
     This is the Version primitive type which represents the following types:
 
         Python: N/A
+
         Native Serialization: yes
+
         PSRP: `[MS-PSRP] 2.2.5.1.21 Version`_
+
         .NET: `System.Version`_
 
-    This is a custom implementation of a basic Version structure that matches the .NET System.Version class. A valid
-    .NET Version must have the major and minor values defined as an integer and the build and revision are optional
+    This is a custom implementation of a basic Version structure that matches
+    the .NET System.Version class. A valid .NET Version must have the major and
+    minor values defined as an integer and the build and revision are optional
     integer values.
 
-    This class is able to sort multiple PSVersions but not with other Python version structures.
+    This class is able to sort multiple PSVersions but not with other Python
+    version structures.
 
     Args:
-        version_str: The version as a string, e.g. '1.2', '0.0.1', '1.2.3.4', '10.0.123.10'.
+        version_str: The version as a string, e.g. '1.2', '0.0.1', '1.2.3.4',
+            '10.0.123.10'.
         major: The major version when not using version_str.
         minor: The minor version when not using version_str.
         build: The optional build version when not using version_str.
         revision: The optional revision when not using version_str.
 
     Attributes:
-        major (int): See args.
-        minor (int): See args.
-        build (typing.Optional[int]): See args.
-        revision (typing.Optional[int]): See args.
+        major (:obj:`int`): See parameters.
+        minor (:obj:`int`): See parameters.
+        build (:obj:`int`, optional): See parameters.
+        revision (:obj:`int`, optional): See parameters.
 
-    .. [MS-PSRP] 2.2.5.1.21 Version:
+    .. _[MS-PSRP] 2.2.5.1.21 Version:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/390db910-e035-4f97-80fd-181a008ff6f8
 
-    .. System.Version:
+    .. _System.Version:
         https://docs.microsoft.com/en-us/dotnet/api/system.version?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.Version', 'System.Object'], tag='Version')
@@ -983,20 +1069,25 @@ class PSVersion(PSObject):
 class PSXml(_PSStringBase):
     """The XML Document primitive type.
 
-    This is the XML Document primitive type which represents the following types:
+    This is the XML Document primitive type which represents the following
+    types:
 
-        Python: str
+        Python: :obj:`str`
+
         Native Serialization: no
+
         PSRP: `[MS-PSRP] 2.2.5.1.22 XML Document`_
+
         .NET: `System.Xml.XmlDocument`_
 
-    While the primitive type represents an XML Document, this is merely an XML value as a string in Python. You will
-    still need to use an XML library to parse the value.
+    While the primitive type represents an XML Document, this is merely an XML
+    value as a string in Python. You will still need to use an XML library to
+    parse the value.
 
-    .. [MS-PSRP] 2.2.5.1.22 XML Document:
+    .. _[MS-PSRP] 2.2.5.1.22 XML Document:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/df5908ab-bb4d-45e4-8adc-7258e5a9f537
 
-    .. System.Xml.XmlDocument:
+    .. _System.Xml.XmlDocument:
         https://docs.microsoft.com/en-us/dotnet/api/system.xml.xmldocument?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.Xml.XmlDocument', 'System.Xml.XmlNode', 'System.Object'], tag='XD')
@@ -1005,21 +1096,26 @@ class PSXml(_PSStringBase):
 class PSScriptBlock(_PSStringBase):
     """The ScriptBlock primitive type.
 
-    This is the PowerShell ScriptBlock primitive type which represents the following types:
+    This is the PowerShell ScriptBlock primitive type which represents the
+    following types:
 
-        Python: str
+        Python: :obj:`str`
+
         Native Serialization: no
+
         PSRP: `[MS-PSRP] 2.2.5.1.23 ScriptBlock`_
+
         .NET: `System.Management.Automation.ScriptBlock`_
 
-    While the primitive type represents a ScriptBlock in PowerShell there are some limitations when it comes to sending
-    a scriptblock over a remote PSSession. The PSRP server will automatically convert the instance to a string so this
-    type is mostly useless.
+    While the primitive type represents a ScriptBlock in PowerShell there are
+    some limitations when it comes to sending a scriptblock over a remote
+    PSSession. The PSRP server will automatically convert the instance to a
+    string so this type is mostly useless.
 
-    .. [MS-PSRP] 2.2.5.1.23 ScriptBlock:
+    .. _[MS-PSRP] 2.2.5.1.23 ScriptBlock:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/306af1be-6be5-4074-acc9-e29bd32f3206
 
-    .. System.Management.Automation.ScriptBlock:
+    .. _System.Management.Automation.ScriptBlock:
         https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.scriptblock?view=powershellsdk-7.0.0
     """
     PSObject = PSObjectMeta(['System.Management.Automation.ScriptBlock', 'System.Object'], tag='SBK')
@@ -1028,26 +1124,32 @@ class PSScriptBlock(_PSStringBase):
 class PSSecureString(_PSStringBase):
     """The Secure String primitive type.
 
-    This is the PowerShell secure string primitive type which represents the following types:
+    This is the PowerShell secure string primitive type which represents the
+    following types:
 
-        Python: str
+        Python: :obj:`str`
+
         Native Serialization: no
+
         PSRP: `[MS-PSRP] 2.2.5.1.24 Secure String`_
+
         .NET: `System.Security.SecureString`_
 
     Note:
-        Before a `PSSecureString` can be serialized, the session key must be exchanged between the client and server
-        which is required to encrypt the value.
+        Before a `PSSecureString` can be serialized, the session key must be
+        exchanged between the client and server which is required to encrypt
+        the value.
 
     Note:
-        A SecureString in Python is not actually encrypted in memory and the value just looks like a normal `str`. This
-        class is just a way to tag a string so that is it serialized as an encrypted SecureString when it is exchanged
-        between the client and server.
+        A SecureString in Python is not actually encrypted in memory and the
+        value just looks like a normal `str`. This class is just a way to tag a
+        string so that is it serialized as an encrypted SecureString when it is
+        exchanged between the client and server.
 
-    .. [MS-PSRP] 2.2.5.1.24 Secure String:
+    .. _[MS-PSRP] 2.2.5.1.24 Secure String:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/69b9dc01-a843-4f91-89f8-0205f021a7dd
 
-    .. System.Security.SecureString:
+    .. _System.Security.SecureString:
         https://docs.microsoft.com/en-us/dotnet/api/system.security.securestring?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.Security.SecureString', 'System.Object'], tag='SS')

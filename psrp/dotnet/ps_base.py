@@ -291,7 +291,7 @@ class PSPropertyInfo(metaclass=abc.ABCMeta):
 
         PSAliasProperty:
             A property that points to another property, or Python attribute. This essentially creates a getter that
-            calls `ps_object['alias'].
+            calls ps_object['alias'].
 
         PSNoteProperty:
             A property that contains it's own value like a normal attribute/property in Python.
@@ -526,7 +526,7 @@ class PSAliasProperty(PSPropertyInfo):
     Attributes:
         alias (str): The target of the alias.
 
-    .. PSAliasProperty:
+    .. _PSAliasProperty:
         https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.psaliasproperty
     """
 
@@ -561,7 +561,7 @@ class PSNoteProperty(PSPropertyInfo):
         mandatory: The property must be defined when creating a PSObject.
         ps_type: If set, the property value will be casted to this PSObject type.
 
-    .. PSNoteProperty:
+    .. _PSNoteProperty:
         https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.psnoteproperty
     """
 
@@ -600,7 +600,7 @@ class PSScriptProperty(PSPropertyInfo):
         mandatory: The property must be defined when creating a PSObject.
         ps_type: If set, the property value will be casted to this PSObject type.
 
-    .. PSScriptProperty:
+    .. _PSScriptProperty:
         https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.psscriptproperty
     """
 
@@ -998,7 +998,7 @@ class PSIntegerBase(PSObject, int):
     """Base class for integer based primitive types.
 
     This is the base class to use for primitive integer types. It defines common functions required to seamlessly use
-    numerical operators like |, <, &, etc while preserving the type. It should not be initialised directly but is
+    numerical operators like `|`, `<`, `&`, etc while preserving the type. It should not be initialised directly but is
     inherited by the various primitive integer types.
     """
     MinValue = 0
@@ -1086,6 +1086,8 @@ class PSEnumBase(PSObject, metaclass=_PSMetaTypeEnum):
     objects that inherit `PSEnumBase` should also inherit one of the integer PS types like `PSInt` and any other class
     attributes (apart from PSObject) are treated as enum value. An example enum would look like:
 
+    .. code-block:: python
+
         class MyEnum(PSEnumBase, PSInt):
             PSObject = PSObjectMeta(
                 type_names=['System.MyEnum', 'System.Enum', 'System.ValueType', 'System.Object'],
@@ -1118,6 +1120,9 @@ class PSEnumBase(PSObject, metaclass=_PSMetaTypeEnum):
         enum_map = dict((k, v) for k, v in self.__class__.PSObject.enum_map)
 
         return enum_map.get(self, 'Unknown')
+    
+    def __repr__(self):
+        return f'{self.__class__.__qualname__}.{self!s}'
 
 
 class PSFlagBase(PSEnumBase):
@@ -1129,6 +1134,8 @@ class PSFlagBase(PSEnumBase):
 
     Like `PSEnumBase`, an implementing type needs to inherit both `PSFlagBase` as well as one of the integer PS types
     like `PSInt`. An example flag enum would look like:
+
+    .. code-block:: python
 
         class MyFlags(PSFlagBase, PSInt):
             PSObject = PSObjectMeta(
@@ -1166,6 +1173,12 @@ class PSFlagBase(PSEnumBase):
 
         return ', '.join(flag_list)
 
+    def __repr__(self):
+        type_name = self.__class__.__qualname__
+        flags = str(self).split(', ')
+        
+        return ' | '.join([f'{type_name}.{f}' for f in flags])
+
 
 class PSGenericBase(PSObject, metaclass=_PSMetaTypeGeneric):
     """Base class for generic based types.
@@ -1202,10 +1215,10 @@ class PSDictBase(PSObject, dict):
     Note:
         While you can implement your own custom dictionary .NET type like
         `System.Collections.Generic.Dictionary<TKey, TValue>`, any dictionary based .NET types will be deserialized by
-        the remote PowerShell runspace as `System.Collections.Hshtable`_. This .NET type is represented by
+        the remote PowerShell runspace as `System.Collections.Hashtable`_. This .NET type is represented by
         `:class:psrp.dotnet.complex_types.PSDict`.
 
-    .. System.Collections.Hashtable:
+    .. _System.Collections.Hashtable:
         https://docs.microsoft.com/en-us/dotnet/api/system.collections.hashtable?view=net-5.0
     """
     PSObject = PSObjectMeta([], tag='DCT')
@@ -1266,7 +1279,7 @@ class PSListBase(_PSListBase):
         based .NET types will be deserialized by the remote PowerShell runspace as `System.Collections.ArrayList`_.
         This .NET type is represented by `:class:psrp.dotnet.complex_types.PSList`.
 
-    .. System.Collections.ArrayList:
+    .. _System.Collections.ArrayList:
         https://docs.microsoft.com/en-us/dotnet/api/system.collections.arraylist?view=net-5.0
     """
     # Would prefer an Generic.List<T> but regardless of the type a list is always deserialized by PowerShell as an
@@ -1285,7 +1298,7 @@ class PSQueueBase(PSObject, queue.Queue):
         based .NET types will be deserialized by the remote PowerShell runspace as `System.Collections.Queue`_. This
         .NET type is represented by `:class:psrp.dotnet.complex_types.PSQueue`.
 
-    .. System.Collections.Queue:
+    .. _System.Collections.Queue:
         https://docs.microsoft.com/en-us/dotnet/api/system.collections.queue?view=net-5.0
     """
     PSObject = PSObjectMeta([], tag='QUE')
@@ -1342,9 +1355,9 @@ def add_member(
         prop: The property to add to the object or class.
         force: Overwrite the existing property (True) or fail (Fail).
 
-    .. Update-TypeData:
+    .. _Update-TypeData:
         https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/update-typedata
-    .. Add-Member:
+    .. _Add-Member:
         https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/add-member
     """
     prop_name = prop.name

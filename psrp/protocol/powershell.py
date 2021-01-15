@@ -128,8 +128,9 @@ class StreamType(enum.Enum):
 
     The PSRP message stream type that defines the priority of a PSRP message. It is up to the connection to interpret
     these options and convey the priority to the peer in the proper fashion. The current stream types are:
-        default: The default type used for the majority of PSRP messages.
-        prompt_response: Used for host call/responses PSRP messages.
+
+        * default: The default type used for the majority of PSRP messages.
+        * prompt_response: Used for host call/responses PSRP messages.
     """
     default = enum.auto()
     prompt_response = enum.auto()
@@ -227,7 +228,7 @@ def _create_message(
         runspace_pool_id: The RunspacePool instance ID.
         pipeline_id: The Pipeline instance ID if the message is targeted towards a pipeline.
 
-    .. MS-PSRP 2.2.1 PowerShell Remoting Protocol Message:
+    .. _MS-PSRP 2.2.1 PowerShell Remoting Protocol Message:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/497ac440-89fb-4cb3-9cc1-3434c1aa74c3
     """
     destination = 0x00000002 if client else 0x00000001
@@ -263,7 +264,7 @@ def _create_fragment(
     Returns:
         (bytes): The PSRP fragment.
 
-    .. MS-PSRP 2.2.4 Packet Fragment:
+    .. _MS-PSRP 2.2.4 Packet Fragment:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/3610dae4-67f7-4175-82da-a3fab83af288
     """
     start_end_byte = 0
@@ -658,10 +659,10 @@ class RunspacePool(_RunspacePoolBase):
         min_runspaces: The minimum number of Runspaces a pool can hold.
         max_runspaces: The maximum number of Runspaces a pool can hold.
 
-    .. System.Management.Automation.Runspaces.RunspacePool:
+    .. _System.Management.Automation.Runspaces.RunspacePool:
         https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.runspaces.runspacepool
 
-    .. Sans-IO model:
+    .. _Sans-IO model:
         https://sans-io.readthedocs.io/
     """
     def __init__(

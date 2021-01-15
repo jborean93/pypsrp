@@ -20,6 +20,30 @@ schedules:
   always: true
 
 stages:
+- stage: Docs
+  jobs:
+  - job: Publish
+    pool:
+      vmImage: ubuntu-18.04
+
+    steps:
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: 3.9
+
+    - script: |
+        echo "Installing baseline pip packages"
+        python -m pip install --upgrade pip setuptools wheel -c tests/constraints.txt
+
+        echo "Installing doc requirements"
+        python -m pip install -r requirements-docs.txt -c tests/constraints.txt
+      displayName: Install doc requirements
+
+    - script: |
+        make html-strict
+      workingDirectory: docs
+      displayName: Build docs
+
 - stage: Test
   jobs:
 
