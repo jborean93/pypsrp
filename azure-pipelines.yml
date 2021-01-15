@@ -22,14 +22,14 @@ schedules:
 stages:
 - stage: Docs
   jobs:
-  - job: Publish
+  - job: Build_Doc
     pool:
       vmImage: ubuntu-18.04
 
     steps:
-      - task: UsePythonVersion@0
-        inputs:
-          versionSpec: 3.9
+    - task: UsePythonVersion@0
+      inputs:
+       versionSpec: 3.9
 
     - script: |
         echo "Installing baseline pip packages"
@@ -37,6 +37,9 @@ stages:
 
         echo "Installing doc requirements"
         python -m pip install -r requirements-docs.txt -c tests/constraints.txt
+
+        echo "Installing package"
+        python -m pip install . -c tests/constraints.txt
       displayName: Install doc requirements
 
     - script: |
