@@ -48,17 +48,6 @@ extensions = [
 apidoc_module_dir = '../psrp'
 apidoc_output_dir = 'source'
 
-nitpick_ignore = [
-    #('py:class', 'dict'),
-    ('py:class', 'enum.Enum'),
-    ('py:class', 'httpx.Auth'),
-    ('py:class', 'httpx.Request'),
-    ('py:class', 'httpx.Response'),
-    #('py:class', 'list'),
-    ('py:class', 'xml.etree.ElementTree.Element'),
-]
-
-
 # Add any paths that contain templates here, relative to this directory.
 templates_path = [
     '_templates',
@@ -132,7 +121,7 @@ def autodoc_process_docstring(app, what, name, obj, options, lines):
             
         param_type = prop.ps_type if prop.ps_type is not None else PSObject
         if param_type.__module__ == 'builtins':
-            param_type_str = param_type.__qualname__
+            param_type_str = param_type.__name__
             
         else:
             param_type_str = f'{param_type.__module__}.{param_type.__name__}'
