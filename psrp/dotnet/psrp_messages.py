@@ -32,7 +32,6 @@ from .complex_types import (
     PSGenericList,
     PSList,
     PSPrimitiveDictionary,
-    PSRPPipeline,
     PSThreadOptions,
     RemoteStreamOptions,
 )
@@ -306,7 +305,7 @@ class CreatePipeline(PSObject, metaclass=_PSMetaTypePSRP):
             PSNoteProperty('RemoteStreamOptions', mandatory=True, ps_type=RemoteStreamOptions),
             PSNoteProperty('AddToHistory', mandatory=True, ps_type=PSBool),
             PSNoteProperty('HostInfo', mandatory=True, ps_type=HostInfo),
-            PSNoteProperty('PowerShell', mandatory=True, ps_type=PSRPPipeline),
+            PSNoteProperty('PowerShell', mandatory=True),
             PSNoteProperty('IsNested', mandatory=True, ps_type=PSBool),
         ],
     )

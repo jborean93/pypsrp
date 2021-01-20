@@ -91,7 +91,7 @@ async def async_psrp(connection_info):
 
         async def prompt_for_choice(self, *args, **kwargs):
             raise Exception('fuck you')
-        
+
         async def write_progress(self, source_id, record):
             return
 
@@ -138,7 +138,7 @@ async def async_psrp(connection_info):
         #    print(f'Meta: {meta_out.Name}')
 
         #await rp.exchange_key()
-        
+
         ps = AsyncPowerShell(rp)
         ps.add_script(script)
 
@@ -181,7 +181,7 @@ async def async_psrp(connection_info):
 
         #await ps.stop()
         #res = await task
-        
+
         for err in ps.streams['error']:
             print(f'Error: {err!s}')
 
@@ -191,7 +191,7 @@ async def async_psrp(connection_info):
 async def main():
     await asyncio.gather(
         async_psrp(AsyncProcessInfo()),
-        async_psrp(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
+        #async_psrp(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
     )
 
 

@@ -69,10 +69,6 @@ from ..dotnet.complex_types import (
     ProgressRecordType,
     PSInvocationState,
     PSList,
-    PSRPCommand,
-    PSRPCommandParameter,
-    PSRPExtraCmds,
-    PSRPPipeline,
     PSThreadOptions,
     RemoteStreamOptions,
     RunspacePoolState,
@@ -94,6 +90,7 @@ from ..dotnet.primitive_types import (
 )
 
 from ..dotnet.ps_base import (
+    add_note_property,
     PSObject,
 )
 
@@ -329,6 +326,15 @@ def _unpack_fragment(
     length = struct.unpack(">I", data[17:21])[0]
 
     return Fragment(object_id, fragment_id, start, end, data[21:length + 21])
+
+
+def _dict_to_psobject(**kwargs) -> PSObject:
+    """ Builds a PSObject with note properties set by the kwargs. """
+    obj = PSObject()
+    for key, value in kwargs.items():
+        add_note_property(obj, key, value)
+
+    return obj
 
 
 def state_check(
@@ -1080,7 +1086,7 @@ class ServerRunspacePool(_RunspacePoolBase):
             redirect_shell_error_to_out=powershell.RedirectShellErrorOutputPipe,
         )
         commands = [powershell.Cmds]
-        commands.extend(getattr(powershell, 'ExtraCmds', []))
+        commands.extend([c.Cmds for c in getattr(powershell, 'ExtraCmds', [])])
 
         for statements in commands:
             for raw_cmd in statements:
@@ -1582,28 +1588,35 @@ class PowerShell(_PipelineBase):
         if not self.commands:
             raise PSRPError('A command is required to invoke a PowerShell pipeline.')
 
-        # TODO: ExtraCmds may not work with protocol <=2.1
         extra_cmds = [[]]
         for cmd in self.commands:
-            extra_cmds[-1].append(cmd.to_psobject(self.runspace_pool.their_capability.protocolversion))
+            cmd_psobject = cmd.to_psobject(self.runspace_pool.their_capability.protocolversion)
+            extra_cmds[-1].append(cmd_psobject)
             if cmd.end_of_statement:
                 extra_cmds.append([])
         cmds = extra_cmds.pop(0)
 
-        pipeline = PSRPPipeline(
-            Cmds=cmds,
-            ExtraCmds=[PSRPExtraCmds(c) for c in extra_cmds],
-            IsNested=self.is_nested,
-            History=self.history,
-            RedirectShellErrorOutputPipe=self.redirect_shell_error_to_out,
-        )
+        # MS-PSRP 2.2.3.11 Pipeline
+        # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/82a8d1c6-4560-4e68-bfd0-a63c36d6a199
+        pipeline_kwargs = {
+            'Cmds': cmds,
+            'IsNested': self.is_nested,
+            'History': self.history,
+            'RedirectShellErrorOutputPipe': self.redirect_shell_error_to_out,
+        }
+
+        if extra_cmds:
+            # This isn't documented in MS-PSRP but this is how PowerShell batches multiple statements in 1 pipeline.
+            # TODO: ExtraCmds may not work with protocol <=2.1.
+            pipeline_kwargs['ExtraCmds'] = [_dict_to_psobject(Cmds=s) for s in extra_cmds]
+
         return CreatePipeline(
             NoInput=self.no_input,
             ApartmentState=self.apartment_state,
             RemoteStreamOptions=self.remote_stream_options,
             AddToHistory=self.add_to_history,
             HostInfo=self.host,
-            PowerShell=pipeline,
+            PowerShell=_dict_to_psobject(**pipeline_kwargs),
             IsNested=self.is_nested,
         )
 
@@ -1643,8 +1656,8 @@ class ClientPowerShell(PowerShell, _ClientPipeline):
             value: typing.Any = None,
     ):
         if not self.commands:
-            raise PSRPError('A command is required to add a parameter/argument. A command must be added to the '
-                            'PowerShell instance first.')
+            raise ValueError('A command is required to add a parameter/argument. A command must be added to the '
+                             'PowerShell instance first.')
 
         self.commands[-1].parameters.append((name, value))
 
@@ -1806,7 +1819,11 @@ class Command:
             stream: PipelineResultTypes.Output
     ):
         self._validate_redirection_to(stream)
-        if stream != PipelineResultTypes.Null:
+        if stream == PipelineResultTypes.none:
+            self._merge_my = PipelineResultTypes.none
+            self._merge_to = PipelineResultTypes.none
+
+        elif stream != PipelineResultTypes.Null:
             self._merge_my = PipelineResultTypes.Error
             self._merge_to = stream
 
@@ -1849,41 +1866,40 @@ class Command:
             PipelineResultTypes.Output,
             PipelineResultTypes.Null
         ]:
-            raise ValueError('Invalid redirection stream')
+            raise ValueError('Invalid redirection stream, must be none, Output, or Null')
 
     def to_psobject(
             self,
             protocol_version: PSVersion,
-    ) -> PSRPCommand:
-        args = [PSRPCommandParameter(N=n, V=v) for n, v in self.parameters]
+    ) -> PSObject:
         merge_previous = PipelineResultTypes.Output | PipelineResultTypes.Error \
             if self.merge_unclaimed else PipelineResultTypes.none
 
-        command = PSRPCommand(
-            Cmd=self.command_text,
-            Args=args,
-            IsScript=self.is_script,
-            UseLocalScope=self.use_local_scope,
-            MergeMyResult=self.merge_my,
-            MergeToResult=self.merge_to,
-            MergePreviousResults=merge_previous,
-        )
+        command_kwargs = {
+            'Cmd': self.command_text,
+            'Args': [_dict_to_psobject(N=n, V=v) for n, v in self.parameters],
+            'IsScript': self.is_script,
+            'UseLocalScope': self.use_local_scope,
+            'MergeMyResult': self.merge_my,
+            'MergeToResult': self.merge_to,
+            'MergePreviousResults': merge_previous,
+        }
 
         # For backwards compatibility we need to optional set these values based on the peer's protocol version.
         if protocol_version >= PSVersion('2.2'):
-            command.MergeError = self.merge_error
-            command.MergeWarning = self.merge_warning
-            command.MergeVerbose = self.merge_verbose
-            command.MergeDebug = self.merge_debug
+            command_kwargs['MergeError'] = self.merge_error
+            command_kwargs['MergeWarning'] = self.merge_warning
+            command_kwargs['MergeVerbose'] = self.merge_verbose
+            command_kwargs['MergeDebug'] = self.merge_debug
 
         if protocol_version >= PSVersion('2.3'):
-            command.MergeInformation = self.merge_information
+            command_kwargs['MergeInformation'] = self.merge_information
 
-        return command
+        return _dict_to_psobject(**command_kwargs)
 
     @staticmethod
     def from_psobject(
-            command: PSRPCommand,
+            command: PSObject,
     ) -> 'Command':
         cmd = Command(
             name=command.Cmd,
