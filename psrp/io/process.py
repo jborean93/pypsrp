@@ -15,29 +15,29 @@ class Process:
         self.executable = executable
         self.arguments = arguments or []
         self._process = None
-        
+
     def __enter__(self):
         self.open()
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
-        
+
     def close(self):
         raise NotImplementedError()
-    
+
     def open(self):
         raise NotImplementedError()
-    
+
     def read(self):
         raise NotImplementedError()
-    
+
     def write(self, data):
         raise NotImplementedError()
 
 
 class AsyncProcess(Process):
-    
+
     def __init__(
             self,
             executable: str,

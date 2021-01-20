@@ -10,7 +10,7 @@ import re
 import uuid
 import xml.etree.ElementTree as ElementTree
 
-from psrp.protocol.crypto import (
+from psrp.dotnet.crypto import (
     CryptoProvider,
 )
 
@@ -30,8 +30,6 @@ COMPLEX_ENCODED_STRING = u'treble clef_x000A_ _x005F_x0000_ _x005F_X0000_ _xD834
 
 
 class FakeCryptoProvider(CryptoProvider):
-    def __init__(self):
-        super().__init__(b"")
 
     def decrypt(self, value):
         return value

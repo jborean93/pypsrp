@@ -76,7 +76,7 @@ class WinRS:
             self._parse_shell_create(event.body)
 
         return event
-    
+
     def command(
             self,
             executable: str,
@@ -98,7 +98,7 @@ class WinRS:
         ElementTree.SubElement(cmd, "{%s}Command" % rsp).text = executable
         for argument in args:
             ElementTree.SubElement(cmd, "{%s}Arguments" % rsp).text = argument
-            
+
         self.wsman.command(self.resource_uri, cmd, option_set=options, selector_set=self.selector_set)
 
     def close(
@@ -152,7 +152,7 @@ class WinRS:
             options = None
 
         self.wsman.create(self.resource_uri, shell, option_set=options)
-        
+
     def receive(
             self,
             stream: str = 'stdout stderr',
@@ -168,9 +168,9 @@ class WinRS:
 
         options = OptionSet()
         options.add_option('WSMAN_CMDSHELL_OPTION_KEEPALIVE', True)
-        
+
         self.wsman.receive(self.resource_uri, receive, option_set=options, selector_set=self.selector_set)
-        
+
     def send(
             self,
             stream: str,
@@ -189,9 +189,9 @@ class WinRS:
 
         if command_id is not None:
             stream.attrib['CommandId'] = command_id
-        
+
         self.wsman.send(self.resource_uri, send, selector_set=self.selector_set)
-        
+
     def signal(
             self,
             signal: SignalCode,
@@ -201,7 +201,7 @@ class WinRS:
 
         body = ElementTree.Element("{%s}Signal" % rsp, attrib={"CommandId": command_id})
         ElementTree.SubElement(body, "{%s}Code" % rsp).text = signal.value
-        
+
         self.wsman.signal(self.resource_uri, body, selector_set=self.selector_set)
 
     def _parse_shell_create(

@@ -61,7 +61,7 @@ from .primitive_types import (
     _timedelta_total_nanoseconds,
 )
 
-from psrp.protocol.crypto import (
+from psrp.dotnet.crypto import (
     CryptoProvider,
 )
 
@@ -116,7 +116,7 @@ def deserialize(
         cipher: The cipher to use when dealing with SecureStrings.
 
     Returns:
-        (ElementTree.Element): The CLIXML as an XML Element object.
+        Optional[Union[bool, PSObject]]: The CLIXML as an XML Element object.
     """
     return _Serializer(cipher).deserialize(value)
 
@@ -134,7 +134,7 @@ def serialize(
         cipher: The cipher to use when dealing with SecureStrings.
 
     Returns:
-        (ElementTree.Element): The CLIXML as an XML Element object.
+        ElementTree.Element: The CLIXML as an XML Element object.
     """
     return _Serializer(cipher).serialize(value)
 
@@ -592,6 +592,15 @@ class _Serializer:
                 for type_name in type_names:
                     ElementTree.SubElement(tn, 'T').text = type_name
 
+        # If the value type has a ToPSObjectForRemoting class method we use that to build our true PSObject properties
+        # that will be serialized.
+        value_type = type(value)
+        if hasattr(value_type, 'ToPSObjectForRemoting'):
+            temp_obj = PSObject()
+            value_type.ToPSObjectForRemoting(value, temp_obj)
+            ps_object = temp_obj.PSObject
+            ps_object.to_string = value.PSObject.to_string
+
         no_props = True
         for xml_name, prop_type in [('Props', 'adapted'), ('MS', 'extended')]:
             properties = getattr(ps_object, f'{prop_type}_properties')
@@ -647,7 +656,7 @@ class _Serializer:
             to_string = None if is_extended_primitive and not is_enum else ps_object.to_string
             if to_string:
                 ElementTree.SubElement(element, 'ToString').text = to_string
-            
+
             if is_complex and no_props and not isinstance(value, PSObject):
                 # If this was a complex object but no properties were defined we consider this a normal Python
                 # class instance to serialize. We use the instance attributes and properties to create the CLIXML.
@@ -827,9 +836,15 @@ class _Serializer:
                     prop_name = _deserialize_string(obj_property.attrib['N'])
                     prop_value = self.deserialize(obj_property)
                     add_note_property(scratch_obj, prop_name, prop_value, force=True)
-                    
+
         ref_id = element.attrib.get('RefId', None)
         if ref_id is not None:
             self._obj_ref_map[ref_id] = value
+
+        # Final override that allows classes to transform the raw CLIXML deserialized object to something more human
+        # friendly.
+        value_type = type(value)
+        if hasattr(value_type, 'FromPSObjectForRemoting'):
+            value = value_type.FromPSObjectForRemoting(value)
 
         return value

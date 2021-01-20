@@ -768,7 +768,9 @@ def test_ps_enum(rehydrate):
         Value3 = 3
 
     assert str(EnumTest.none) == 'None'
+    assert repr(EnumTest.none) == 'EnumTest.none'
     assert str(EnumTest.Value1) == 'Value1'
+    assert repr(EnumTest.Value1) == 'EnumTest.Value1'
     assert str(EnumTest.Value2) == 'Value2'
     assert str(EnumTest.Value3) == 'Value3'
 
@@ -951,10 +953,13 @@ def test_ps_flags(rehydrate):
         Flag3 = 4
 
     assert str(FlagTest.none) == 'None'
+    assert repr(FlagTest.none) == 'FlagTest.none'
     assert str(FlagTest.Flag1) == 'Flag1'
+    assert repr(FlagTest.Flag1) == 'FlagTest.Flag1'
     assert str(FlagTest.Flag2) == 'Flag2'
     assert str(FlagTest.Flag3) == 'Flag3'
     assert str(FlagTest.Flag1 | FlagTest.Flag3) == 'Flag1, Flag3'
+    assert repr(FlagTest.Flag1 | FlagTest.Flag3) == 'FlagTest.Flag1 | FlagTest.Flag3'
 
     val = FlagTest.Flag1 | FlagTest.Flag3
 

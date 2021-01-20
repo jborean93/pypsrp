@@ -92,7 +92,7 @@ stages:
       displayName: Install
 
     - script: |
-        python -m pycodestyle pypsrp --verbose --show-source --statistics
+        python -m pycodestyle pypsrp psrp --verbose --show-source --statistics
       displayName: Lint
 
     - script: |
@@ -165,11 +165,11 @@ stages:
       displayName: Install
 
     - script: |
-        python -m pycodestyle pypsrp --verbose --show-source --statistics
+        python -m pycodestyle pypsrp psrp --verbose --show-source --statistics
       displayName: Lint
 
     - script: |
-        pytest -v --junitxml junit/test-results.xml --cov pypsrp --cov-report xml --cov-report term-missing
+        pytest -v --junitxml junit/test-results.xml --cov pypsrp --cov psrp --cov-report xml --cov-report term-missing
       displayName: Test
 
     - task: PublishTestResults@2

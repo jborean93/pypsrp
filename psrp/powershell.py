@@ -45,9 +45,9 @@ from .protocol.powershell_events import (
 from .dotnet.complex_types import (
     ApartmentState,
     CommandTypes,
-    ErrorCategory,
+    ErrorCategoryInfo,
+    ErrorRecord,
     NETException,
-    PSRPErrorRecord,
     PSThreadOptions,
     RemoteStreamOptions,
     RunspacePoolState,
@@ -95,12 +95,12 @@ class _EndOfStream(object):
 
 class PSDataStream(list):
     _EOF = None
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._added_idx = queue.Queue()
         self._complete = False
-        
+
     def append(self, value):
         if value == _EndOfStream:
             self._added_idx.put(None)
@@ -108,16 +108,16 @@ class PSDataStream(list):
 
         super().append(value)
         self._added_idx.put(len(self) - 1)
-        
+
     def wait(self) -> typing.Optional[PSObject]:
         if self._complete:
             return self._EOF
-        
+
         idx = self._added_idx.get()
         if idx is None:
             self._complete = True
             return self._EOF
-        
+
         return self[idx]
 
 
@@ -128,7 +128,7 @@ class AsyncPSDataStream(list):
     the `:meth:wait()` which can be used to asynchronously wait for any new objects to be added.
     """
     _EOF = None
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._added_idx = asyncio.Queue()
@@ -152,7 +152,7 @@ class AsyncPSDataStream(list):
         """
         if self._complete:
             return self._EOF
-        
+
         idx = await self._added_idx.get()
         if idx is None:
             self._complete = True
@@ -230,7 +230,7 @@ class RunspacePool:
         Closes the Runspace Pool, any outstanding pipelines, and the connection to the peer.
         """
         raise NotImplementedError()
-    
+
     def exchange_key(self):
         """Exchange session key.
 
@@ -238,7 +238,7 @@ class RunspacePool:
         operations that use secure strings but it's kept here as a manual option just in case.
         """
         raise NotImplementedError()
-    
+
     def reset_runspace_state(self):
         """Resets the Runspace Pool session state.
 
@@ -265,7 +265,7 @@ class AsyncRunspacePool(RunspacePool):
 
         self.protocol.open()
         await self.connection.create()
-        
+
         while self.protocol.state != RunspacePoolState.Opened:
             await self.connection.wait_event()
 
@@ -287,7 +287,7 @@ class AsyncRunspacePool(RunspacePool):
         self.protocol.reset_runspace_state()
         await self.connection.send_all()
         await self.connection.wait_event(message_type=PSRPMessageType.RunspaceAvailability)
-        
+
     async def set_min_runspaces(
             self,
             value: int,
@@ -295,7 +295,7 @@ class AsyncRunspacePool(RunspacePool):
         self.protocol.min_runspaces = value
         await self.connection.send_all()
         await self.connection.wait_event(message_type=PSRPMessageType.SetMinRunspaces)
-        
+
     async def set_max_runspaces(
             self,
             value: int,
@@ -303,12 +303,12 @@ class AsyncRunspacePool(RunspacePool):
         self.protocol.max_runspaces = value
         await self.connection.send_all()
         await self.connection.wait_event(message_type=PSRPMessageType.SetMaxRunspaces)
-        
+
     async def get_available_runspaces(self) -> int:
         self.protocol.get_available_runspaces()
         await self.connection.send_all()
         event = await self.connection.wait_event(message_type=PSRPMessageType.RunspaceAvailability)
-        
+
         return event.count
 
 
@@ -332,10 +332,10 @@ class AsyncPipeline(typing.Generic[PipelineType]):
         self._receive_task = None
         self._host_tasks: typing.Dict[int, asyncio.Task] = {}
         self._close_lock = asyncio.Lock()
-        
+
     async def close(self):
         """Closes the pipeline.
-        
+
         Closes the pipeline resource on the peer. This is done automatically when the pipeline is completed or the
         Runspace Pool is closed but can be called manually if desired.
         """
@@ -371,7 +371,7 @@ class AsyncPipeline(typing.Generic[PipelineType]):
 
         await self.runspace_pool.connection.command(self.pipeline.pipeline_id)
         self.runspace_pool.pipeline_table[self.pipeline.pipeline_id] = self
-        await self.runspace_pool.connection.send_all()        
+        await self.runspace_pool.connection.send_all()
 
         output_stream = _AsyncOutputStream()
         self._receive_task = asyncio_create_task(self._wait_invoke(output_stream))
@@ -387,7 +387,7 @@ class AsyncPipeline(typing.Generic[PipelineType]):
                     break
 
                 yield output
-                
+
             await self._receive_task
             self._receive_task = None
 
@@ -457,7 +457,7 @@ class AsyncPipeline(typing.Generic[PipelineType]):
         async for data in input_gen:
             try:
                 self.pipeline.send(data)
-                
+
             except MissingCipherError:
                 await self.runspace_pool.exchange_key()
                 self.pipeline.send(data)
@@ -484,7 +484,7 @@ class AsyncPipeline(typing.Generic[PipelineType]):
             VerboseRecordEvent: self.streams['verbose'],
             WarningRecordEvent: self.streams['warning'],
         }
-        
+
         try:
             while self.pipeline.state == PSInvocationState.Running:
                 try:
@@ -518,7 +518,7 @@ class AsyncPipeline(typing.Generic[PipelineType]):
         finally:
             for stream in stream_map.values():
                 stream.append(_EndOfStream)
-                
+
             await self.close()
 
         # Need to make sure we await any host response tasks and raise the exception if it failed.
@@ -530,7 +530,7 @@ class AsyncPipeline(typing.Generic[PipelineType]):
 
             if isinstance(e, NotImplementedError):
                 msg = f'HostMethodCall {mi!s} not implemented'
-                
+
             else:
                 msg = f'HostMethodClass {mi!s} exception: {e!s}'
 
@@ -558,7 +558,7 @@ class AsyncPipeline(typing.Generic[PipelineType]):
 
         except Exception as e:
             setattr(e, 'mi', mi)
-            
+
             if method_metadata.is_void:
                 # TODO: need to stop the pipeline.
                 raise
@@ -569,12 +569,12 @@ class AsyncPipeline(typing.Generic[PipelineType]):
                 e_msg = f'{type(e).__qualname__} when running {mi}'
 
             return_value = None
-            error_record = PSRPErrorRecord(
+            error_record = ErrorRecord(
                 Exception=NETException(e_msg),
                 FullyQualifiedErrorId='RemoteHostExecutionException',
-                ErrorCategory_Category=ErrorCategory.NotSpecified,
-                ErrorCategory_Reason='Exception',
-                ErrorCategory_Message='NotSpecified: (:) [], Exception',
+                ErrorCategory=ErrorCategoryInfo(
+                    Reason='Exception',
+                ),
             )
 
         if not method_metadata.is_void:

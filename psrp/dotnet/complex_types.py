@@ -506,7 +506,7 @@ class RemoteStreamOptions(PSFlagBase, PSInt):
         ],
     )
     none = 0  #: InvocationInfo is not added to any stream record.
-    AddInvocationInfoToErrorRecord = 1  #: InvocationInfo is added to any :class:`PSRPErrorRecord`.
+    AddInvocationInfoToErrorRecord = 1  #: InvocationInfo is added to any :class:`ErrorRecord`.
     AddInvocationInfoToWarningRecord = 2  #: InvocationInfo is added to any `Warning` :class:`InformationalRecord`.
     AddInvocationInfoToDebugRecord = 4  #: InvocationInfo is added to any `Debug` :class:`InformationalRecord`.
     AddInvocationInfoToVerboseRecord = 8  #: InvocationInfo is added to any `Verbose` :class:`InformationalRecord`.
@@ -1159,7 +1159,7 @@ class HostDefaultData(PSObject):
         """ Convert the raw HostDefaultData PSObject back to this easier to use object. """
         def coordinates(value) -> Coordinates:
             return Coordinates(X=value.x, Y=value.y)
-            
+
         def size(value) -> Size:
             return Size(Width=value.width, Height=value.height)
 
@@ -1225,7 +1225,7 @@ class HostInfo(PSObject):
         self.is_host_raw_ui_null = is_host_raw_ui_null
         self.use_runspace_host = use_runspace_host
         self.host_default_data = host_default_data
-        
+
     @staticmethod
     def from_psobject(
             value: PSObject,
@@ -1244,15 +1244,207 @@ class HostInfo(PSObject):
         )
 
 
-class PSRPErrorRecord(PSObject):
-    """PowerShell ErrorRecord.
+class InvocationInfo(PSObject):
+    """InvocationInfo.
+
+    Describes how and where this command was invoked. This is the actual .NET
+    type `System.Management.Automation.InvocationInfo`_.
+
+    Args:
+        BoundParameters: Dictionary of parameters that were bound for this
+            script or command.
+        CommandOrigin: Command was being invoked inside the runspace or if it
+            was an external request.
+        DisplayScriptPosition: The position for the invocation or error.
+        ExpectingInput: The command is expecting input.
+        HistoryId: History that represents the command, if unavailable this
+            will be ``-1``.
+        InvocationName: Command name used to invoke this script. If invoked
+            through an alias then this would be the alias name.
+        Line: The text of the line that contained this cmdlet invocation.
+        MyCommand: Basic information about the command.
+        OffsetInLine: Command's character offset in that line. If the command
+            was executed directly through the host interfaces, this will be -1.
+        PipelineLength: How many elements are in the containing pipeline.
+        PipelinePosition: Which element this command was in the containing
+            pipeline.
+        PositionMessage: Formatted message indicating where the cmdlet appeared
+            in the line.
+        PSCommandPath: The full path to the command from where it was being
+            invoked.
+        PSScriptRoot: The directory from where the command was being invoked.
+        ScriptLineNumber: The line number in the executing script that contains
+            this cmdlet.
+        ScriptName: The name of the script containing the cmdlet.
+        UnboundArguments: THe list of arguments that were not bound to any
+            parameter.
+
+    .. _System.Management.Automation.InvocationInfo:
+        https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.invocationinfo
+    """
+    PSObject = PSObjectMeta(
+        type_names=[
+            'System.Management.Automation.InvocationInfo',
+            'System.Object',
+        ],
+        adapted_properties=[
+            PSNoteProperty('BoundParameters', ps_type=PSDict),
+            PSNoteProperty('CommandOrigin', ps_type=CommandOrigin),
+            PSNoteProperty('DisplayScriptPosition'),  # ScriptExtent
+            PSNoteProperty('ExpectingInput', ps_type=PSBool),
+            PSNoteProperty('HistoryId', ps_type=PSInt64),
+            PSNoteProperty('InvocationName', ps_type=PSString),
+            PSNoteProperty('Line', ps_type=PSString),
+            PSNoteProperty('MyCommand'),  # ComamndInfo,
+            PSNoteProperty('OffsetInLine', ps_type=PSInt),
+            PSNoteProperty('PipelineLength', ps_type=PSInt),
+            PSNoteProperty('PipelinePosition', ps_type=PSInt),
+            PSNoteProperty('PositionMessage', ps_type=PSString),
+            PSNoteProperty('PSCommandPath', ps_type=PSString),
+            PSNoteProperty('PSScriptRoot', ps_type=PSString),
+            PSNoteProperty('ScriptLineNumber', ps_type=PSInt),
+            PSNoteProperty('ScriptName', ps_type=PSString),
+            PSNoteProperty('UnboundArguments', ps_type=PSList),
+        ],
+    )
+
+
+def _invocation_info_from_ps_object(
+        obj: PSObject,
+) -> InvocationInfo:
+    """ Used by ErrorRecord and InformationalRecord to deserialize the invocation info details. """
+    # TODO: Deserialize MyCommand, DisplayScriptPosition (when SerializeExtent=True)
+    return InvocationInfo(
+        BoundParameters=getattr(obj, 'InvocationInfo_BoundParameters', None) or PSDict(),
+        CommandOrigin=CommandOrigin(obj.InvocationInfo_CommandOrigin),
+        ExpectingInput=obj.InvocationInfo_ExpectingInput,
+        HistoryId=obj.InvocationInfo_HistoryId,
+        InvocationName=obj.InvocationInfo_InvocationName,
+        Line=obj.InvocationInfo_Line,
+        OffsetInLine=obj.InvocationInfo.OffsetInLine,
+        PipelineLength=obj.InvocationInfo_PipelineLength,
+        PipelinePosition=obj.InvocationInfo_PipelinePosition,
+        ScriptLineNumber=obj.InvocationInfo.ScriptLineNumber,
+        ScriptName=obj.InvocationInfo.ScriptName,
+        UnboundArguments=getattr(obj, 'InvocationInfo_UnboundArguments', None) or PSList(),
+    )
+
+
+def _invocation_info_to_ps_object(
+        invocation_info: InvocationInfo,
+        obj: PSObject,
+):
+    """ Used by ErrorRecord and InformationalRecord to serialize the invocation info details. """
+    add_note_property(obj, 'InvocationInfo_BoundParameters', invocation_info.BoundParameters)
+    add_note_property(obj, 'InvocationInfo_CommandOrigin', invocation_info.CommandOrigin)
+    add_note_property(obj, 'InvocationInfo_ExpectingInput', invocation_info.ExpectingInput)
+    add_note_property(obj, 'InvocationInfo_InvocationName', invocation_info.InvocationName)
+    add_note_property(obj, 'InvocationInfo_Line', invocation_info.Line)
+    add_note_property(obj, 'InvocationInfo_OffsetInLine', invocation_info.OffsetInLine)
+    add_note_property(obj, 'InvocationInfo_HistoryId', invocation_info.HistoryId)
+    add_note_property(obj, 'InvocationInfo_PipelineIterationInfo', [])  # List of PSInt32
+    add_note_property(obj, 'InvocationInfo_PipelineLength', invocation_info.PipelineLength)
+    add_note_property(obj, 'InvocationInfo_PipelinePosition', invocation_info.PipelinePosition)
+    add_note_property(obj, 'InvocationInfo_PSScriptRoot', invocation_info.PSScriptRoot)
+    add_note_property(obj, 'InvocationInfo_PSCommandPath', invocation_info.PSCommandPath)
+    add_note_property(obj, 'InvocationInfo_PositionMessage', invocation_info.PositionMessage)
+    add_note_property(obj, 'InvocationInfo_ScriptLineNumber', invocation_info.ScriptLineNumber)
+    add_note_property(obj, 'InvocationInfo_ScriptName', invocation_info.ScriptName)
+    add_note_property(obj, 'InvocationInfo_UnboundArguments', invocation_info.UnboundArguments)
+
+    # TODO: support serializing DisplayScriptPosition
+    add_note_property(obj, 'SerializeExtent', False)
+    # TODO: support serializing MyCommand
+
+
+class ErrorCategoryInfo(PSObject):
+    """ErrorCategoryInfo.
+
+    Contains auxiliary information about an ErrorRecord. This is the actual
+    .NET type `System.Management.Automation.ErrorCategoryInfo`_.
+
+    Args:
+        Category: The error category.
+        Activity: Description of the operation which encountered the error.
+        Reason: Description of the error.
+        TargetName: Description of the target object.
+        TargetType: Description of the type of the target object.
+
+    .. _System.Management.Automation.ErrorCategoryInfo:
+        https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.errorcategoryinfo
+    """
+    PSObject = PSObjectMeta(
+        type_names=[
+            'System.Management.Automation.ErrorCategoryInfo',
+            'System.Object',
+        ],
+        adapted_properties=[
+            # Technically a string in .NET but it's easier for the end user to be an enum.
+            PSNoteProperty('Category', value=ErrorCategory.NotSpecified, ps_type=ErrorCategory),
+            PSNoteProperty('Activity', ps_type=PSString),
+            PSNoteProperty('Reason', ps_type=PSString),
+            PSNoteProperty('TargetName', ps_type=PSString),
+            PSNoteProperty('TargetType', ps_type=PSString),
+        ],
+    )
+
+    def __str__(self):
+        return f'{self.Category!s} ({self.TargetName or ""}:{self.TargetType or ""}) ' \
+               f'[{self.Activity or ""}], {self.Reason or ""}'
+
+
+class ErrorDetails(PSObject):
+    """ErrorDetails.
+
+    ErrorDetaisl represents additional details about an :class:`ErrorRecord`,
+    starting with a replacement Message. Clients can use ErrorDetails when they
+    want to display a more specific message than the one contained in a
+    particular Exception, without having to create a new Exception or define a
+    new Exception class. This is the actual
+    .NET type `System.Management.Automation.ErrorDetails`_.
+
+    Args:
+        Message: Message with replaces Message in Exception.
+        RecommendedAction: Describes the recommended action in the event this
+            error occurs. This can be empty if not applicable.
+
+    .. _System.Management.Automation.ErrorDetails:
+        https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.errordetails
+    """
+    PSObject = PSObjectMeta(
+        type_names=[
+            'System.Management.Automation.ErrorDetails',
+            'System.Object',
+        ],
+        adapted_properties=[
+            PSNoteProperty('Message', ps_type=PSString),
+            PSNoteProperty('RecommendedAction', ps_type=PSString),
+        ],
+    )
+
+
+class ErrorRecord(PSObject):
+    """ErrorRecord.
 
     The data type that represents information about an error. It is documented
     in PSRP under `[MS-PSRP] 2.2.3.15 ErrorRecord`_. The invocation specific
     properties are documented under `[MS-PSRP] 2.2.3.15.1 InvocationInfo`_.
-    This is not the same as the actual
-    `System.Management.Automation.ErrorRecord`_ .NET type but rather a custom
-    format used by PSRP.
+    This is the actual .NET type `System.Management.Automation.ErrorRecord`_
+
+    Args:
+        Exception: An exception describing the error.
+        TargetObject: The object against which the error occurred.
+        FullyQualifiedErrorId: String which uniquely identifies this error
+            condition.
+        CategoryInfo: Information regarding the ErrorCategory associated with
+            this error.
+        ErrorDetails: Additional information about the error.
+        InvocationInfo: Identifies the cmdlet, script, or other command which
+            caused the error.
+        PipelineIterationInfo: The status of the pipeline when this record was
+            created. Each entry represents the number of inputs the command[i]
+            in the statement has processed when the record was created.
+        ScriptStackTrace: The object against which the error occurred.
 
     .. _[MS-PSRP] 2.2.3.15 ErrorRecord:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/0fe855a7-d13c-44e2-aa88-291e2054ae3a
@@ -1268,41 +1460,107 @@ class PSRPErrorRecord(PSObject):
             'System.Management.Automation.ErrorRecord',
             'System.Object',
         ],
-        extended_properties=[
-            PSNoteProperty('Exception', optional=True),
+        adapted_properties=[
+            PSNoteProperty('Exception', mandatory=True),
+            PSNoteProperty('CategoryInfo', mandatory=True, ps_type=ErrorCategoryInfo),
             PSNoteProperty('TargetObject'),
-            PSNoteProperty('InvocationInfo'),
             PSNoteProperty('FullyQualifiedErrorId', ps_type=PSString),
-            PSNoteProperty('ErrorCategory_Category', ps_type=PSInt),  # This is an ErrorCategory but serialized as Int.
-            PSNoteProperty('ErrorCategory_Activity', ps_type=PSString),
-            PSNoteProperty('ErrorCategory_Reason', ps_type=PSString),
-            PSNoteProperty('ErrorCategory_TargetName', ps_type=PSString),
-            PSNoteProperty('ErrorCategory_TargetType', ps_type=PSString),
-            PSNoteProperty('ErrorCategory_Message', optional=True, ps_type=PSString),
-            PSNoteProperty('ErrorDetails_Message', optional=True, ps_type=PSString),
-            PSNoteProperty('ErrorDetails_RecommendedAction', optional=True, ps_type=PSString),
-            PSNoteProperty('ErrorDetails_ScriptStackTrace', optional=True, ps_type=PSString),
-            PSNoteProperty('SerializeExtendedInfo', value=False, ps_type=PSBool),
-            PSNoteProperty('PipelineIterationInfo', optional=True, ps_type=PSGenericList[PSInt]),
-            # InvocationInfo-specific Extended Properties
-            PSNoteProperty('InvocationInfo_InvocationName', optional=True, ps_type=PSString),
-            PSNoteProperty('InvocationInfo_BoundParameters', optional=True, ps_type=PSDict),
-            PSNoteProperty('InvocationInfo_UnboundArguments', optional=True, ps_type=PSList),
-            PSNoteProperty('InvocationInfo_CommandOrigin', optional=True, ps_type=CommandOrigin),
-            PSNoteProperty('InvocationInfo_ExpectingInput', optional=True, ps_type=PSBool),
-            PSNoteProperty('InvocationInfo_Line', optional=True, ps_type=PSString),
-            PSNoteProperty('InvocationInfo_OffsetInLine', optional=True, ps_type=PSInt),
-            PSNoteProperty('InvocationInfo_PositionMessage', optional=True, ps_type=PSString),
-            PSNoteProperty('InvocationInfo_ScriptName', optional=True, ps_type=PSString),
-            PSNoteProperty('InvocationInfo_ScriptLineNumber', optional=True, ps_type=PSInt),
-            PSNoteProperty('InvocationInfo_HistoryId', optional=True, ps_type=PSInt64),
-            PSNoteProperty('InvocationInfo_PipelineLength', optional=True, ps_type=PSInt),
-            PSNoteProperty('InvocationInfo_PipelinePosition', optional=True, ps_type=PSInt),
-            PSNoteProperty('InvocationInfo_PipelineIterationInfo', optional=True, ps_type=PSGenericList[PSInt]),
-            PSNoteProperty('InvocationInfo_PSScriptRoot', optional=True, ps_type=PSString),
-            PSNoteProperty('InvocationInfo_PSCommandPath', optional=True, ps_type=PSString),
+            PSNoteProperty('InvocationInfo', ps_type=InvocationInfo),
+            PSNoteProperty('ErrorDetails', ps_type=ErrorDetails),
+            PSNoteProperty('PipelineIterationInfo', ps_type=PSGenericList[PSInt]),
+            PSNoteProperty('ScriptStackTrace', ps_type=PSString)
         ],
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.serialize_extended_info = False
+
+    def __str__(self):
+        if self.ErrorDetails and self.ErrorDetails.Message:
+            return self.ErrorDetails.Message
+
+        else:
+            return self.Exception.Message
+
+    @classmethod
+    def FromPSObjectForRemoting(
+            cls,
+            obj: PSObject,
+    ) -> 'ErrorRecord':
+        category_info = ErrorCategoryInfo(
+            Category=ErrorCategory(obj.ErrorCategory_Category),
+            Activity=obj.ErrorCategory_Activity,
+            Reason=obj.ErrorCategory_Reason,
+            TargetName=obj.ErrorCategory_TargetName,
+            TargetType=obj.ErrorCategory_TargetType,
+        )
+        category_info.PSObject.to_string = obj.ErrorCategory_Message
+
+        error_details = None
+        error_details_message = getattr(obj, 'ErrorDetails_Message', None)
+        error_details_action = getattr(obj, 'ErrorDetails_RecommendedAction', None)
+        if error_details_message or error_details_action:
+            error_details = ErrorDetails(
+                Message=error_details_message,
+                RecommendedAction=error_details_action,
+            )
+
+        # Technically PowerShell wraps the exception in a RemoteException class which contains
+        # 'SerializedRemoteException' and 'SerializedRemoteInvocationInfo'. To make things simple we just use the
+        # serialized exception as the actual Exception value and add the invocation info to that.
+        add_note_property(obj.Exception, 'SerializedRemoteInvocationInfo', obj.InvocationInfo)
+
+        invocation_info = None
+        pipeline_iteration_info = None
+        if obj.SerializeExtendedInfo:
+            pipeline_iteration_info = obj.PipelineIterationInfo
+            invocation_info = _invocation_info_from_ps_object(obj)
+
+        record = cls(
+            Exception=obj.Exception,
+            TargetObject=obj.TargetObject,
+            FullyQualifiedErrorId=obj.FullyQualifiedErrorId,
+            InvocationInfo=invocation_info,
+            CategoryInfo=category_info,
+            ErrorDetails=error_details,
+            PipelineIterationInfo=pipeline_iteration_info,
+            ScriptStackTrace=getattr(obj, 'ErrorDetails_ScriptStackTrace', None)
+        )
+        record.serialize_extended_info = obj.SerializeExtendedInfo
+        return record
+
+    @classmethod
+    def ToPSObjectForRemoting(
+            cls,
+            instance: 'ErrorRecord',
+            obj: PSObject,
+    ):
+        add_note_property(obj, 'Exception', instance.Exception)
+        add_note_property(obj, 'TargetObject', instance.TargetObject)
+        add_note_property(obj, 'FullyQualifiedErrorId', instance.FullyQualifiedErrorId)
+        add_note_property(obj, 'InvocationInfo', instance.InvocationInfo)
+        add_note_property(obj, 'ErrorCategory_Category', int(instance.CategoryInfo.Category))
+        add_note_property(obj, 'ErrorCategory_Activity', instance.CategoryInfo.Activity)
+        add_note_property(obj, 'ErrorCategory_Reason', instance.CategoryInfo.Reason)
+        add_note_property(obj, 'ErrorCategory_TargetName', instance.CategoryInfo.TargetName)
+        add_note_property(obj, 'ErrorCategory_TargetType', instance.CategoryInfo.TargetType)
+        add_note_property(obj, 'ErrorCategory_Message', str(instance.CategoryInfo))
+
+        if instance.ErrorDetails:
+            add_note_property(obj, 'ErrorDetails_Message', instance.ErrorDetails.Message)
+            add_note_property(obj, 'ErrorDetails_RecommendedAction', instance.ErrorDetails.RecommendedAction)
+
+        if instance.ScriptStackTrace:
+            add_note_property(obj, 'ErrorDetails_ScriptStackTrace', instance.ScriptStackTrace)
+
+        if instance.serialize_extended_info and instance.InvocationInfo:
+            add_note_property(obj, 'SerializeExtendedInfo', True)
+            _invocation_info_to_ps_object(instance.InvocationInfo, obj)
+            add_note_property(obj, 'PipelineIterationInfo', instance.PipelineIterationInfo)
+
+        else:
+            add_note_property(obj, 'SerializeExtendedInfo', False)
 
 
 class InformationalRecord(PSObject):
@@ -1315,6 +1573,13 @@ class InformationalRecord(PSObject):
     properties are documented under `[MS-PSRP] 2.2.3.15.1 InvocationInfo`_.
     This also represents the
     `System.Management.Automation.InformationalRecord`_ .NET type.
+
+    Args:
+        Message: The message writen by the command that created this record.
+        InvocationInfo: The invocation info of the command that created this
+            record.
+        PipelineIterationInfo: The status of the pipeline when this record was
+            created.
 
     .. _[MS-PSRP] 2.2.3.16 InformationalRecord:
         https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/97cad2dc-c34a-4db6-bfa1-cbf196853937
@@ -1330,27 +1595,52 @@ class InformationalRecord(PSObject):
             'System.Management.Automation.InformationalRecord',
             'System.Object',
         ],
-        extended_properties=[
-            PSNoteProperty('InformationalRecord_Message', ps_type=PSString),
-            PSNoteProperty('InformationalRecord_SerializeInvocationInfo', ps_type=PSBool),
-            PSNoteProperty('InformationalRecord_PipelineIterationInfo', ps_type=PSGenericList[PSInt]),
-            # InvocationInfo-specific Extended Properties
-            PSNoteProperty('InvocationInfo_InvocationName', optional=True, ps_type=PSString),
-            PSNoteProperty('InvocationInfo_BoundParameters', optional=True, ps_type=PSDict),
-            PSNoteProperty('InvocationInfo_UnboundArguments', optional=True, ps_type=PSList),
-            PSNoteProperty('InvocationInfo_CommandOrigin', optional=True, ps_type=CommandOrigin),
-            PSNoteProperty('InvocationInfo_ExpectingInput', optional=True, ps_type=PSBool),
-            PSNoteProperty('InvocationInfo_Line', optional=True, ps_type=PSString),
-            PSNoteProperty('InvocationInfo_OffsetInLine', optional=True, ps_type=PSInt),
-            PSNoteProperty('InvocationInfo_PositionMessage', optional=True, ps_type=PSString),
-            PSNoteProperty('InvocationInfo_ScriptName', optional=True, ps_type=PSString),
-            PSNoteProperty('InvocationInfo_ScriptLineNumber', optional=True, ps_type=PSInt),
-            PSNoteProperty('InvocationInfo_HistoryId', optional=True, ps_type=PSInt64),
-            PSNoteProperty('InvocationInfo_PipelineLength', optional=True, ps_type=PSInt),
-            PSNoteProperty('InvocationInfo_PipelinePosition', optional=True, ps_type=PSInt),
-            PSNoteProperty('InvocationInfo_PipelineIterationInfo', optional=True, ps_type=PSGenericList[PSInt]),
+        adapted_properties=[
+            PSNoteProperty('Message', ps_type=PSString),
+            PSNoteProperty('InvocationInfo', ps_type=InvocationInfo),
+            PSNoteProperty('PipelineIterationInfo', ps_type=PSGenericList[PSInt]),
         ],
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.serialize_extended_info = False
+
+    @classmethod
+    def FromPSObjectForRemoting(
+            cls,
+            obj: PSObject,
+    ) -> 'InformationalRecord':
+        invocation_info = None
+        pipeline_iteration_info = None
+        if obj.InformationalRecord_SerializeInvocationInfo:
+            pipeline_iteration_info = obj.InformationalRecord_PipelineIterationInfo
+            invocation_info = _invocation_info_from_ps_object(obj)
+
+        record = cls(
+            Message=obj.InformationalRecord_Message,
+            InvocationInfo=invocation_info,
+            PipelineIterationInfo=pipeline_iteration_info,
+        )
+        record.serialize_extended_info = obj.InformationalRecord_SerializeInvocationInfo
+
+        return record
+
+    @classmethod
+    def ToPSObjectForRemoting(
+            cls,
+            instance: 'ErrorRecord',
+            obj: PSObject,
+    ):
+        add_note_property(obj, 'InformationalRecord_Message', instance.Message)
+
+        if instance.serialize_extended_info and instance.InvocationInfo:
+            add_note_property(obj, 'InformationalRecord_SerializeInvocationInfo', True)
+            _invocation_info_to_ps_object(instance.InvocationInfo, obj)
+            add_note_property(obj, 'InformationalRecord_PipelineIterationInfo', instance.PipelineIterationInfo)
+
+        else:
+            add_note_property(obj, 'InformationalRecord_SerializeInvocationInfo', False)
 
 
 class PSPrimitiveDictionary(PSDict):

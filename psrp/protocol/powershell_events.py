@@ -5,8 +5,8 @@
 import typing
 
 from ..dotnet.complex_types import (
+    ErrorRecord,
     PSInvocationState,
-    PSRPErrorRecord,
     RunspacePoolState,
 )
 
@@ -128,7 +128,7 @@ class PublicKeyRequestEvent(PSRPEvent):
 
 
 class PipelineInputEvent(PSRPEvent):
-    MESSAE_TYPE = PSRPMessageType.PipelineInput
+    MESSAGE_TYPE = PSRPMessageType.PipelineInput
 
 
 class PipelineOutputEvent(PSRPEvent):
@@ -143,7 +143,7 @@ class PipelineStateEvent(PSRPEvent):
         return PSInvocationState(self.ps_object.PipelineState)
 
     @property
-    def reason(self) -> typing.Optional[PSRPErrorRecord]:
+    def reason(self) -> typing.Optional[ErrorRecord]:
         return getattr(self.ps_object, 'ExceptionAsErrorRecord', None)
 
 
@@ -209,7 +209,7 @@ class RunspacePoolStateEvent(PSRPEvent):
         return RunspacePoolState(self.ps_object.RunspaceState)
 
     @property
-    def reason(self) -> typing.Optional[PSRPErrorRecord]:
+    def reason(self) -> typing.Optional[ErrorRecord]:
         return getattr(self.ps_object, 'ExceptionAsErrorRecord', None)
 
 

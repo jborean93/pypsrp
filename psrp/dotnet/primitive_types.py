@@ -94,7 +94,7 @@ def _timedelta_total_nanoseconds(
 
 
 class _PSStringBase(PSObject, str):
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__()
 
@@ -128,7 +128,7 @@ class PSString(_PSStringBase):
         https://docs.microsoft.com/en-us/dotnet/api/system.string?view=net-5.0
     """
     PSObject = PSObjectMeta(['System.String', 'System.Object'], tag='S')
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__()
 

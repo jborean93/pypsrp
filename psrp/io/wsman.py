@@ -276,7 +276,7 @@ class WSManAuth(httpx.Auth):
         b_enc_data = data[4 + header_length:]
 
         return self._context.unwrap_winrm(b_header, b_enc_data)
-       
+
 
 class WSManConnectionBase(metaclass=abc.ABCMeta):
     """The WSManConnection contract.
@@ -288,7 +288,7 @@ class WSManConnectionBase(metaclass=abc.ABCMeta):
         """ Implements 'async with' for the WSMan connection. """
         await self.open()
         return self
-    
+
     def __enter__(self):
         """ Implements 'with' for the WSMan connection. """
         self.open()
@@ -297,7 +297,7 @@ class WSManConnectionBase(metaclass=abc.ABCMeta):
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """ Implements the closing method for 'async with' for the WSMan connection. """
         await self.close()
-        
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """ Implements the closing method for 'with' for the WSMan connection. """
         self.close()
@@ -323,7 +323,7 @@ class WSManConnectionBase(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def open(self):
         """Opens the WSMan connection.
-        
+
         Opens the WSMan connection and sets up the connection for sending any WSMan envelopes.
         """
         pass
@@ -331,7 +331,7 @@ class WSManConnectionBase(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def close(self):
         """Closes the WSMan connection.
-        
+
         Closes the WSMan connection and any sockets/connections that are in use.
         """
         pass
@@ -450,7 +450,7 @@ class AsyncWSManConnection(WSManConnectionBase):
         response = await self._http.post(self.connection_uri.geturl(), content=data, headers={
             'Content-Type': content_type,
         })
-        
+
         content = response.content
         if content:
             content_type = response.headers.get('content-type', '')
@@ -483,7 +483,7 @@ class WSManConnection(WSManConnectionBase):
         self._http.__enter__()
         if self.encrypt:
             self.send(b'')
-    
+
     def close(self):
         pass
 

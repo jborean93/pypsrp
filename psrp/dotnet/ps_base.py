@@ -681,12 +681,12 @@ class _PSMetaType(type):
             # If the class has the default tag, always inherit the base class tag
             if cls.PSObject.tag == 'Obj':
                 cls.PSObject.tag = base_cls.PSObject.tag
-                
+
     def __call__(cls, *args, **kwargs):
         # Skip creating a new object if we are trying to cast to the same type again.
         if len(args) == 1 and type(args[0]) == cls:
             return args[0]
-        
+
         return super().__call__(*args, **kwargs)
 
 
@@ -1120,9 +1120,13 @@ class PSEnumBase(PSObject, metaclass=_PSMetaTypeEnum):
         enum_map = dict((k, v) for k, v in self.__class__.PSObject.enum_map)
 
         return enum_map.get(self, 'Unknown')
-    
+
     def __repr__(self):
-        return f'{self.__class__.__qualname__}.{self!s}'
+        key = str(self)
+        if key == 'None':
+            key = 'none'
+
+        return f'{self.__class__.__name__}.{key}'
 
 
 class PSFlagBase(PSEnumBase):
@@ -1174,9 +1178,9 @@ class PSFlagBase(PSEnumBase):
         return ', '.join(flag_list)
 
     def __repr__(self):
-        type_name = self.__class__.__qualname__
-        flags = str(self).split(', ')
-        
+        type_name = self.__class__.__name__
+        flags = [f if f != 'None' else 'none' for f in str(self).split(', ')]
+
         return ' | '.join([f'{type_name}.{f}' for f in flags])
 
 
@@ -1467,7 +1471,7 @@ def ps_isinstance(
         ignore_deserialized: Whether to treat `Deserialized.*` instances as they would be serialized.
 
     Returns:
-        (bool): Whether the obj is inherited from any of the other types in .NET.
+        bool: Whether the obj is inherited from any of the other types in .NET.
     """
     def strip_deserialized(type_names):
         if not ignore_deserialized:

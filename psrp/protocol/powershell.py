@@ -4,12 +4,19 @@
 
 import base64
 import collections
+import datetime
 import enum
+import getpass
 import os
+import platform
+import struct
+import threading
 import typing
 import uuid
-import struct
-import xml.etree.ElementTree as ElementTree
+
+from xml.etree import (
+    ElementTree,
+)
 
 from .powershell_events import (
     ApplicationPrivateDataEvent,
@@ -50,15 +57,20 @@ from ..dotnet.complex_types import (
     ApartmentState,
     CommandTypes,
     ErrorCategory,
+    ErrorCategoryInfo,
+    ErrorDetails,
+    ErrorRecord,
     HostInfo,
     HostMethodIdentifier,
     InformationalRecord,
+    InvocationInfo,
     NETException,
     PipelineResultTypes,
+    ProgressRecordType,
     PSInvocationState,
+    PSList,
     PSRPCommand,
     PSRPCommandParameter,
-    PSRPErrorRecord,
     PSRPExtraCmds,
     PSRPPipeline,
     PSThreadOptions,
@@ -66,7 +78,7 @@ from ..dotnet.complex_types import (
     RunspacePoolState,
 )
 
-from psrp.protocol.crypto import (
+from psrp.dotnet.crypto import (
     create_keypair,
     encrypt_session_key,
     decrypt_session_key,
@@ -74,6 +86,10 @@ from psrp.protocol.crypto import (
 )
 
 from ..dotnet.primitive_types import (
+    PSDateTime,
+    PSInt,
+    PSString,
+    PSUInt,
     PSVersion,
 )
 
@@ -126,14 +142,12 @@ from ..exceptions import (
 class StreamType(enum.Enum):
     """PSRP Message stream type.
 
-    The PSRP message stream type that defines the priority of a PSRP message. It is up to the connection to interpret
-    these options and convey the priority to the peer in the proper fashion. The current stream types are:
-
-        * default: The default type used for the majority of PSRP messages.
-        * prompt_response: Used for host call/responses PSRP messages.
+    The PSRP message stream type that defines the priority of a PSRP message.
+    It is up to the connection to interpret these options and convey the
+    priority to the peer in the proper fashion.
     """
-    default = enum.auto()
-    prompt_response = enum.auto()
+    default = enum.auto()  #: The default type used for the majority of PSRP messages.
+    prompt_response = enum.auto()  #: Used for host call/responses PSRP messages.
 
 
 class PSRPMessage:
@@ -168,7 +182,7 @@ class PSRPMessage:
 
     def __len__(self) -> int:
         return len(self._data)
-    
+
     @property
     def data(self) -> bytes:
         """ The internal buffer as a byte string. """
@@ -220,7 +234,7 @@ def _create_message(
 
     Creates a PSRP message that encapsulates a PSRP message object. The message structure is defined in
     `MS-PSRP 2.2.1 PowerShell Remoting Protocol Message`_.
-    
+
     Args:
         client: The message is from the client (True) or not (False).
         message_type: The type of message specified by `data`.
@@ -347,7 +361,7 @@ def state_check(
             if isinstance(self, _RunspacePoolBase):
                 runspace = self
                 state_exp = InvalidRunspacePoolState
-                
+
             else:
                 runspace = self.runspace_pool
                 state_exp = InvalidPipelineState
@@ -491,7 +505,7 @@ class _RunspacePoolBase:
         for message in list(self._send_buffer):
             if amount is not None and amount < fragment_size:
                 break
-                
+
             if not current_buffer:
                 stream_type = message.stream_type
                 pipeline_id = message.pipeline_id
@@ -505,7 +519,7 @@ class _RunspacePoolBase:
             else:
                 allowed_length = amount - fragment_size
                 amount -= fragment_size + len(message)
-                
+
             current_buffer += message.fragment(allowed_length)
             if len(message) == 0:
                 self._send_buffer.remove(message)
@@ -542,7 +556,7 @@ class _RunspacePoolBase:
 
         This processes any PSRP data that has been received from the peer. Will return the next PSRP event in the
         receive buffer or raise `RunspacePoolWantRead` if not enough data is available.
-        
+
         Args:
             pipeline_id: Get the next event for the Runspace Pool (`None`) or Pipeline if specified.
             message_type: Get events only for this message type, otherwise all if `None` is specified.
@@ -558,7 +572,7 @@ class _RunspacePoolBase:
             if fragment.fragment_id != len(buffer):
                 raise PSRPError(f'Expecting fragment with a fragment id of {len(buffer)} not {fragment.fragment_id}')
             buffer.append(fragment.data)
-            
+
             if fragment.end:
                 raw_message = _unpack_message(bytearray(b"".join(buffer)))
                 message = PSRPMessage(raw_message.message_type, raw_message.data, raw_message.rpid, raw_message.pid,
@@ -830,7 +844,7 @@ class RunspacePool(_RunspacePoolBase):
             self,
             ci: int,
             return_value: typing.Optional[typing.Any] = None,
-            error_record: typing.Optional[PSRPErrorRecord] = None,
+            error_record: typing.Optional[ErrorRecord] = None,
     ):
         """Respond to a host call.
 
@@ -1254,9 +1268,9 @@ class _ClientPipeline(_PipelineBase[RunspacePool]):
 
 
 class _ServerPipeline(_PipelineBase[ServerRunspacePool]):
-    
+
     @state_check(
-        'Close pipeline',
+        'closing pipeline',
         skip_states=[PSInvocationState.Stopped],
     )
     def close(self):
@@ -1264,6 +1278,11 @@ class _ServerPipeline(_PipelineBase[ServerRunspacePool]):
         self.state = PSInvocationState.Completed
         self._send_state()
 
+    @state_check(
+        'closing pipeline',
+        require_states=[PSInvocationState.Running],
+        skip_states=[PSInvocationState.Stopping, PSInvocationState.Stopped],
+    )
     def stop(self):
         self.state = PSInvocationState.Stopped
 
@@ -1277,16 +1296,16 @@ class _ServerPipeline(_PipelineBase[ServerRunspacePool]):
             'System.SystemException',
         ])
 
-        stopped_error = PSRPErrorRecord(
+        stopped_error = ErrorRecord(
             Exception=exception,
+            CategoryInfo=ErrorCategoryInfo(
+                Category=ErrorCategory.OperationStopped,
+                Reason='PipelineStoppedException',
+            ),
             FullyQualifiedErrorId='PipelineStopped',
-            ErrorCategory_Category=int(ErrorCategory.OperationStopped),
-            ErrorCategory_Reason='PipelineStoppedException',
-            ErrorCategory_Message=f'{ErrorCategory.OperationStopped!s}: (:) [], PipelineStoppedException',
-            SerializeExtendedInfo=False,
         )
         self._send_state(stopped_error)
-        self.close()
+        super().close()
 
     def host_call(
             self,
@@ -1295,51 +1314,227 @@ class _ServerPipeline(_PipelineBase[ServerRunspacePool]):
     ) -> int:
         return self.runspace_pool.host_call(method, parameters, self.pipeline_id)
 
+    @state_check(
+        'writing output record',
+        require_states=[PSInvocationState.Running],
+    )
     def write_output(
             self,
-            value: PSObject,
+            value: typing.Any,
     ):
+        """Write object.
+
+        Write an object to the output stream.
+
+        Args:
+            value: The object to write.
+        """
         self.prepare_message(value, message_type=PSRPMessageType.PipelineOutput)
 
+    @state_check(
+        'writing error record',
+        require_states=[PSInvocationState.Running],
+    )
     def write_error(
             self,
-            value: PSRPErrorRecord,
+            exception: NETException,
+            category_info: typing.Optional[ErrorCategoryInfo] = None,
+            target_object: typing.Any = None,
+            fully_qualified_error_id: typing.Optional[str] = None,
+            error_details: typing.Optional[ErrorDetails] = None,
+            invocation_info: typing.Optional[InvocationInfo] = None,
+            pipeline_iteration_info: typing.Optional[typing.List[typing.Union[PSInt, int]]] = None,
+            script_stack_trace: typing.Optional[str] = None,
+            serialize_extended_info: bool = False,
     ):
+        category_info = category_info or ErrorCategoryInfo()
+
+        value = ErrorRecord(
+            Exception=exception,
+            CategoryInfo=category_info,
+            TargetObject=target_object,
+            FullyQualifiedErrorId=fully_qualified_error_id,
+            InvocationInfo=invocation_info,
+            ErrorDetails=error_details,
+            PipelineIterationInfo=pipeline_iteration_info,
+            ScriptStackTrace=script_stack_trace,
+        )
+        value.serialize_extended_info = serialize_extended_info
         self.prepare_message(value, message_type=PSRPMessageType.ErrorRecord)
 
+    @state_check(
+        'writing debug record',
+        require_states=[PSInvocationState.Running],
+    )
     def write_debug(
             self,
-            value: InformationalRecord,
+            message: typing.Union[str],
+            invocation_info: typing.Optional[InvocationInfo] = None,
+            pipeline_iteration_info: typing.Optional[typing.List[typing.Union[PSInt, int]]] = None,
+            serialize_extended_info: bool = False,
     ):
+        value = InformationalRecord(
+            Message=message,
+            InvocationInfo=invocation_info,
+            PipelineIterationInfo=pipeline_iteration_info,
+        )
+        value.serialize_extended_info = serialize_extended_info
         self.prepare_message(value, message_type=PSRPMessageType.DebugRecord)
 
+    @state_check(
+        'writing verbose record',
+        require_states=[PSInvocationState.Running],
+    )
     def write_verbose(
             self,
-            value: InformationalRecord,
+            message: typing.Union[str],
+            invocation_info: typing.Optional[InvocationInfo] = None,
+            pipeline_iteration_info: typing.Optional[typing.List[typing.Union[PSInt, int]]] = None,
+            serialize_extended_info: bool = False,
     ):
+        value = InformationalRecord(
+            Message=message,
+            InvocationInfo=invocation_info,
+            PipelineIterationInfo=pipeline_iteration_info,
+        )
+        value.serialize_extended_info = serialize_extended_info
         self.prepare_message(value, message_type=PSRPMessageType.VerboseRecord)
 
+    @state_check(
+        'writing warning record',
+        require_states=[PSInvocationState.Running],
+    )
     def write_warning(
             self,
-            value: InformationalRecord,
+            message: typing.Union[str],
+            invocation_info: typing.Optional[InvocationInfo] = None,
+            pipeline_iteration_info: typing.Optional[typing.List[typing.Union[PSInt, int]]] = None,
+            serialize_extended_info: bool = False,
     ):
+        value = InformationalRecord(
+            Message=message,
+            InvocationInfo=invocation_info,
+            PipelineIterationInfo=pipeline_iteration_info,
+        )
+        value.serialize_extended_info = serialize_extended_info
         self.prepare_message(value, message_type=PSRPMessageType.WarningRecord)
 
+    @state_check(
+        'writing progress record',
+        require_states=[PSInvocationState.Running],
+    )
     def write_progress(
             self,
-            value: ProgressRecord,
+            activity: typing.Union[PSString, str],
+            activity_id: typing.Union[PSInt, int],
+            status_description: typing.Union[PSString, str],
+            current_operation: typing.Optional[typing.Union[PSString, str]] = None,
+            parent_activity_id: typing.Union[PSInt, int] = -1,
+            percent_complete: typing.Union[PSInt, int] = -1,
+            record_type: ProgressRecordType = ProgressRecordType.Processing,
+            seconds_remaining: typing.Union[PSInt, int] = -1,
     ):
+        """Write a progress record.
+
+        Writes a progress record to send to the client.
+
+        Args:
+            activity: The description of the activity for which progress is
+                being reported.
+            activity_id: The Id of the activity to which this record
+                corresponds. Used as a key for linking of subordinate
+                activities.
+            status_description: Current status of the operation, e.g.
+                "35 of 50 items copied.".
+            current_operation: Current operation of the many required to
+                accomplish the activity, e.g. "copying foo.txt".
+            parent_activity_id: The Id of the activity for which this record is
+                a subordinate.
+            percent_complete: The estimate of the percentage of total work for
+                the activity that is completed. Set to a negative value to
+                indicate that the percentage completed should not be displayed.
+            record_type: The type of record represented.
+            seconds_remaining: The estimate of time remaining until this
+                activity is completed. Set to a negative value to indicate that
+                the seconds remaining should not be displayed.
+        """
+        value = ProgressRecord(
+            Activity=activity,
+            ActivityId=activity_id,
+            StatusDescription=status_description,
+            CurrentOperation=current_operation,
+            ParentActivityId=parent_activity_id,
+            PercentComplete=percent_complete,
+            Type=record_type,
+            SecondsRemaining=seconds_remaining,
+        )
         self.prepare_message(value, message_type=PSRPMessageType.ProgressRecord)
 
+    @state_check(
+        'writing information record',
+        require_states=[PSInvocationState.Running],
+        require_version=PSVersion('2.3'),
+    )
     def write_information(
             self,
-            value: InformationRecord,
+            message_data: typing.Any,
+            source: typing.Union[PSString, str],
+            time_generated: typing.Optional[typing.Union[PSDateTime, datetime.datetime]] = None,
+            tags: typing.Optional[PSList[PSString, str]] = None,
+            user: typing.Optional[typing.Union[PSString, str]] = None,
+            computer: typing.Optional[typing.Union[PSString, str]] = None,
+            process_id: typing.Optional[typing.Union[PSUInt, int]] = None,
+            native_thread_id: typing.Optional[typing.Union[PSUInt, int]] = None,
+            managed_thread_id: typing.Union[PSUInt, int] = None,
     ):
+        """Write an information record.
+
+        Writes an information record to send to the client.
+
+        Note:
+            This requires ProtocolVersion 2.3 (PowerShell 5.1+).
+
+        Args:
+            message_data: Data for this record.
+            source: The source of this record, e.g. script path, function name,
+                etc.
+            time_generated: The time the record was generated, will default to
+                now if not specified.
+            tags: Tags associated with the record, if any.
+            user: The user that generated the record, defaults to the current
+                user.
+            computer: The computer that generated the record, defaults to the
+                current computer.
+            process_id: The process that generated the record, defaults to the
+                current process.
+            native_thread_id: The native thread that generated the record,
+                defaults to the current thread.
+            managed_thread_id: The managed thread that generated the record,
+                defaults to 0.
+        """
+        time_generated = PSDateTime.now() if time_generated is None else time_generated
+        tags = tags or []
+        user = getpass.getuser() if user is None else user
+        computer = platform.node() if computer is None else computer
+        process_id = os.getpid() if process_id is None else process_id
+        native_thread_id = threading.get_native_id() if native_thread_id is None else native_thread_id
+
+        value = InformationRecord(
+            MessageData=message_data,
+            Source=source,
+            TimeGenerated=time_generated,
+            Tags=tags,
+            User=user,
+            Computer=computer,
+            ProcessId=process_id or 0,
+            NativeThreadId=native_thread_id or 0,
+            ManagedThreadId=managed_thread_id or 0,
+        )
         self.prepare_message(value, message_type=PSRPMessageType.InformationRecord)
-        
+
     def _send_state(
             self,
-            error_record: typing.Optional[PSRPErrorRecord] = None,
+            error_record: typing.Optional[ErrorRecord] = None,
     ):
         state = PipelineState(
             PipelineState=int(self.state),

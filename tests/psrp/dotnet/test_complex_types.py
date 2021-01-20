@@ -1519,6 +1519,460 @@ def test_psrp_pipeline_extra_args():
     assert value.RedirectShellErrorOutputPipe is None
 
 
+def test_error_record_plain():
+    value = complex_types.ErrorRecord(
+        Exception=complex_types.NETException('Exception'),
+        CategoryInfo=complex_types.ErrorCategoryInfo(),
+    )
+    
+    assert value.Exception.Message == 'Exception'
+    assert str(value) == 'Exception'
+    assert value.CategoryInfo.Category == complex_types.ErrorCategory.NotSpecified
+    assert value.CategoryInfo.Activity is None
+    assert value.CategoryInfo.Reason is None
+    assert value.CategoryInfo.TargetName is None
+    assert value.CategoryInfo.TargetType is None
+    assert value.TargetObject is None
+    assert value.FullyQualifiedErrorId is None
+    assert value.InvocationInfo is None
+    assert value.ErrorDetails is None
+    assert value.PipelineIterationInfo is None
+    assert value.ScriptStackTrace is None
+    
+    element = serialize(value)
+    actual = ElementTree.tostring(element, encoding='utf-8').decode()
+    assert actual == '<Obj RefId="0">' \
+                     '<TN RefId="0">' \
+                     '<T>System.Management.Automation.ErrorRecord</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<MS>' \
+                     '<Obj RefId="1" N="Exception">' \
+                     '<TN RefId="1">' \
+                     '<T>System.Exception</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN><Props>' \
+                     '<S N="Message">Exception</S>' \
+                     '<Nil N="Data" />' \
+                     '<Nil N="HelpLink" />' \
+                     '<Nil N="HResult" />' \
+                     '<Nil N="InnerException" />' \
+                     '<Nil N="Source" />' \
+                     '<Nil N="StackTrace" />' \
+                     '<Nil N="TargetSite" />' \
+                     '</Props></Obj>' \
+                     '<Nil N="TargetObject" />' \
+                     '<Nil N="FullyQualifiedErrorId" />' \
+                     '<Nil N="InvocationInfo" />' \
+                     '<I32 N="ErrorCategory_Category">0</I32>' \
+                     '<Nil N="ErrorCategory_Activity" />' \
+                     '<Nil N="ErrorCategory_Reason" />' \
+                     '<Nil N="ErrorCategory_TargetName" />' \
+                     '<Nil N="ErrorCategory_TargetType" />' \
+                     '<S N="ErrorCategory_Message">NotSpecified (:) [], </S>' \
+                     '<B N="SerializeExtendedInfo">false</B>' \
+                     '</MS>' \
+                     '<ToString>Exception</ToString>' \
+                     '</Obj>'
+    
+    value = deserialize(element)
+
+    assert isinstance(value, complex_types.ErrorRecord)
+    assert value.serialize_extended_info is False
+    assert value.Exception.Message == 'Exception'
+    assert str(value) == 'Exception'
+    assert isinstance(value.CategoryInfo, complex_types.ErrorCategoryInfo)
+    assert value.CategoryInfo.Category == complex_types.ErrorCategory.NotSpecified
+    assert value.CategoryInfo.Activity is None
+    assert value.CategoryInfo.Reason is None
+    assert value.CategoryInfo.TargetName is None
+    assert value.CategoryInfo.TargetType is None
+    assert value.TargetObject is None
+    assert value.FullyQualifiedErrorId is None
+    assert value.InvocationInfo is None
+    assert value.ErrorDetails is None
+    assert value.PipelineIterationInfo is None
+    assert value.ScriptStackTrace is None
+
+
+def test_error_record_with_error_details():
+    value = complex_types.ErrorRecord(
+        Exception=complex_types.NETException('Exception'),
+        CategoryInfo=complex_types.ErrorCategoryInfo(
+            Category=complex_types.ErrorCategory.CloseError,
+            Activity='Closing a file',
+            Reason='File is locked',
+        ),
+        TargetObject='C:\\temp\\file.txt',
+        FullyQualifiedErrorId='CloseError',
+        ErrorDetails=complex_types.ErrorDetails(
+            Message='Error Detail Message',
+        ),
+        ScriptStackTrace='At <1>MyScript.ps1',
+    )
+    
+    assert value.Exception.Message == 'Exception'
+    assert str(value) == 'Error Detail Message'
+    assert value.CategoryInfo.Category == complex_types.ErrorCategory.CloseError
+    assert value.CategoryInfo.Activity == 'Closing a file'
+    assert value.CategoryInfo.Reason == 'File is locked'
+    assert value.CategoryInfo.TargetName is None
+    assert value.CategoryInfo.TargetType is None
+    assert value.TargetObject == 'C:\\temp\\file.txt'
+    assert value.FullyQualifiedErrorId == 'CloseError'
+    assert value.InvocationInfo is None
+    assert value.ErrorDetails.Message == 'Error Detail Message'
+    assert value.ErrorDetails.RecommendedAction is None
+    assert value.PipelineIterationInfo is None
+    assert value.ScriptStackTrace == 'At <1>MyScript.ps1'
+    
+    element = serialize(value)
+    actual = ElementTree.tostring(element, encoding='utf-8').decode()
+    assert actual == '<Obj RefId="0">' \
+                     '<TN RefId="0">' \
+                     '<T>System.Management.Automation.ErrorRecord</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<MS>' \
+                     '<Obj RefId="1" N="Exception">' \
+                     '<TN RefId="1">' \
+                     '<T>System.Exception</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<Props>' \
+                     '<S N="Message">Exception</S>' \
+                     '<Nil N="Data" />' \
+                     '<Nil N="HelpLink" />' \
+                     '<Nil N="HResult" />' \
+                     '<Nil N="InnerException" />' \
+                     '<Nil N="Source" />' \
+                     '<Nil N="StackTrace" />' \
+                     '<Nil N="TargetSite" />' \
+                     '</Props>' \
+                     '</Obj>' \
+                     '<S N="TargetObject">C:\\temp\\file.txt</S>' \
+                     '<S N="FullyQualifiedErrorId">CloseError</S>' \
+                     '<Nil N="InvocationInfo" />' \
+                     '<I32 N="ErrorCategory_Category">2</I32>' \
+                     '<S N="ErrorCategory_Activity">Closing a file</S>' \
+                     '<S N="ErrorCategory_Reason">File is locked</S>' \
+                     '<Nil N="ErrorCategory_TargetName" />' \
+                     '<Nil N="ErrorCategory_TargetType" />' \
+                     '<S N="ErrorCategory_Message">CloseError (:) [Closing a file], File is locked</S>' \
+                     '<S N="ErrorDetails_Message">Error Detail Message</S>' \
+                     '<Nil N="ErrorDetails_RecommendedAction" />' \
+                     '<S N="ErrorDetails_ScriptStackTrace">At &lt;1&gt;MyScript.ps1</S>' \
+                     '<B N="SerializeExtendedInfo">false</B>' \
+                     '</MS>' \
+                     '<ToString>Error Detail Message</ToString>' \
+                     '</Obj>'
+
+    value = deserialize(element)
+
+    assert isinstance(value, complex_types.ErrorRecord)
+    assert value.serialize_extended_info is False
+    assert value.Exception.Message == 'Exception'
+    assert str(value) == 'Error Detail Message'
+    assert value.CategoryInfo.Category == complex_types.ErrorCategory.CloseError
+    assert value.CategoryInfo.Activity == 'Closing a file'
+    assert value.CategoryInfo.Reason == 'File is locked'
+    assert value.CategoryInfo.TargetName is None
+    assert value.CategoryInfo.TargetType is None
+    assert value.TargetObject == 'C:\\temp\\file.txt'
+    assert value.FullyQualifiedErrorId == 'CloseError'
+    assert value.InvocationInfo is None
+    assert value.ErrorDetails.Message == 'Error Detail Message'
+    assert value.ErrorDetails.RecommendedAction is None
+    assert value.PipelineIterationInfo is None
+    assert value.ScriptStackTrace == 'At <1>MyScript.ps1'
+
+
+def test_error_record_with_invocation_info():
+    value = complex_types.ErrorRecord(
+        Exception=complex_types.NETException('Exception'),
+        CategoryInfo=complex_types.ErrorCategoryInfo(),
+        InvocationInfo=complex_types.InvocationInfo(
+            BoundParameters=complex_types.PSDict(Path='C:\\temp\\file.txt'),
+            CommandOrigin=complex_types.CommandOrigin.Runspace,
+            ExpectingInput=False,
+            HistoryId=10,
+            InvocationName='Remove-Item',
+            Line=10,
+            OffsetInLine=20,
+            PipelineLength=30,
+            PipelinePosition=40,
+            PositionMessage='position message',
+            UnboundArguments=[True],
+        ),
+        PipelineIterationInfo=['1'],
+    )
+
+    assert value.Exception.Message == 'Exception'
+    assert str(value) == 'Exception'
+    assert value.CategoryInfo.Category == complex_types.ErrorCategory.NotSpecified
+    assert value.CategoryInfo.Activity is None
+    assert value.CategoryInfo.Reason is None
+    assert value.CategoryInfo.TargetName is None
+    assert value.CategoryInfo.TargetType is None
+    assert value.TargetObject is None
+    assert value.FullyQualifiedErrorId is None
+    assert value.InvocationInfo.BoundParameters == {'Path': 'C:\\temp\\file.txt'}
+    assert value.InvocationInfo.CommandOrigin == complex_types.CommandOrigin.Runspace
+    assert value.InvocationInfo.DisplayScriptPosition is None
+    assert value.InvocationInfo.ExpectingInput is False
+    assert value.InvocationInfo.HistoryId == 10
+    assert value.InvocationInfo.InvocationName == 'Remove-Item'
+    assert value.InvocationInfo.Line == '10'
+    assert value.InvocationInfo.MyCommand is None
+    assert value.InvocationInfo.OffsetInLine == 20
+    assert value.InvocationInfo.PSCommandPath is None
+    assert value.InvocationInfo.PSScriptRoot is None
+    assert value.InvocationInfo.PipelineLength == 30
+    assert value.InvocationInfo.PipelinePosition == 40
+    assert value.InvocationInfo.PositionMessage == 'position message'
+    assert value.InvocationInfo.ScriptLineNumber is None
+    assert value.InvocationInfo.ScriptName is None
+    assert value.InvocationInfo.UnboundArguments == [True]
+    assert value.ErrorDetails is None
+    assert value.PipelineIterationInfo == [1]
+    assert value.ScriptStackTrace is None
+
+    element = serialize(value)
+    actual = ElementTree.tostring(element, encoding='utf-8').decode()
+    assert actual == '<Obj RefId="0">' \
+                     '<TN RefId="0">' \
+                     '<T>System.Management.Automation.ErrorRecord</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<MS>' \
+                     '<Obj RefId="1" N="Exception">' \
+                     '<TN RefId="1"><T>System.Exception</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN><Props>' \
+                     '<S N="Message">Exception</S>' \
+                     '<Nil N="Data" />' \
+                     '<Nil N="HelpLink" />' \
+                     '<Nil N="HResult" />' \
+                     '<Nil N="InnerException" />' \
+                     '<Nil N="Source" />' \
+                     '<Nil N="StackTrace" />' \
+                     '<Nil N="TargetSite" />' \
+                     '</Props>' \
+                     '</Obj>' \
+                     '<Nil N="TargetObject" />' \
+                     '<Nil N="FullyQualifiedErrorId" />' \
+                     '<Obj RefId="2" N="InvocationInfo">' \
+                     '<TN RefId="2">' \
+                     '<T>System.Management.Automation.InvocationInfo</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<Props>' \
+                     '<Obj RefId="3" N="BoundParameters">' \
+                     '<TN RefId="3">' \
+                     '<T>System.Collections.Hashtable</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<DCT>' \
+                     '<En><S N="Key">Path</S><S N="Value">C:\\temp\\file.txt</S></En>' \
+                     '</DCT>' \
+                     '</Obj>' \
+                     '<Obj RefId="4" N="CommandOrigin">' \
+                     '<I32>0</I32>' \
+                     '<TN RefId="4">' \
+                     '<T>System.Management.Automation.CommandOrigin</T>' \
+                     '<T>System.Enum</T>' \
+                     '<T>System.ValueType</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<ToString>Runspace</ToString>' \
+                     '</Obj>' \
+                     '<Nil N="DisplayScriptPosition" />' \
+                     '<B N="ExpectingInput">false</B>' \
+                     '<I64 N="HistoryId">10</I64>' \
+                     '<S N="InvocationName">Remove-Item</S>' \
+                     '<S N="Line">10</S>' \
+                     '<Nil N="MyCommand" />' \
+                     '<I32 N="OffsetInLine">20</I32>' \
+                     '<I32 N="PipelineLength">30</I32>' \
+                     '<I32 N="PipelinePosition">40</I32>' \
+                     '<S N="PositionMessage">position message</S>' \
+                     '<Nil N="PSCommandPath" />' \
+                     '<Nil N="PSScriptRoot" />' \
+                     '<Nil N="ScriptLineNumber" />' \
+                     '<Nil N="ScriptName" />' \
+                     '<Obj RefId="5" N="UnboundArguments">' \
+                     '<TN RefId="5">' \
+                     '<T>System.Collections.ArrayList</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<LST>' \
+                     '<B>true</B>' \
+                     '</LST>' \
+                     '</Obj>' \
+                     '</Props>' \
+                     '</Obj>' \
+                     '<I32 N="ErrorCategory_Category">0</I32' \
+                     '><Nil N="ErrorCategory_Activity" />' \
+                     '<Nil N="ErrorCategory_Reason" />' \
+                     '<Nil N="ErrorCategory_TargetName" />' \
+                     '<Nil N="ErrorCategory_TargetType" />' \
+                     '<S N="ErrorCategory_Message">NotSpecified (:) [], </S>' \
+                     '<B N="SerializeExtendedInfo">false</B>' \
+                     '</MS>' \
+                     '<ToString>Exception</ToString>' \
+                     '</Obj>'
+
+    value.serialize_extended_info = True
+    element = serialize(value)
+    actual = ElementTree.tostring(element, encoding='utf-8').decode()
+    assert actual == '<Obj RefId="0">' \
+                     '<TN RefId="0">' \
+                     '<T>System.Management.Automation.ErrorRecord</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<MS>' \
+                     '<Obj RefId="1" N="Exception">' \
+                     '<TN RefId="1"><T>System.Exception</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN><Props>' \
+                     '<S N="Message">Exception</S>' \
+                     '<Nil N="Data" />' \
+                     '<Nil N="HelpLink" />' \
+                     '<Nil N="HResult" />' \
+                     '<Nil N="InnerException" />' \
+                     '<Nil N="Source" />' \
+                     '<Nil N="StackTrace" />' \
+                     '<Nil N="TargetSite" />' \
+                     '</Props>' \
+                     '</Obj>' \
+                     '<Nil N="TargetObject" />' \
+                     '<Nil N="FullyQualifiedErrorId" />' \
+                     '<Obj RefId="2" N="InvocationInfo">' \
+                     '<TN RefId="2">' \
+                     '<T>System.Management.Automation.InvocationInfo</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<Props>' \
+                     '<Obj RefId="3" N="BoundParameters">' \
+                     '<TN RefId="3">' \
+                     '<T>System.Collections.Hashtable</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<DCT>' \
+                     '<En><S N="Key">Path</S><S N="Value">C:\\temp\\file.txt</S></En>' \
+                     '</DCT>' \
+                     '</Obj>' \
+                     '<Obj RefId="4" N="CommandOrigin">' \
+                     '<I32>0</I32>' \
+                     '<TN RefId="4">' \
+                     '<T>System.Management.Automation.CommandOrigin</T>' \
+                     '<T>System.Enum</T>' \
+                     '<T>System.ValueType</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<ToString>Runspace</ToString>' \
+                     '</Obj>' \
+                     '<Nil N="DisplayScriptPosition" />' \
+                     '<B N="ExpectingInput">false</B>' \
+                     '<I64 N="HistoryId">10</I64>' \
+                     '<S N="InvocationName">Remove-Item</S>' \
+                     '<S N="Line">10</S>' \
+                     '<Nil N="MyCommand" />' \
+                     '<I32 N="OffsetInLine">20</I32>' \
+                     '<I32 N="PipelineLength">30</I32>' \
+                     '<I32 N="PipelinePosition">40</I32>' \
+                     '<S N="PositionMessage">position message</S>' \
+                     '<Nil N="PSCommandPath" />' \
+                     '<Nil N="PSScriptRoot" />' \
+                     '<Nil N="ScriptLineNumber" />' \
+                     '<Nil N="ScriptName" />' \
+                     '<Obj RefId="5" N="UnboundArguments">' \
+                     '<TN RefId="5">' \
+                     '<T>System.Collections.ArrayList</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<LST>' \
+                     '<B>true</B>' \
+                     '</LST>' \
+                     '</Obj>' \
+                     '</Props>' \
+                     '</Obj>' \
+                     '<I32 N="ErrorCategory_Category">0</I32' \
+                     '><Nil N="ErrorCategory_Activity" />' \
+                     '<Nil N="ErrorCategory_Reason" />' \
+                     '<Nil N="ErrorCategory_TargetName" />' \
+                     '<Nil N="ErrorCategory_TargetType" />' \
+                     '<S N="ErrorCategory_Message">NotSpecified (:) [], </S>' \
+                     '<B N="SerializeExtendedInfo">true</B>' \
+                     '<Ref RefId="3" N="InvocationInfo_BoundParameters" />' \
+                     '<Ref RefId="4" N="InvocationInfo_CommandOrigin" />' \
+                     '<B N="InvocationInfo_ExpectingInput">false</B>' \
+                     '<S N="InvocationInfo_InvocationName">Remove-Item</S>' \
+                     '<S N="InvocationInfo_Line">10</S>' \
+                     '<I32 N="InvocationInfo_OffsetInLine">20</I32>' \
+                     '<I64 N="InvocationInfo_HistoryId">10</I64>' \
+                     '<Obj RefId="6" N="InvocationInfo_PipelineIterationInfo">' \
+                     '<TNRef RefId="5" /><LST />' \
+                     '</Obj>' \
+                     '<I32 N="InvocationInfo_PipelineLength">30</I32>' \
+                     '<I32 N="InvocationInfo_PipelinePosition">40</I32>' \
+                     '<Nil N="InvocationInfo_PSScriptRoot" />' \
+                     '<Nil N="InvocationInfo_PSCommandPath" />' \
+                     '<S N="InvocationInfo_PositionMessage">position message</S>' \
+                     '<Nil N="InvocationInfo_ScriptLineNumber" />' \
+                     '<Nil N="InvocationInfo_ScriptName" />' \
+                     '<Ref RefId="5" N="InvocationInfo_UnboundArguments" />' \
+                     '<B N="SerializeExtent">false</B>' \
+                     '<Obj RefId="7" N="PipelineIterationInfo">' \
+                     '<TN RefId="6">' \
+                     '<T>System.Collections.Generic.List`1[[System.Int32]]</T>' \
+                     '<T>System.Object</T>' \
+                     '</TN>' \
+                     '<LST><I32>1</I32></LST>' \
+                     '</Obj>' \
+                     '</MS>' \
+                     '<ToString>Exception</ToString>' \
+                     '</Obj>'
+    
+    value = deserialize(element)
+
+    assert isinstance(value, complex_types.ErrorRecord)
+    assert str(value) == 'Exception'
+    assert value.serialize_extended_info is True
+    assert value.Exception.Message == 'Exception'
+
+    # The exception contains the original invocation info and so doesn't have the re-computed values.
+    assert isinstance(value.Exception.SerializedRemoteInvocationInfo, complex_types.InvocationInfo)
+    assert value.Exception.SerializedRemoteInvocationInfo.PositionMessage == 'position message'
+    assert value.CategoryInfo.Category == complex_types.ErrorCategory.NotSpecified
+    assert value.CategoryInfo.Activity is None
+    assert value.CategoryInfo.Reason is None
+    assert value.CategoryInfo.TargetName is None
+    assert value.CategoryInfo.TargetType is None
+    assert value.TargetObject is None
+    assert value.FullyQualifiedErrorId is None
+    assert value.InvocationInfo.BoundParameters == {'Path': 'C:\\temp\\file.txt'}
+    assert value.InvocationInfo.CommandOrigin == complex_types.CommandOrigin.Runspace
+    assert value.InvocationInfo.DisplayScriptPosition is None
+    assert value.InvocationInfo.ExpectingInput is False
+    assert value.InvocationInfo.HistoryId == 10
+    assert value.InvocationInfo.InvocationName == 'Remove-Item'
+    assert value.InvocationInfo.Line == '10'
+    assert value.InvocationInfo.MyCommand is None
+    assert value.InvocationInfo.OffsetInLine == 20
+    assert value.InvocationInfo.PSCommandPath is None
+    assert value.InvocationInfo.PSScriptRoot is None
+    assert value.InvocationInfo.PipelineLength == 30
+    assert value.InvocationInfo.PipelinePosition == 40
+    assert value.InvocationInfo.PositionMessage is None  # Haven't fully implemented these fields.
+    assert value.InvocationInfo.ScriptLineNumber is None
+    assert value.InvocationInfo.ScriptName is None
+    assert value.InvocationInfo.UnboundArguments == [True]
+    assert value.ErrorDetails is None
+    assert value.PipelineIterationInfo == [1]
+    assert value.ScriptStackTrace is None
+
+
 def test_ps_primitive_dictionary():
     prim_dict = complex_types.PSPrimitiveDictionary({
         'key': 'value',

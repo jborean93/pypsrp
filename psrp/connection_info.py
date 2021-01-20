@@ -93,7 +93,7 @@ class ConnectionInfo:
         if cls in [ConnectionInfo, AsyncConnectionInfo]:
             raise TypeError(f'Type {cls.__qualname__} cannot be instantiated; it can be used only as a base class for '
                             f'PSRP connection implementations.')
-        
+
         return super().__new__(cls)
 
     def __init__(
@@ -170,7 +170,7 @@ class ConnectionInfo:
     ################
     # PSRP Methods #
     ################
-    
+
     def command(
             self,
             pipeline_id: str,
@@ -341,7 +341,7 @@ class AsyncConnectionInfo(ConnectionInfo):
 
 
 class AsyncProcessInfo(AsyncConnectionInfo):
-    
+
     def __init__(
             self,
             executable: str = 'pwsh',
@@ -357,7 +357,7 @@ class AsyncProcessInfo(AsyncConnectionInfo):
         self._process = AsyncProcess(self.executable, self.arguments)
         self._listen_task = None
         self._response_events = _AsyncMessageEvent()
-        
+
     async def wait_event(
             self,
             pipeline_id: typing.Optional[str] = None,
@@ -372,7 +372,7 @@ class AsyncProcessInfo(AsyncConnectionInfo):
     async def start(self):
         await self._process.open()
         self._listen_task = asyncio_create_task(self._listen())
-        
+
     async def stop(self):
         await self._process.close()
         self._listen_task.cancel()
@@ -424,7 +424,7 @@ class AsyncProcessInfo(AsyncConnectionInfo):
             data = await self._process.read()
             if not data:
                 break
-                
+
             packet = ElementTree.fromstring(data)
             data = base64.b64decode(packet.text) if packet.text else None
             ps_guid = packet.attrib['PSGuid'].upper()
@@ -492,7 +492,7 @@ class AsyncWSManInfo(AsyncConnectionInfo):
                             input_streams='stdin pr', output_streams='stdout')
         # FIXME: Calculate dynamically.
         self.fragment_size = 32_768
-        
+
         self._receive_tasks: typing.Dict[typing.Optional[str], typing.Tuple[AsyncWSManConnection, asyncio.Task]] = {}
         self._listen_tasks: typing.List[asyncio.Task] = []
         self._response_events = _AsyncMessageEvent()
@@ -523,7 +523,7 @@ class AsyncWSManInfo(AsyncConnectionInfo):
         if pipeline_id is not None:
             # TODO: This doesn't seem to be needed
             await self.signal(pipeline_id, signal_code=SignalCode.terminate)
-            
+
         else:
             self._winrs.close()
             resp = await self._connection.send(self._winrs.data_to_send())
@@ -540,24 +540,24 @@ class AsyncWSManInfo(AsyncConnectionInfo):
         self._winrs.command('', args=[base64.b64encode(payload.data).decode()], command_id=pipeline_id)
         resp = await self._connection.send(self._winrs.data_to_send())
         self._winrs.receive_data(resp)
-        
+
         await self._create_listener(pipeline_id)
 
     async def create(
             self,
     ):
         payload = self.next_payload()
-        
+
         open_content = ElementTree.Element("creationXml", xmlns="http://schemas.microsoft.com/powershell")
         open_content.text = base64.b64encode(payload.data).decode()
         options = OptionSet()
         options.add_option("protocolversion", self.runspace_pool.our_capability.protocolversion,
                            {"MustComply": "true"})
         self._winrs.open(options, open_content)
-        
+
         resp = await self._connection.send(self._winrs.data_to_send())
         self._winrs.receive_data(resp)
-        
+
         await self._create_listener()
 
     async def send(
@@ -567,7 +567,7 @@ class AsyncWSManInfo(AsyncConnectionInfo):
         payload = self.next_payload(buffer=buffer)
         if not payload:
             return False
-        
+
         stream = 'stdin' if payload.stream_type == StreamType.default else 'pr'
         self._winrs.send(stream, payload.data, command_id=payload.pipeline_id)
         resp = await self._connection.send(self._winrs.data_to_send())

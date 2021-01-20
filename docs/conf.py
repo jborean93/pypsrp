@@ -126,7 +126,8 @@ def autodoc_process_docstring(app, what, name, obj, options, lines):
         else:
             param_type_str = f'{param_type.__module__}.{param_type.__name__}'
 
-        type_line = f':type {param_name}: :obj:`{param_type_str}`'
+        type_line = f':type {param_name}: :obj:`{param_type.__name__} ' \
+                    f'<{param_type_str}>`'
         lines.insert(idx + insertion_offset, type_line)
         insertion_offset += 1
 
@@ -177,7 +178,17 @@ def autodoc_process_signature(app, what, name, obj, options, signature,
 
 def autodoc_skip_member_handler(app, what, name, obj, skip, options):
     # We don't want to document the PSObject class attribute for our types.
-    return skip or name == 'PSObject'
+    return skip or name in [
+        # This is a metadata class for all PSObject types, end users don't need
+        # to know about this for every single class in the codebase.
+        'PSObject',
+        
+        # These 2 methods are used to customize the (de)serialization process
+        # for a specific class. They are not for public use and should not be
+        # documented.
+        'FromPSObjectForRemoting',
+        'ToPSObjectForRemoting',
+    ]
 
 
 def setup(app):

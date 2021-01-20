@@ -26,7 +26,7 @@ from psrp.protocol.wsman import (
 
 class AsyncWinRS:
     """A Windows Remote Shell - Async.
-    
+
     Represents an opened Shell that is managed over WinRM/WSMan. This is the async variant that is designed to run with
     asyncio for faster concurrent operations.
     """
@@ -64,7 +64,7 @@ class AsyncWinRS:
         """ Opens the WinRS shell. """
         self.winrs.open()
         await self._exchange_data()
-        
+
     async def execute(
             self,
             executable: str,
@@ -87,7 +87,7 @@ class AsyncWinRS:
 
 
 class AsyncWinRSProcess:
-    
+
     def __init__(
             self,
             winrs: AsyncWinRS,
@@ -106,27 +106,27 @@ class AsyncWinRSProcess:
         self._state = CommandState.pending
         self._winrs = winrs
         self._receive_task = None
-        
+
     async def __aenter__(self):
         await self.start()
         return self
-    
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.terminate()
         await self._receive_task
         self._receive_task = None
-        
+
     async def poll(
             self,
-    ) -> typing.Optional[int]:        
+    ) -> typing.Optional[int]:
         a = ''
-        
+
     async def wait(
             self,
             timeout: typing.Optional[int] = None,
     ) -> int:
         await self._receive_task
-        
+
     async def communicate(
             self,
             input_data: typing.Optional[bytes] = None,
@@ -134,14 +134,14 @@ class AsyncWinRSProcess:
     ) -> typing.Tuple[bytes, bytes]:
         self.stdin.write(input_data)
         await self.stdin.drain()
-        
+
     async def send_signal(
             self,
             signal: SignalCode,
     ):
         self._winrs.winrs.signal(signal, self._command_id)
         await self._winrs._exchange_data()
-        
+
     async def start(
             self,
     ):
@@ -165,12 +165,12 @@ class AsyncWinRSProcess:
             self,
     ):
         await self.send_signal(SignalCode.terminate)
-        
+
     async def kill(
             self,
     ):
         await self.send_signal(SignalCode.ctrl_c)
-        
+
     async def _receive(
             self,
     ):
@@ -246,7 +246,7 @@ class StdinTransport(asyncio.transports.WriteTransport):
         """
         raise NotImplementedError
 
-            
+
 def _create_inmemory_stream():
     loop = asyncio.events.get_event_loop()
 
@@ -255,5 +255,5 @@ def _create_inmemory_stream():
     transport = StdinTransport(loop, protocol)
     # transport.set_write_buffer_limits(0)  # Make sure .drain() actually sends all the data.
     writer = asyncio.StreamWriter(transport, protocol, reader, loop)
-    
+
     return reader, writer

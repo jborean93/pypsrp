@@ -134,11 +134,11 @@ class PSRPError(Exception):
 
 class MissingCipherError(PSRPError):
     """ Trying to (de)serialize a Secure String but no cipher was provided. """
-    
+
     @property
     def message(self) -> str:
         return 'Cannot (de)serialize a secure string without an exchanged session key'
-    
+
     def __str__(self):
         return self.message
 
@@ -150,7 +150,7 @@ class RunspacePoolWantRead(PSRPError):
 
 class _InvalidState(PSRPError):
     _STATE_OBJ = None
-    
+
     def __init__(
             self,
             action: str,
@@ -183,7 +183,7 @@ class InvalidPipelineState(_InvalidState):
 
 class InvalidProtocolVersion(PSRPError):
     """ The protocolversion of the peer does not meet the required version. """
-    
+
     def __init__(
             self,
             action: str,
@@ -193,7 +193,7 @@ class InvalidProtocolVersion(PSRPError):
         self.action = action
         self.current_version = current_version
         self.required_version = required_version
-        
+
     @property
     def message(self) -> str:
         return f'{self.action} requires a protocol version of {self.required_version}, current version is ' \
