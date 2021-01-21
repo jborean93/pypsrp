@@ -169,6 +169,10 @@ class EnumerateEvent(WSManEvent):
 class EnumerateResponseEvent(WSManEventResponse):
     URI = 'http://schemas.xmlsoap.org/ws/2004/09/enumeration/EnumerateResponse'
 
+    @property
+    def items(self):
+        return self._raw.find('s:Body/wsen:EnumerateResponse/wsman:Items', namespaces=NAMESPACES)
+
 
 class FaultEvent(WSManEventResponse):
     URI = 'http://schemas.dmtf.org/wbem/wsman/1/wsman/fault'

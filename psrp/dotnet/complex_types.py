@@ -1344,8 +1344,8 @@ class ErrorRecord(PSObject):
     def ToPSObjectForRemoting(
             cls,
             instance: 'ErrorRecord',
-            obj: PSObject,
-    ):
+    ) -> PSObject:
+        obj = PSObject()
         add_note_property(obj, 'Exception', instance.Exception)
         add_note_property(obj, 'TargetObject', instance.TargetObject)
         add_note_property(obj, 'FullyQualifiedErrorId', instance.FullyQualifiedErrorId)
@@ -1371,6 +1371,8 @@ class ErrorRecord(PSObject):
 
         else:
             add_note_property(obj, 'SerializeExtendedInfo', False)
+
+        return obj
 
 
 class InformationalRecord(PSObject):
@@ -1440,8 +1442,8 @@ class InformationalRecord(PSObject):
     def ToPSObjectForRemoting(
             cls,
             instance: 'ErrorRecord',
-            obj: PSObject,
     ):
+        obj = PSObject()
         add_note_property(obj, 'InformationalRecord_Message', instance.Message)
 
         if instance.serialize_extended_info and instance.InvocationInfo:
@@ -1451,6 +1453,8 @@ class InformationalRecord(PSObject):
 
         else:
             add_note_property(obj, 'InformationalRecord_SerializeInvocationInfo', False)
+
+        return obj
 
 
 class PSPrimitiveDictionary(PSDict):

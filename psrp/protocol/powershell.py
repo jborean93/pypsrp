@@ -67,6 +67,7 @@ from ..dotnet.complex_types import (
     NETException,
     PipelineResultTypes,
     ProgressRecordType,
+    PSCustomObject,
     PSInvocationState,
     PSList,
     PSThreadOptions,
@@ -83,6 +84,7 @@ from psrp.dotnet.crypto import (
 
 from ..dotnet.primitive_types import (
     PSDateTime,
+    PSGuid,
     PSInt,
     PSString,
     PSUInt,
@@ -120,6 +122,7 @@ from ..dotnet.psrp_messages import (
     SessionCapability,
     SetMaxRunspaces,
     SetMinRunspaces,
+    UserEvent,
 )
 
 from ..dotnet.serializer import (
@@ -622,7 +625,11 @@ class _RunspacePoolBase:
             stream_type: StreamType = StreamType.default
     ):
         """ Adds a PSRP message data action to the send buffer. """
-        b_data = ElementTree.tostring(serialize(message, cipher=self._cipher), encoding='utf-8', method='xml')
+        if isinstance(message, EndOfPipelineInput):
+            b_data = b""  # Special edge case for this particular message type
+        else:
+            b_data = ElementTree.tostring(serialize(message, cipher=self._cipher), encoding='utf-8', method='xml')
+
         if message_type is None:
             message_type = PSRPMessageType(message.PSObject.psrp_message_type)
 
@@ -645,7 +652,13 @@ class _RunspacePoolBase:
             message: PSRPMessage,
     ) -> PSRPEvent:
         """ Process a TransportDataAction data message received from a peer. """
-        ps_object = deserialize(ElementTree.fromstring(message.data), cipher=self._cipher)
+        if not message.data:
+            # Special edge case for EndOfPipelineInput which has no data.
+            ps_object = None
+
+        else:
+            ps_object = deserialize(ElementTree.fromstring(message.data), cipher=self._cipher)
+
         event = PSRPEvent(message.message_type, ps_object, message.runspace_pool_id, message.pipeline_id)
 
         process_func = getattr(self, f'process_{message.message_type.name}', None)
@@ -794,9 +807,9 @@ class RunspacePool(_RunspacePoolBase):
         """Get the number of Runspaces available.
 
         This builds a request to get the number of available Runspaces in the pool. The
-        `:class:GetRunspaceAvailabilityEvent` is returned once the response is received from the server.
+        :class:`psrp.protocol.powershell_events.GetRunspaceAvailabilityEvent` is returned once the response is received from the server.
         """
-        ci = self.__ci_counter
+        ci = self._ci_counter
         self._ci_table[ci] = None
         self.prepare_message(GetAvailableRunspaces(ci=ci))
 
@@ -1021,6 +1034,51 @@ class ServerRunspacePool(_RunspacePoolBase):
         )
 
     @state_check(
+        'generate Runspace Pool event',
+        require_states=[RunspacePoolState.Opened],
+    )
+    def format_event(
+            self,
+            event_identifier: typing.Union[PSInt, int],
+            source_identifier: typing.Union[PSString, str],
+            sender: typing.Any = None,
+            source_args: typing.Optional[typing.List[typing.Any]] = None,
+            message_data: typing.Any = None,
+            time_generated: typing.Optional[typing.Union[PSDateTime, datetime.datetime]] = None,
+            computer: typing.Optional[typing.Union[PSString, str]] = None,
+    ):
+        """Send event to client.
+
+        Sends an event to the client Runspace Pool.
+
+        Args:
+            event_identifier: Unique identifier of this event.
+            source_identifier: Identifier associated with the source of this
+                event.
+            sender: Object that generated this event.
+            source_args: List of arguments captured by the original event
+                source.
+            message_data: Additional user data associated with this event.
+            time_generated: Time and date that this event was generated,
+                defaults to now.
+            computer: The name of the computer on which this event was
+                generated, defaults to the current computer.
+        """
+        time_generated = PSDateTime.now() if time_generated is None else time_generated
+        computer = platform.node() if computer is None else computer
+
+        self.prepare_message(UserEvent(
+            EventIdentifier=PSInt(event_identifier),
+            SourceIdentifier=PSString(source_identifier),
+            TimeGenerated=time_generated,
+            Sender=sender,
+            SourceArgs=source_args or [],
+            MessageData=message_data,
+            ComputerName=computer,
+            RunspaceId=PSGuid(self.runspace_id),
+        ))
+
+    @state_check(
         'create host call',
         require_states=[RunspacePoolState.Opened],
     )
@@ -1055,7 +1113,7 @@ class ServerRunspacePool(_RunspacePoolBase):
             self,
             event: ConnectRunspacePoolEvent,
     ):
-        # TODO: Handle <S></S> ConnectRUnspacePool object
+        # TODO: Handle <S></S> ConnectRunspacePool object
         self._max_runspaces = event.ps_object.MaxRunspaces
         self._min_runspaces = event.ps_object.MinRunspaces
 
@@ -1219,9 +1277,9 @@ RunspacePoolType = typing.TypeVar('RunspacePoolType', bound=_RunspacePoolBase)
 class _PipelineBase(typing.Generic[RunspacePoolType]):
 
     def __new__(cls, *args, **kwargs):
-        if cls == [_PipelineBase, _ClientPipeline, _ServerPipeline, GetCommandMetadataPipeline, PowerShell]:
+        if cls in [_PipelineBase, _ClientPipeline, _ServerPipeline, GetCommandMetadataPipeline, PowerShell]:
             raise TypeError(f'Type {cls.__qualname__} cannot be instantiated; it can be used only as a base class for '
-                            f'PowerShell pipeline types.')
+                            f'client/server pipeline types.')
 
         return super().__new__(cls)
 
@@ -1269,11 +1327,40 @@ class _ClientPipeline(_PipelineBase[RunspacePool]):
     def send_end(self):
         self.prepare_message(EndOfPipelineInput())
 
+    @state_check(
+        'response to pipeline host call',
+        require_states=[PSInvocationState.Running],
+    )
+    def host_response(
+            self,
+            ci: int,
+            return_value: typing.Optional[typing.Any] = None,
+            error_record: typing.Optional[ErrorRecord] = None,
+    ):
+        """Respond to a host call.
+
+        Respond to a host call event with either a return value or an error record.
+
+        Args:
+            ci: The call ID associated with the host call to response to.
+            return_value: The return value for the host call.
+            error_record: The error record raised by the host when running the host call.
+        """
+        self.runspace_pool.host_response(ci, return_value, error_record)
+
     def to_psobject(self) -> PSObject:
-        raise NotImplementedError()
+        raise NotImplementedError()  # pragma: no cover
 
 
 class _ServerPipeline(_PipelineBase[ServerRunspacePool]):
+
+    @state_check(
+        'starting pipeline',
+        require_states=[PSInvocationState.NotStarted],
+        skip_states=[PSInvocationState.Running],
+    )
+    def start(self):
+        self.state = PSInvocationState.Running
 
     @state_check(
         'closing pipeline',
@@ -1313,6 +1400,10 @@ class _ServerPipeline(_PipelineBase[ServerRunspacePool]):
         self._send_state(stopped_error)
         super().close()
 
+    @state_check(
+        'making pipeline host call',
+        require_states=[PSInvocationState.Running],
+    )
     def host_call(
             self,
             method: HostMethodIdentifier,
@@ -1586,7 +1677,7 @@ class PowerShell(_PipelineBase):
 
     def to_psobject(self) -> CreatePipeline:
         if not self.commands:
-            raise PSRPError('A command is required to invoke a PowerShell pipeline.')
+            raise ValueError('A command is required to invoke a PowerShell pipeline.')
 
         extra_cmds = [[]]
         for cmd in self.commands:
@@ -1744,6 +1835,47 @@ class ServerGetCommandMetadata(GetCommandMetadataPipeline, _ServerPipeline):
             **kwargs,
     ):
         super().__init__(runspace_pool=runspace_pool, pipeline_id=pipeline_id, *args, **kwargs)
+        self._count = None
+        # TODO: Add support for writing other command info types.
+
+    def write_count(
+            self,
+            count: typing.Union[PSInt, int],
+    ):
+        self._count = count
+        obj = PSCustomObject(
+            PSTypeName='Selected.Microsoft.PowerShell.Commands.GenericMeasureInfo',
+            Count=count,
+        )
+        self.write_output(obj)
+
+    def write_cmdlet_info(
+            self,
+            name: typing.Union[PSString, str],
+            namespace: typing.Union[PSString, str],
+            help_uri: typing.Union[PSString, str] = '',
+            output_type: typing.Optional[typing.List[typing.Union[PSString, str]]] = None,
+            parameters: typing.Optional[typing.Dict[typing.Union[PSString, str], typing.Any]] = None,
+    ):
+
+        self.write_output(PSCustomObject(
+            PSTypeName='Selected.System.Management.Automation.CmdletInfo',
+            CommandType=CommandTypes.Cmdlet,
+            Name=name,
+            Namespace=namespace,
+            HelpUri=help_uri,
+            OutputType=output_type or [],
+            Parameters=parameters or {},
+            ResolvedCommandName=None,
+        ))
+
+    def write_output(
+            self,
+            value: typing.Any,
+    ):
+        if self._count is None:
+            raise ValueError('write_count must be called before writing to the command metadata pipeline')
+        super().write_output(value)
 
 
 class Command:
@@ -1768,6 +1900,11 @@ class Command:
         self._merge_verbose = PipelineResultTypes.none
         self._merge_debug = PipelineResultTypes.none
         self._merge_information = PipelineResultTypes.none
+
+    def __repr__(self):
+        cls = self.__class__
+        return f"{cls.__name__}(name='{self.command_text}', is_script={self.is_script}, " \
+               f"use_local_scope={self.use_local_scope!s})"
 
     def __str__(self):
         return self.command_text

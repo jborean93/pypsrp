@@ -278,6 +278,36 @@ class AsyncRunspacePool(RunspacePool):
 
         await self.connection.stop()
 
+    async def connect(self):
+        if self.protocol.state == RunspacePoolState.Disconnected:
+            await self.connection.reconnect()
+            self.protocol.state = RunspacePoolState.Opened
+
+        else:
+            a = ''
+
+    async def disconnect(self):
+        self.protocol.state = RunspacePoolState.Disconnecting
+        await self.connection.disconnect()
+        self.protocol.state = RunspacePoolState.Disconnected
+
+        for pipeline in self.pipeline_table.values():
+            pipeline.state = PSInvocationState.Disconnected
+
+    @classmethod
+    async def get_runspace_pools(
+            cls,
+            connection_info,
+            host: typing.Optional[PSHost] = None,
+    ) -> typing.AsyncIterable['AsyncRunspacePool']:
+        await connection_info.start()
+        try:
+            pool = await connection_info.enumerate()
+            yield pool
+
+        finally:
+            await connection_info.stop()
+
     async def exchange_key(self):
         self.protocol.exchange_key()
         await self.connection.send_all()
@@ -572,7 +602,7 @@ class AsyncPipeline(typing.Generic[PipelineType]):
             error_record = ErrorRecord(
                 Exception=NETException(e_msg),
                 FullyQualifiedErrorId='RemoteHostExecutionException',
-                ErrorCategory=ErrorCategoryInfo(
+                CategoryInfo=ErrorCategoryInfo(
                     Reason='Exception',
                 ),
             )

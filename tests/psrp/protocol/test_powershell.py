@@ -14,6 +14,7 @@ from psrp.dotnet.complex_types import (
     ErrorRecord,
     HostDefaultData,
     HostInfo,
+    HostMethodIdentifier,
     InformationalRecord,
     NETException,
     PipelineResultTypes,
@@ -26,6 +27,7 @@ from psrp.dotnet.complex_types import (
 )
 
 from psrp.dotnet.primitive_types import (
+    PSGuid,
     PSInt,
     PSSecureString,
     PSString,
@@ -41,9 +43,12 @@ from psrp.exceptions import (
 )
 
 from psrp.protocol.powershell import (
+    ClientGetCommandMetadata,
     ClientPowerShell,
     Command,
+    PowerShell,
     RunspacePool,
+    ServerGetCommandMetadata,
     ServerPowerShell,
     ServerRunspacePool,
     StreamType,
@@ -56,23 +61,35 @@ from psrp.protocol.powershell_events import (
     EncryptedSessionKeyEvent,
     EndOfPipelineInputEvent,
     ErrorRecordEvent,
+    GetAvailableRunspacesEvent,
+    GetCommandMetadataEvent,
+    GetRunspaceAvailabilityEvent,
     InformationRecordEvent,
     InitRunspacePoolEvent,
+    PipelineHostCallEvent,
+    PipelineHostResponseEvent,
     PipelineInputEvent,
     PipelineOutputEvent,
     PipelineStateEvent,
     ProgressRecordEvent,
     PublicKeyEvent,
     PublicKeyRequestEvent,
+    ResetRunspaceStateEvent,
+    RunspacePoolHostCallEvent,
+    RunspacePoolHostResponseEvent,
     RunspacePoolStateEvent,
     SessionCapabilityEvent,
+    SetMaxRunspacesEvent,
+    SetMinRunspacesEvent,
+    SetRunspaceAvailabilityEvent,
+    UserEventEvent,
     VerboseRecordEvent,
     WarningRecordEvent,
 )
 
 
-def get_runspace_pair():
-    client = RunspacePool()
+def get_runspace_pair(min_runspaces=1, max_runspaces=1):
+    client = RunspacePool(min_runspaces=min_runspaces, max_runspaces=max_runspaces)
     server = ServerRunspacePool()
 
     client.open()
@@ -255,11 +272,254 @@ def test_open_runspacepool_small():
         client.next_event()
 
 
+def test_exchange_key_client():
+    client, server = get_runspace_pair()
+
+    client.exchange_key()
+    server.receive_data(client.data_to_send())
+    public_key = server.next_event()
+    assert isinstance(public_key, PublicKeyEvent)
+
+    client.receive_data(server.data_to_send())
+    enc_key = client.next_event()
+    assert isinstance(enc_key, EncryptedSessionKeyEvent)
+
+    c_pipeline = ClientPowerShell(client)
+    c_pipeline.add_script('command')
+    c_pipeline.add_argument(PSSecureString('my secret'))
+    c_pipeline.invoke()
+    c_pipeline_data = client.data_to_send()
+    assert b'my_secret' not in c_pipeline_data.data
+
+    server.receive_data(c_pipeline_data)
+    create_pipeline = server.next_event(c_pipeline.pipeline_id)
+    assert isinstance(create_pipeline, CreatePipelineEvent)
+
+    s_pipeline = create_pipeline.pipeline
+    assert len(s_pipeline.commands) == 1
+    assert s_pipeline.commands[0].command_text == 'command'
+    assert s_pipeline.commands[0].parameters == [(None, 'my secret')]
+    assert isinstance(s_pipeline.commands[0].parameters[0][1], PSSecureString)
+
+    s_pipeline.start()
+    s_pipeline.write_output(PSSecureString('secret output'))
+    s_pipeline.close()
+    s_output = server.data_to_send()
+    assert s_pipeline.state == PSInvocationState.Completed
+    assert server.pipeline_table == {}
+    assert b'secret output' not in s_output
+
+    client.receive_data(s_output)
+    out = client.next_event(c_pipeline.pipeline_id)
+    assert isinstance(out, PipelineOutputEvent)
+    assert isinstance(out.ps_object, PSSecureString)
+    assert out.ps_object == 'secret output'
+
+    state = client.next_event(c_pipeline.pipeline_id)
+    assert isinstance(state, PipelineStateEvent)
+    assert state.state == PSInvocationState.Completed
+
+    assert c_pipeline.state == PSInvocationState.Completed
+    assert client.pipeline_table == {}
+
+
+def test_exchange_key_request():
+    client, server = get_runspace_pair()
+
+    c_pipeline = ClientPowerShell(client)
+    c_pipeline.add_script('command')
+    c_pipeline.invoke()
+    server.receive_data(client.data_to_send())
+    s_pipeline = server.next_event(c_pipeline.pipeline_id).pipeline
+    s_pipeline.start()
+
+    with pytest.raises(MissingCipherError):
+        s_pipeline.write_output(PSSecureString('secret'))
+
+    server.request_key()
+    client.receive_data(server.data_to_send())
+    pub_key_req = client.next_event()
+    assert isinstance(pub_key_req, PublicKeyRequestEvent)
+
+    with pytest.raises(MissingCipherError):
+        s_pipeline.write_output(PSSecureString('secret'))
+
+    server.receive_data(client.data_to_send())
+    pub_key = server.next_event()
+    assert isinstance(pub_key, PublicKeyEvent)
+
+    s_pipeline.write_output(PSSecureString('secret'))
+    s_pipeline.close()
+    assert s_pipeline.state == PSInvocationState.Completed
+    assert server.pipeline_table == {}
+
+    client.receive_data(server.data_to_send())
+    enc_key = client.next_event()
+    assert isinstance(enc_key, EncryptedSessionKeyEvent)
+
+    b_data = server.data_to_send()
+    client.receive_data(b_data)
+    assert b'secret' not in b_data
+
+    out = client.next_event(c_pipeline.pipeline_id)
+    assert isinstance(out, PipelineOutputEvent)
+    assert isinstance(out.ps_object, PSSecureString)
+    assert out.ps_object == 'secret'
+
+    state = client.next_event(c_pipeline.pipeline_id)
+    assert isinstance(state, PipelineStateEvent)
+    assert state.state == PSInvocationState.Completed
+    assert c_pipeline.state == PSInvocationState.Completed
+    assert client.pipeline_table == {}
+
+    # Subsequent calls shouldn't do anything
+    server.request_key()
+    assert server.data_to_send() is None
+
+    client.exchange_key()
+    assert client.data_to_send() is None
+
+
+def test_runspace_pool_set_runspaces():
+    client, server = get_runspace_pair(2, 4)
+    assert client.min_runspaces == 2
+    assert client.max_runspaces == 4
+    assert server.min_runspaces == 2
+    assert server.max_runspaces == 4
+
+    client.min_runspaces = 3
+    assert client.min_runspaces == 2  # Won't change until it receives confirmation form server
+
+    server.receive_data(client.data_to_send())
+    min_event = server.next_event()
+    assert isinstance(min_event, SetMinRunspacesEvent)
+    assert min_event.ps_object.MinRunspaces == 3
+    assert min_event.ps_object.ci == 1
+    assert server.min_runspaces == 3
+    assert client.min_runspaces == 2
+
+    client.receive_data(server.data_to_send())
+    resp_event = client.next_event()
+    assert isinstance(resp_event, SetRunspaceAvailabilityEvent)
+    assert resp_event.success is True
+    assert resp_event.ps_object.ci == 1
+    assert resp_event.ps_object.SetMinMaxRunspacesResponse is True
+    assert server.min_runspaces == 3
+    assert client.min_runspaces == 3
+
+    client.max_runspaces = 5
+    assert client.max_runspaces == 4
+    assert server.max_runspaces == 4
+
+    server.receive_data(client.data_to_send())
+    max_event = server.next_event()
+    assert isinstance(max_event, SetMaxRunspacesEvent)
+    assert max_event.ps_object.MaxRunspaces == 5
+    assert max_event.ps_object.ci == 2
+    assert server.max_runspaces == 5
+    assert client.max_runspaces == 4
+
+    client.receive_data(server.data_to_send())
+    resp_event = client.next_event()
+    assert isinstance(resp_event, SetRunspaceAvailabilityEvent)
+    assert resp_event.success is True
+    assert resp_event.ps_object.ci == 2
+    assert resp_event.ps_object.SetMinMaxRunspacesResponse is True
+    assert server.max_runspaces == 5
+    assert client.max_runspaces == 5
+
+    client.get_available_runspaces()
+    server.receive_data(client.data_to_send())
+    get_avail = server.next_event()
+    assert isinstance(get_avail, GetAvailableRunspacesEvent)
+    assert get_avail.ps_object.ci == 3
+
+    client.receive_data(server.data_to_send())
+    runspace_avail = client.next_event()
+    assert isinstance(runspace_avail, GetRunspaceAvailabilityEvent)
+    assert runspace_avail.count == 5
+    assert runspace_avail.ps_object.ci == 3
+    assert runspace_avail.ps_object.SetMinMaxRunspacesResponse == 5
+
+
+def test_runspace_host_call():
+    client, server = get_runspace_pair()
+    server.host_call(HostMethodIdentifier.WriteLine1, ['line'])
+    client.receive_data(server.data_to_send())
+    host_call = client.next_event()
+
+    assert isinstance(host_call, RunspacePoolHostCallEvent)
+    assert host_call.ps_object.ci == 1
+    assert host_call.ps_object.mi == HostMethodIdentifier.WriteLine1
+    assert host_call.ps_object.mp == ['line']
+
+    server.host_call(HostMethodIdentifier.ReadLine)
+    client.receive_data(server.data_to_send())
+    host_call = client.next_event()
+
+    assert isinstance(host_call, RunspacePoolHostCallEvent)
+    assert host_call.ps_object.ci == 2
+    assert host_call.ps_object.mi == HostMethodIdentifier.ReadLine
+    assert host_call.ps_object.mp is None
+
+    error = ErrorRecord(
+        Exception=NETException('ReadLine error'),
+        CategoryInfo=ErrorCategoryInfo(
+            Reason='Exception',
+        ),
+        FullyQualifiedErrorId='RemoteHostExecutionException',
+    )
+    client.host_response(2, error_record=error)
+    server.receive_data(client.data_to_send())
+    host_resp = server.next_event()
+
+    assert isinstance(host_resp, RunspacePoolHostResponseEvent)
+    assert host_resp.ps_object.ci == 2
+    assert host_resp.ps_object.mi == HostMethodIdentifier.ReadLine
+    assert isinstance(host_resp.ps_object.me, ErrorRecord)
+    assert str(host_resp.ps_object.me) == 'ReadLine error'
+    assert host_resp.ps_object.me.Exception.Message == 'ReadLine error'
+    assert host_resp.ps_object.me.FullyQualifiedErrorId == 'RemoteHostExecutionException'
+    assert host_resp.ps_object.me.CategoryInfo.Reason == 'Exception'
+
+
+def test_runspace_reset():
+    client, server = get_runspace_pair()
+    client.reset_runspace_state()
+    server.receive_data(client.data_to_send())
+    reset = server.next_event()
+
+    assert isinstance(reset, ResetRunspaceStateEvent)
+    assert reset.ps_object.ci == 1
+
+    assert server.data_to_send() is None
+
+
+def test_runspace_user_event():
+    client, server = get_runspace_pair()
+    server.format_event(1, 'source id', sender='pool', message_data=True)
+    client.receive_data(server.data_to_send())
+    event = client.next_event()
+
+    assert isinstance(event, UserEventEvent)
+    assert event.ps_object['PSEventArgs.ComputerName'] is not None
+    assert event.ps_object['PSEventArgs.EventIdentifier'] == 1
+    assert event.ps_object['PSEventArgs.MessageData'] is True
+    assert event.ps_object['PSEventArgs.RunspaceId'] == PSGuid(client.runspace_id)
+    assert event.ps_object['PSEventArgs.Sender'] == 'pool'
+    assert event.ps_object['PSEventArgs.SourceArgs'] == []
+    assert event.ps_object['PSEventArgs.SourceIdentifier'] == 'source id'
+    assert event.ps_object['PSEventArgs.TimeGenerated'] is not None
+
+
 def test_create_pipeline():
     client, server = get_runspace_pair()
 
     c_pipeline = ClientPowerShell(client)
     assert c_pipeline.state == PSInvocationState.NotStarted
+
+    with pytest.raises(ValueError, match='A command is required to invoke a PowerShell pipeline'):
+        c_pipeline.invoke()
 
     c_pipeline.add_script('testing')
     c_pipeline.invoke()
@@ -296,7 +556,7 @@ def test_create_pipeline():
     assert len(server.pipeline_table) == 1
     assert server.pipeline_table[s_pipeline.pipeline_id] == s_pipeline
 
-    s_pipeline.state = PSInvocationState.Running
+    s_pipeline.start()
     s_pipeline.write_output('output msg')
     s_pipeline.close()
     client.receive_data(server.data_to_send())
@@ -389,6 +649,7 @@ def test_pipeline_multiple_commands():
 
     assert len(s_pipeline.commands) == 3
     assert str(s_pipeline.commands[0]) == 'Get-ChildItem'
+    assert repr(s_pipeline.commands[0]) == "Command(name='Get-ChildItem', is_script=False, use_local_scope=None)"
     assert s_pipeline.commands[0].command_text == 'Get-ChildItem'
     assert s_pipeline.commands[0].end_of_statement is False
     assert s_pipeline.commands[0].use_local_scope is None
@@ -396,6 +657,7 @@ def test_pipeline_multiple_commands():
     assert s_pipeline.commands[0].merge_my == PipelineResultTypes.none
     assert s_pipeline.commands[0].merge_to == PipelineResultTypes.none
     assert str(s_pipeline.commands[1]) == 'Select-Object'
+    assert repr(s_pipeline.commands[1]) == "Command(name='Select-Object', is_script=False, use_local_scope=True)"
     assert s_pipeline.commands[1].command_text == 'Select-Object'
     assert s_pipeline.commands[1].end_of_statement is False
     assert s_pipeline.commands[1].use_local_scope is True
@@ -403,6 +665,7 @@ def test_pipeline_multiple_commands():
     assert s_pipeline.commands[1].merge_my == PipelineResultTypes.none
     assert s_pipeline.commands[1].merge_to == PipelineResultTypes.none
     assert str(s_pipeline.commands[2]) == 'Format-List'
+    assert repr(s_pipeline.commands[2]) == "Command(name='Format-List', is_script=False, use_local_scope=False)"
     assert s_pipeline.commands[2].command_text == 'Format-List'
     assert s_pipeline.commands[2].end_of_statement is True
     assert s_pipeline.commands[2].use_local_scope is False
@@ -642,8 +905,8 @@ def test_pipeline_input_output():
     assert s_pipeline.state == PSInvocationState.NotStarted
     assert len(server.pipeline_table) == 1
     assert server.pipeline_table[s_pipeline.pipeline_id] == s_pipeline
-    s_pipeline.state = PSInvocationState.Running
 
+    s_pipeline.start()
     c_pipeline.send('input 1')
     c_pipeline.send('input 2')
     c_pipeline.send(3)
@@ -770,7 +1033,7 @@ def test_pipeline_stop():
     server.receive_data(c_command)
     create_pipeline = server.next_event(c_command.pipeline_id)
     s_pipeline = create_pipeline.pipeline
-    s_pipeline.state = PSInvocationState.Running
+    s_pipeline.start()
 
     s_pipeline.stop()
     assert s_pipeline.state == PSInvocationState.Stopped
@@ -799,102 +1062,87 @@ def test_pipeline_stop():
     assert client.pipeline_table == {}
 
 
-def test_exchange_key_client():
-    client, server = get_runspace_pair()
-
-    client.exchange_key()
-    server.receive_data(client.data_to_send())
-    public_key = server.next_event()
-    assert isinstance(public_key, PublicKeyEvent)
-
-    client.receive_data(server.data_to_send())
-    enc_key = client.next_event()
-    assert isinstance(enc_key, EncryptedSessionKeyEvent)
-
-    c_pipeline = ClientPowerShell(client)
-    c_pipeline.add_script('command')
-    c_pipeline.add_argument(PSSecureString('my secret'))
-    c_pipeline.invoke()
-    c_pipeline_data = client.data_to_send()
-    assert b'my_secret' not in c_pipeline_data.data
-
-    server.receive_data(c_pipeline_data)
-    create_pipeline = server.next_event(c_pipeline.pipeline_id)
-    assert isinstance(create_pipeline, CreatePipelineEvent)
-
-    s_pipeline = create_pipeline.pipeline
-    assert len(s_pipeline.commands) == 1
-    assert s_pipeline.commands[0].command_text == 'command'
-    assert s_pipeline.commands[0].parameters == [(None, 'my secret')]
-    assert isinstance(s_pipeline.commands[0].parameters[0][1], PSSecureString)
-
-    s_pipeline.state = PSInvocationState.Running
-    s_pipeline.write_output(PSSecureString('secret output'))
-    s_pipeline.close()
-    s_output = server.data_to_send()
-    assert s_pipeline.state == PSInvocationState.Completed
-    assert server.pipeline_table == {}
-    assert b'secret output' not in s_output
-
-    client.receive_data(s_output)
-    out = client.next_event(c_pipeline.pipeline_id)
-    assert isinstance(out, PipelineOutputEvent)
-    assert isinstance(out.ps_object, PSSecureString)
-    assert out.ps_object == 'secret output'
-
-    state = client.next_event(c_pipeline.pipeline_id)
-    assert isinstance(state, PipelineStateEvent)
-    assert state.state == PSInvocationState.Completed
-
-    assert c_pipeline.state == PSInvocationState.Completed
-    assert client.pipeline_table == {}
-
-
-def test_exchange_key_request():
+def test_pipeline_host_call():
     client, server = get_runspace_pair()
 
     c_pipeline = ClientPowerShell(client)
-    c_pipeline.add_script('command')
+    # This is meant to be parsed by some engine and isn't actually read in this test
+    # Just used to indicate a scenario where this would occur.
+    c_pipeline.add_script('$host.UI.PromptForCredential("caption", "message", "username", "targetname")')
     c_pipeline.invoke()
+
     server.receive_data(client.data_to_send())
     s_pipeline = server.next_event(c_pipeline.pipeline_id).pipeline
-    s_pipeline.state = PSInvocationState.Running
+    s_pipeline.start()
+    s_pipeline.host_call(
+        HostMethodIdentifier.PromptForCredential1,
+        ['caption', 'message', 'username', 'targetname']
+    )
 
-    with pytest.raises(MissingCipherError):
-        s_pipeline.write_output(PSSecureString('secret'))
-
-    server.request_key()
     client.receive_data(server.data_to_send())
-    pub_key_req = client.next_event()
-    assert isinstance(pub_key_req, PublicKeyRequestEvent)
+    host_call = client.next_event(c_pipeline.pipeline_id)
+    assert isinstance(host_call, PipelineHostCallEvent)
+    assert host_call.ps_object.ci == 1
+    assert host_call.ps_object.mi == HostMethodIdentifier.PromptForCredential1
+    assert host_call.ps_object.mp == ['caption', 'message', 'username', 'targetname']
 
-    with pytest.raises(MissingCipherError):
-        s_pipeline.write_output(PSSecureString('secret'))
+    c_pipeline.host_response(1, 'prompt response')
+    server.receive_data(client.data_to_send())
+    host_response = server.next_event(c_pipeline.pipeline_id)
+    assert isinstance(host_response, PipelineHostResponseEvent)
+    assert host_response.ps_object.ci == 1
+    assert host_response.ps_object.mi == HostMethodIdentifier.PromptForCredential1
+    assert host_response.ps_object.mr == 'prompt response'
+
+
+def test_command_metadata():
+    client, server = get_runspace_pair()
+
+    c_pipeline = ClientGetCommandMetadata(client, 'Invoke*')
+    c_pipeline.invoke()
 
     server.receive_data(client.data_to_send())
-    pub_key = server.next_event()
-    assert isinstance(pub_key, PublicKeyEvent)
+    command_meta = server.next_event(c_pipeline.pipeline_id)
+    assert isinstance(command_meta, GetCommandMetadataEvent)
+    assert isinstance(command_meta.pipeline, ServerGetCommandMetadata)
+    s_pipeline = command_meta.pipeline
+    s_pipeline.start()
 
-    s_pipeline.write_output(PSSecureString('secret'))
+    with pytest.raises(ValueError, match='write_count must be called before writing to the command metadata pipeline'):
+        s_pipeline.write_output('abc')
+
+    s_pipeline.write_count(1)
+    s_pipeline.write_cmdlet_info('Invoke-Expression', 'namespace')
     s_pipeline.close()
+
     assert s_pipeline.state == PSInvocationState.Completed
     assert server.pipeline_table == {}
 
     client.receive_data(server.data_to_send())
-    enc_key = client.next_event()
-    assert isinstance(enc_key, EncryptedSessionKeyEvent)
-
-    b_data = server.data_to_send()
-    client.receive_data(b_data)
-    assert b'secret' not in b_data
-
-    out = client.next_event(c_pipeline.pipeline_id)
-    assert isinstance(out, PipelineOutputEvent)
-    assert isinstance(out.ps_object, PSSecureString)
-    assert out.ps_object == 'secret'
-
+    count = client.next_event(c_pipeline.pipeline_id)
+    iex = client.next_event(c_pipeline.pipeline_id)
     state = client.next_event(c_pipeline.pipeline_id)
-    assert isinstance(state, PipelineStateEvent)
-    assert state.state == PSInvocationState.Completed
+    with pytest.raises(RunspacePoolWantRead):
+        client.next_event(c_pipeline.pipeline_id)
+
     assert c_pipeline.state == PSInvocationState.Completed
     assert client.pipeline_table == {}
+
+    assert isinstance(count, PipelineOutputEvent)
+    assert count.ps_object.Count == 1
+    assert isinstance(iex, PipelineOutputEvent)
+    assert iex.ps_object.Name == 'Invoke-Expression'
+    assert iex.ps_object.Namespace == 'namespace'
+    assert iex.ps_object.HelpUri == ''
+    assert iex.ps_object.OutputType == []
+    assert iex.ps_object.Parameters == {}
+    assert iex.ps_object.ResolvedCommandName is None
+    assert isinstance(state, PipelineStateEvent)
+    assert state.state == PSInvocationState.Completed
+
+
+def test_init_powershell_fail():
+    expected = re.escape("Type PowerShell cannot be instantiated; it can be used only as a base class for "
+                         "client/server pipeline types.")
+    with pytest.raises(TypeError, match=expected):
+        PowerShell()

@@ -23,6 +23,7 @@ from .exceptions import (
     OperationAborted,
     OperationTimedOut,
     RunspacePoolWantRead,
+    ServiceStreamDisconnected,
 )
 
 from .io.process import (
@@ -45,6 +46,7 @@ from .protocol.winrs import (
 
 from .protocol.wsman import (
     CommandState,
+    NAMESPACES,
     OptionSet,
     SignalCode,
     WSMan,
@@ -584,6 +586,55 @@ class AsyncWSManInfo(AsyncConnectionInfo):
         resp = await self._connection.send(self._winrs.data_to_send())
         self._winrs.receive_data(resp)
 
+    async def connect(
+            self,
+    ):
+        return NotImplemented
+
+    async def disconnect(
+            self,
+    ):
+        rsp = NAMESPACES['rsp']
+
+        disconnect = ElementTree.Element('{%s}Disconnect' % rsp)
+        self._winrs.wsman.disconnect(self._winrs.resource_uri, disconnect, selector_set=self._winrs.selector_set)
+        resp = await self._connection.send(self._winrs.data_to_send())
+        self._winrs.receive_data(resp)
+
+    async def reconnect(
+            self,
+    ):
+        self._winrs.wsman.reconnect(self._winrs.resource_uri, selector_set=self._winrs.selector_set)
+        resp = await self._connection.send(self._winrs.data_to_send())
+        self._winrs.receive_data(resp)
+
+    async def enumerate(
+            self,
+    ) -> typing.AsyncIterable['AsyncWSManInfo']:
+        wsen = NAMESPACES['wsen']
+        wsmn = NAMESPACES['wsman']
+
+        enum_msg = ElementTree.Element('{%s}Enumerate' % wsen)
+        ElementTree.SubElement(enum_msg, '{%s}OptimizeEnumeration' % wsmn)
+        ElementTree.SubElement(enum_msg, '{%s}MaxElements' % wsmn).text = '32000'
+
+        # TODO: support wsman:EndOfSequence
+        self._winrs.wsman.enumerate('http://schemas.microsoft.com/wbem/wsman/1/windows/shell', enum_msg)
+        resp = await self._connection.send(self._winrs.data_to_send())
+        enum_resp = self._winrs.receive_data(resp)
+
+        for shell in enum_resp.items:
+            shell_id = shell.find('rsp:ShellId', NAMESPACES).text
+            winrs = WinRS(WSMan(self._connection.connection_uri))
+
+            connection = AsyncWSManConnection(self._connection.connection_uri)
+            connection._winrs = winrs
+            yield connection
+
+            a = ''
+
+        a = ''
+
     async def _create_listener(
             self,
             pipeline_id: typing.Optional[str] = None,
@@ -612,7 +663,7 @@ class AsyncWSManInfo(AsyncConnectionInfo):
                 # Occurs when there has been no output after the OperationTimeout set, just repeat the request
                 continue
 
-            except OperationAborted:
+            except (OperationAborted, ServiceStreamDisconnected):
                 # Received when the shell has been closed
                 break
 

@@ -34,164 +34,40 @@ from psrp.protocol.powershell import (
 )
 
 
-endpoint = 'dc01.domain.test'
+endpoint = 'server2019.domain.test'
 
 script = '''
-param (
-    [Parameter(ValueFromPipeline=$true)]
-    $InputObject
-)
-
-begin {
-    "begin"
-    
-    $DebugPreference = 'Continue'
-    $InformationPreference = 'Continue'
-    $VerbosePreference = 'Continue'
-    $WarningPreference = 'Continue'
-}
-process {
-    "process"
-    "input: '$InputObject'"
-}
-end {
-    #sleep 0
-    #Write-Progress -Activity 'Stream Output' -Status 'Some status' -PercentComplete 10
-    #Write-Debug debug
-    #Write-Information information
-    #Write-Verbose verbose
-    #Write-Warning warning
-    #Write-Progress -Activity 'Stream Output' -Status 'Finished' -PercentComplete 100
-
-    "end"
-    #$Host.EnterNestedPrompt()
-    #$Host.UI.RawUI.BackgroundColor = 'Red'
-    #$Host.UI.RawUI.CursorPosition = [Management.Automation.Host.Coordinates]::new(1, 2)
-    #$host.UI.RawUI.WindowSize = [Management.Automation.Host.Size]::new(1024, 1024)
-    #$Host.SetShouldExit(1)
-    
-    #$choices = [Collections.ObjectModel.Collection[Management.Automation.Host.ChoiceDescription]]::new()
-    #$choices.Add([Management.Automation.Host.ChoiceDescription]::new('description'))
-
-    $host.UI.PromptForChoice('caption', 'message', $choices, 0)
-    #$host.UI.ReadLine()
-    #ls /tmp/test
-    #"finished host"
-}
+sleep 600
 '''
 
 
 async def async_psrp(connection_info):
-    class AsyncPSHost(PSHost):
+    async with AsyncRunspacePool(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')) as rp1:
+        await rp1.disconnect()
+        #await rp1.connect()
 
-        async def get_host_info(self):
-            return super().get_host_info()
+        #ps = AsyncPowerShell(rp1)
+        #ps.add_script('"testing"')
+        #async for out in ps.invoke():
+        #    print(out)
 
-    class AsyncHostUI(PSHostUI):
+        #await rp1.disconnect()
 
-        async def prompt_for_choice(self, *args, **kwargs):
-            raise Exception('fuck you')
+    a = ''
 
-        async def write_progress(self, source_id, record):
-            return
+    async with AsyncRunspacePool(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')) as rp2:
+        await rp2.disconnect()
 
-    class AsyncHostRawUI(PSHostRawUI):
+    a = ''
 
-        def get_foreground_color(self) -> ConsoleColor:
-            return ConsoleColor.White
-
-        def get_background_color(self) -> ConsoleColor:
-            return ConsoleColor.Black
-
-        def get_cursor_position(self) -> Coordinates:
-            return Coordinates(0, 0)
-
-        def get_window_position(self):
-            return Coordinates(0, 0)
-
-        def get_cursor_size(self):
-            return 0
-
-        def get_buffer_size(self):
-            return Size(10, 10)
-
-        def get_window_size(self):
-            return Size(10, 10)
-
-        def get_max_window_size(self):
-            return Size(10, 10)
-
-        def get_max_physical_window_size(self):
-            return Size(10, 10)
-
-        def get_window_title(self):
-            return 'My Title'
-
-    host = AsyncPSHost(ui=AsyncHostUI(raw_ui=AsyncHostRawUI()))
-
-    async with AsyncRunspacePool(connection_info, host=host) as rp:
-        #meta = AsyncCommandMetaPipeline(rp, 'Invoke*')
-        #async for meta_out in meta.invoke():
-        #    if not hasattr(meta_out, 'Name'):
-        #        continue
-
-        #    print(f'Meta: {meta_out.Name}')
-
-        #await rp.exchange_key()
-
-        ps = AsyncPowerShell(rp)
-        ps.add_script(script)
-
-        async def read_stream(name):
-            test = []
-            stream = ps.streams[name]
-            while True:
-                obj = await stream.wait()
-                if obj is None:
-                    break
-
-                test.append(obj)
-
-                print(f"{name} - {obj!s}")
-
-            return test
-
-        read = asyncio.create_task(read_stream('progress'))
-
-        async def async_generator():
-            yield 1
-            yield 2
-            yield PSSecureString('abc')
-
-        task = await ps.begin_invoke(async_generator())
-        #await asyncio.sleep(1)
-        #await ps.stop()
-        #return
-        idx = 0
-        async for output in ps.end_invoke(task):
-            idx += 1
-            print(f"{idx} - Received output: {output}")
-
-        progress = await read
-
-        idx = 0
-        #async for output in ps.invoke(input_data=input_data):
-        #    idx += 1
-        #    print(f"{idx} - Received output: {output}")
-
-        #await ps.stop()
-        #res = await task
-
-        for err in ps.streams['error']:
-            print(f'Error: {err!s}')
-
+    async for pool in AsyncRunspacePool.get_runspace_pools(connection_info):
         a = ''
 
 
 async def main():
     await asyncio.gather(
-        async_psrp(AsyncProcessInfo()),
-        #async_psrp(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
+        #async_psrp(AsyncProcessInfo()),
+        async_psrp(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
     )
 
 

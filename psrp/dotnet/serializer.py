@@ -438,6 +438,21 @@ class _Serializer:
             value: typing.Any,
     ) -> ElementTree.Element:
         """ Serialize a Python object to a XML element based on the CLIXML value. """
+        # If the value type has a ToPSObjectForRemoting class method we use that to build our true PSObject that will
+        # be serialized.
+        value_type = type(value)
+        ps_object = getattr(value, 'PSObject', None)
+
+        if hasattr(value_type, 'ToPSObjectForRemoting'):
+            value = value_type.ToPSObjectForRemoting(value)
+
+            if ps_object and hasattr(value, 'PSObject'):
+                value.PSObject.type_names = ps_object.type_names
+                value.PSObject.to_string = ps_object.to_string
+
+            if hasattr(value, 'PSObject'):
+                ps_object = value.PSObject
+
         element = None
         if value is None:
             element = ElementTree.Element('Nil')
@@ -559,7 +574,6 @@ class _Serializer:
         else:
             element = ElementTree.Element('Obj', RefId=str(ref_id))
 
-        ps_object = getattr(value, 'PSObject', None)
         if ps_object is None:
             # Handle edge cases for known Python container types, otherwise default to a PSCustomObject.
             if isinstance(value, list):
@@ -591,15 +605,6 @@ class _Serializer:
                 tn = ElementTree.SubElement(element, 'TN', RefId=str(ref_id))
                 for type_name in type_names:
                     ElementTree.SubElement(tn, 'T').text = type_name
-
-        # If the value type has a ToPSObjectForRemoting class method we use that to build our true PSObject properties
-        # that will be serialized.
-        value_type = type(value)
-        if hasattr(value_type, 'ToPSObjectForRemoting'):
-            temp_obj = PSObject()
-            value_type.ToPSObjectForRemoting(value, temp_obj)
-            ps_object = temp_obj.PSObject
-            ps_object.to_string = value.PSObject.to_string
 
         no_props = True
         for xml_name, prop_type in [('Props', 'adapted'), ('MS', 'extended')]:

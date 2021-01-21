@@ -162,6 +162,7 @@ class RunspaceAvailabilityEvent(PSRPEvent):
             cls,
             message_type: PSRPMessageType,
             ps_object: PSObject,
+            runspace_pool_id: str,
             pipeline_id: typing.Optional[str] = None,
     ):
         # Special case, this message has a boolean value when in response to Set[Max|Min]Runspaces and an Int64

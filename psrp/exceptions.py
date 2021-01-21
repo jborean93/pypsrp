@@ -116,6 +116,12 @@ class OperationTimedOut(WSManFault):
     MESSAGE_ID = 'ERROR_WSMAN_OPERATION_TIMEDOUT'
 
 
+class ServiceStreamDisconnected(WSManFault):
+    CODE = 0x803381DE
+    MESSAGE = ('The WS-Management service cannot process the request because the stream is currently disconnected.')
+    MESSAGE_ID = 'ERROR_WSMAN_SERVICE_STREAM_DISCONNECTED'
+
+
 """WSMan error codes.
 
 A collection of known WSMan error codes as retrieved from `wsman.h`_ in the Windows SDK. This is built based on the
