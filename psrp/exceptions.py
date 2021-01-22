@@ -169,7 +169,7 @@ class _InvalidState(PSRPError):
 
     @property
     def message(self) -> str:
-        expected_states = ', '.join(self.expected_states)
+        expected_states = ', '.join(str(s) for s in self.expected_states)
         return f"{self._STATE_OBJ} state must be one of '{expected_states}' to {self.action}, current state is " \
                f"{self.current_state!s}"
 

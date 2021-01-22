@@ -30,6 +30,7 @@ from .protocol.powershell import (
 )
 
 from .protocol.powershell_events import (
+    ApplicationPrivateDataEvent,
     DebugRecordEvent,
     ErrorRecordEvent,
     InformationRecordEvent,
@@ -196,6 +197,7 @@ class RunspacePool:
             max_runspaces: int = 1,
             host: typing.Optional[PSHost] = None,
             application_arguments: typing.Optional[typing.Dict] = None,
+            runspace_pool_id: typing.Optional[str] = None,
     ):
         # We don't pass in host here as getting the host info might be a coroutine. It is set in open().
         self.protocol = PSRunspacePool(
@@ -204,11 +206,14 @@ class RunspacePool:
             min_runspaces=min_runspaces,
             max_runspaces=max_runspaces,
             application_arguments=application_arguments,
+            runspace_pool_id=runspace_pool_id,
         )
         self.connection = connection
         self.connection.set_runspace_pool(self.protocol)
         self.host = host
         self.pipeline_table: typing.Dict[str, AsyncPipeline] = {}  # TODO: Fix up pipeline type
+
+        self._new_client = False  # Used for reconnection as a new client.
 
     def __enter__(self):
         self.open()
@@ -247,11 +252,19 @@ class RunspacePool:
         """
         raise NotImplementedError()
 
+    def create_disconnected_power_shells(self) -> typing.List['AsyncPipeline']:
+        return [p for p in self.pipeline_table.values() if p.pipeline.state == PSInvocationState.Disconnected]
+
 
 class AsyncRunspacePool(RunspacePool):
 
     async def __aenter__(self):
-        await self.open()
+        if self.protocol.state == RunspacePoolState.Disconnected:
+            await self.connect()
+
+        else:
+            await self.open()
+
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -270,21 +283,34 @@ class AsyncRunspacePool(RunspacePool):
             await self.connection.wait_event()
 
     async def close(self):
-        tasks = [p.close() for p in self.pipeline_table.values()] + [self.connection.close()]
-        await asyncio.gather(*tasks)
+        if self.protocol.state != RunspacePoolState.Disconnected:
+            tasks = [p.close() for p in self.pipeline_table.values()] + [self.connection.close()]
+            await asyncio.gather(*tasks)
 
-        while self.protocol.state not in [RunspacePoolState.Closed, RunspacePoolState.Broken]:
-            await self.connection.wait_event()
+            while self.protocol.state not in [RunspacePoolState.Closed, RunspacePoolState.Broken]:
+                await self.connection.wait_event()
 
         await self.connection.stop()
 
     async def connect(self):
-        if self.protocol.state == RunspacePoolState.Disconnected:
-            await self.connection.reconnect()
+        if self._new_client:
+            if self.host:
+                self.protocol.host = await _invoke_async(self.host.get_host_info())
+
+            self.protocol.connect()
+            await self.connection.connect()
+
+            # We do not receive a RunspacePoolState event to state when it is now opened. Instead we just wait until
+            # we've received these 3 messages.
+            await self.connection.wait_event(message_type=PSRPMessageType.SessionCapability)
+            await self.connection.wait_event(message_type=PSRPMessageType.RunspacePoolInitData)
+            await self.connection.wait_event(message_type=PSRPMessageType.ApplicationPrivateData)
             self.protocol.state = RunspacePoolState.Opened
+            self._new_client = False
 
         else:
-            a = ''
+            await self.connection.reconnect()
+            self.protocol.state = RunspacePoolState.Opened
 
     async def disconnect(self):
         self.protocol.state = RunspacePoolState.Disconnecting
@@ -302,8 +328,18 @@ class AsyncRunspacePool(RunspacePool):
     ) -> typing.AsyncIterable['AsyncRunspacePool']:
         await connection_info.start()
         try:
-            pool = await connection_info.enumerate()
-            yield pool
+            async for rpid, command_list, connection in connection_info.enumerate():
+                runspace_pool = AsyncRunspacePool(connection, host=host, runspace_pool_id=rpid)
+                runspace_pool.protocol.state = RunspacePoolState.Disconnected
+                runspace_pool._new_client = True
+
+                for cmd_id in command_list:
+                    ps = AsyncPowerShell(runspace_pool)
+                    ps.pipeline.pipeline_id = cmd_id
+                    ps.pipeline.state = PSInvocationState.Disconnected
+                    runspace_pool.pipeline_table[cmd_id] = ps
+
+                yield runspace_pool
 
         finally:
             await connection_info.stop()
@@ -371,9 +407,41 @@ class AsyncPipeline(typing.Generic[PipelineType]):
         """
         # We call this from many places, we want a lock to ensure it's only run once.
         async with self._close_lock:
-            if self.pipeline.pipeline_id in self.runspace_pool.pipeline_table:
+            pipeline = self.runspace_pool.pipeline_table.get(self.pipeline.pipeline_id)
+            if pipeline:
+                if pipeline.pipeline.state == PSInvocationState.Disconnected:
+                    return
+
                 await self.runspace_pool.connection.close(self.pipeline.pipeline_id)
                 del self.runspace_pool.pipeline_table[self.pipeline.pipeline_id]
+
+    async def begin_connect(self):
+        await self.runspace_pool.connection.connect(self.pipeline.pipeline_id)
+        self.runspace_pool.pipeline_table[self.pipeline.pipeline_id] = self
+        self.runspace_pool.protocol.pipeline_table[self.pipeline.pipeline_id] = self.pipeline
+        self.pipeline.state = PSInvocationState.Running
+        # TODO: Seems like we can't create a nested pipeline from a disconnected one.
+
+        output_stream = _AsyncOutputStream()
+        self._receive_task = asyncio_create_task(self._wait_invoke(output_stream))
+
+        async def runner():
+            while True:
+                output = await output_stream.wait()
+                if output == _EndOfStream:
+                    break
+
+                yield output
+
+            await self._receive_task
+            self._receive_task = None
+
+        return runner()
+
+    async def connect(self):
+        output_iterator = await self.begin_connect()
+        async for output in self.end_invoke(output_iterator):
+            yield output
 
     async def begin_invoke(
             self,

@@ -170,8 +170,8 @@ class EnumerateResponseEvent(WSManEventResponse):
     URI = 'http://schemas.xmlsoap.org/ws/2004/09/enumeration/EnumerateResponse'
 
     @property
-    def items(self):
-        return self._raw.find('s:Body/wsen:EnumerateResponse/wsman:Items', namespaces=NAMESPACES)
+    def items(self) -> typing.List[ElementTree.Element]:
+        return self._raw.find('s:Body/wsen:EnumerateResponse/wsman:Items', namespaces=NAMESPACES) or []
 
 
 class FaultEvent(WSManEventResponse):
@@ -584,7 +584,7 @@ def _parse_wsman_fault(
         if provider_info is not None:
             provider = provider_info.attrib.get('provider')
             provider_path = provider_info.attrib.get('path')
-            provider_fault = [provider_info.text]
+            provider_fault = [provider_info.text or '']
             for fault_entry in provider_info:
                 fault_info = ElementTree.tostring(fault_entry, encoding='utf-8', method='xml').decode('utf-8')
                 provider_fault.append(fault_info)

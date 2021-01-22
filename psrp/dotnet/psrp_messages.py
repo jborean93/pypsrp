@@ -15,6 +15,7 @@ import enum
 import typing
 
 from .ps_base import (
+    add_note_property,
     _PSMetaTypePSRP,
     PSNoteProperty,
     PSObjectMetaPSRP,
@@ -753,10 +754,29 @@ class ConnectRunspacePool(PSObject, metaclass=_PSMetaTypePSRP):
     PSObject = PSObjectMetaPSRP(
         psrp_message_type=0x00010008,
         extended_properties=[
-            PSNoteProperty('MinRunspaces', mandatory=True, ps_type=PSInt),
-            PSNoteProperty('MaxRunspaces', mandatory=True, ps_type=PSInt),
+            PSNoteProperty('MinRunspaces', ps_type=PSInt),
+            PSNoteProperty('MaxRunspaces', ps_type=PSInt),
         ],
     )
+
+    @classmethod
+    def ToPSObjectForRemoting(
+            cls,
+            instance: 'ConnectRunspacePool',
+    ) -> PSObject:
+        use_string = True
+        obj = PSObject()
+
+        if instance.MinRunspaces:
+            add_note_property(obj, 'MinRunspaces', instance.MinRunspaces, PSInt)
+            use_string = False
+
+        if instance.MaxRunspaces:
+            add_note_property(obj, 'MaxRunspaces', instance.MaxRunspaces, PSInt)
+            use_string = False
+
+        # This is a weird object, will be '<S />' if neither count is specified.
+        return "" if use_string else obj
 
 
 class RunspacePoolInitData(PSObject, metaclass=_PSMetaTypePSRP):

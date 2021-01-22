@@ -525,7 +525,7 @@ class RunspacePool(object):
         happen.
         """
         log.info("Starting key exchange with remote host")
-        if self._key_exchanged or self._exchange_key is not None:
+        if self._key_exchanged or self._exchange_key  is not None:
             # key is already exchanged or we are still in the processes of
             # exchanging it, no need to run again
             return

@@ -216,6 +216,7 @@ class ConnectionInfo:
 
     def connect(
             self,
+            pipeline_id: typing.Optional[str] = None,
     ):
         return NotImplemented
 
@@ -231,6 +232,7 @@ class ConnectionInfo:
 
     def enumerate(
             self,
+            runspace_id: typing.Optional[str] = None,
     ):
         return NotImplemented
 
@@ -323,6 +325,7 @@ class AsyncConnectionInfo(ConnectionInfo):
 
     async def connect(
             self,
+            pipeline_id: typing.Optional[str] = None,
     ):
         return NotImplemented
 
@@ -338,6 +341,7 @@ class AsyncConnectionInfo(ConnectionInfo):
 
     async def enumerate(
             self,
+            runspace_id: typing.Optional[str] = None,
     ):
         return NotImplemented
 
@@ -444,52 +448,17 @@ class AsyncWSManInfo(AsyncConnectionInfo):
 
     def __init__(
             self,
-            connection_uri: str,
-            encryption: str = 'never',
-            verify: typing.Union[str, bool] = True,
-            connection_timeout: int = 30,
-            read_timeout: int = 30,
-            # TODO reconnection and proxy settings
-
-            auth: str = 'negotiate',
-            username: typing.Optional[str] = None,
-            password: typing.Optional[str] = None,
-
-            # Cert auth
-            certificate_pem: typing.Optional[str] = None,
-            certificate_key_pem: typing.Optional[str] = None,
-            certificate_password: typing.Optional[str] = None,
-
-            # SPNEGO
-            negotiate_service: str = 'HTTP',
-            negotiate_hostname: typing.Optional[str] = None,
-            negotiate_delegate: bool = False,
-            send_cbt: bool = True,
-
-            # CredSSP
-            credssp_allow_tlsv1: bool = False,
-            credssp_require_kerberos: bool = False,
+            connection_uri,
+            *args,
+            **kwargs,
     ):
         super().__init__()
-        self._connection = AsyncWSManConnection(
-            connection_uri=connection_uri,
-            encryption=encryption,
-            verify=verify,
-            connection_timeout=connection_timeout,
-            read_timeout=read_timeout,
-            auth=auth,
-            username=username,
-            password=password,
-            certificate_pem=certificate_pem,
-            certificate_key_pem=certificate_key_pem,
-            certificate_password=certificate_password,
-            negotiate_service=negotiate_service,
-            negotiate_hostname=negotiate_hostname,
-            negotiate_delegate=negotiate_delegate,
-            send_cbt=send_cbt,
-            credssp_allow_tlsv1=credssp_allow_tlsv1,
-            credssp_require_kerberos=credssp_require_kerberos,
-        )
+        # Store the args/kwargs so we can create a copy of the class.
+        self.__new_args = args
+        self.__new_kwargs = kwargs
+        self.__new_kwargs['connection_uri'] = connection_uri
+
+        self._connection = AsyncWSManConnection(*args, **kwargs)
         self._winrs = WinRS(WSMan(connection_uri), 'http://schemas.microsoft.com/powershell/Microsoft.PowerShell',
                             input_streams='stdin pr', output_streams='stdout')
         # FIXME: Calculate dynamically.
@@ -498,6 +467,15 @@ class AsyncWSManInfo(AsyncConnectionInfo):
         self._receive_tasks: typing.Dict[typing.Optional[str], typing.Tuple[AsyncWSManConnection, asyncio.Task]] = {}
         self._listen_tasks: typing.List[asyncio.Task] = []
         self._response_events = _AsyncMessageEvent()
+
+    def set_runspace_pool(
+            self,
+            pool: RunspacePool,
+    ):
+        super().set_runspace_pool(pool)
+
+        # To support reconnection we want to make sure the WinRS shell id matches our Runspace Id.
+        self._winrs.shell_id = pool.runspace_id
 
     async def wait_event(
             self,
@@ -588,8 +566,36 @@ class AsyncWSManInfo(AsyncConnectionInfo):
 
     async def connect(
             self,
+            pipeline_id: typing.Optional[str] = None,
     ):
-        return NotImplemented
+        rsp = NAMESPACES['rsp']
+        connect = ElementTree.Element('{%s}Connect' % rsp)
+        if pipeline_id:
+            connect.attrib['CommandId'] = pipeline_id
+            options = None
+
+        else:
+            payload = self.next_payload()
+
+            options = OptionSet()
+            options.add_option('protocolversion', self.runspace_pool.our_capability.protocolversion,
+                               {'MustComply': 'true'})
+
+            open_content = ElementTree.SubElement(connect, 'connectXml', xmlns='http://schemas.microsoft.com/powershell')
+            open_content.text = base64.b64encode(payload.data).decode()
+
+        self._winrs.wsman.connect(self._winrs.resource_uri, connect, option_set=options,
+                                  selector_set=self._winrs.selector_set)
+        resp = await self._connection.send(self._winrs.data_to_send())
+        event = self._winrs.wsman.receive_data(resp)
+
+        if not pipeline_id:
+            response_xml = event.body.find('rsp:ConnectResponse/pwsh:connectResponseXml', NAMESPACES).text
+
+            psrp_resp = PSRPPayload(base64.b64decode(response_xml), StreamType.default, None)
+            self.runspace_pool.receive_data(psrp_resp)
+
+        await self._create_listener(pipeline_id=pipeline_id)
 
     async def disconnect(
             self,
@@ -610,30 +616,21 @@ class AsyncWSManInfo(AsyncConnectionInfo):
 
     async def enumerate(
             self,
-    ) -> typing.AsyncIterable['AsyncWSManInfo']:
-        wsen = NAMESPACES['wsen']
-        wsmn = NAMESPACES['wsman']
-
-        enum_msg = ElementTree.Element('{%s}Enumerate' % wsen)
-        ElementTree.SubElement(enum_msg, '{%s}OptimizeEnumeration' % wsmn)
-        ElementTree.SubElement(enum_msg, '{%s}MaxElements' % wsmn).text = '32000'
-
-        # TODO: support wsman:EndOfSequence
-        self._winrs.wsman.enumerate('http://schemas.microsoft.com/wbem/wsman/1/windows/shell', enum_msg)
+            runspace_id: typing.Optional[str] = None,
+    ) -> typing.AsyncIterable[typing.Tuple[str, typing.List[str], 'AsyncWSManInfo']]:
+        self._winrs.enumerate()
         resp = await self._connection.send(self._winrs.data_to_send())
-        enum_resp = self._winrs.receive_data(resp)
+        shell_enumeration = self._winrs.receive_data(resp)
 
-        for shell in enum_resp.items:
-            shell_id = shell.find('rsp:ShellId', NAMESPACES).text
-            winrs = WinRS(WSMan(self._connection.connection_uri))
+        for winrs in shell_enumeration.shells:
+            winrs.enumerate('http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command', winrs.selector_set)
+            resp = await self._connection.send(self._winrs.data_to_send())
+            cmd_enumeration = self._winrs.receive_data(resp)
 
-            connection = AsyncWSManConnection(self._connection.connection_uri)
+            connection = AsyncWSManInfo(*self.__new_args, **self.__new_kwargs)
             connection._winrs = winrs
-            yield connection
 
-            a = ''
-
-        a = ''
+            yield winrs.shell_id, cmd_enumeration.commands, connection
 
     async def _create_listener(
             self,

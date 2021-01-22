@@ -12,6 +12,7 @@ from psrp.protocol.wsman import (
     CommandState,
     CreateResponseEvent,
     DeleteResponseEvent,
+    EnumerateResponseEvent,
     NAMESPACES,
     OptionSet,
     ReceiveResponseEvent,
@@ -22,6 +23,17 @@ from psrp.protocol.wsman import (
     WSMan,
     WSManEvent,
 )
+
+
+class WinRSEnumerateResponseEvent(EnumerateResponseEvent):
+
+    def __init__(
+            self,
+            data: ElementTree.Element,
+    ):
+        super().__init__(data)
+        self.shells = []
+        self.commands = []
 
 
 class WinRS:
@@ -59,6 +71,25 @@ class WinRS:
         self.shell_inactivity = None
         self.selector_set: typing.Optional[SelectorSet] = None
 
+    def enumerate(
+            self,
+            resource_uri: str = 'http://schemas.microsoft.com/wbem/wsman/1/windows/shell',
+            selector_filter: typing.Optional[SelectorSet] = None,
+    ):
+        wsen = NAMESPACES['wsen']
+        wsmn = NAMESPACES['wsman']
+
+        enum_msg = ElementTree.Element('{%s}Enumerate' % wsen)
+        ElementTree.SubElement(enum_msg, '{%s}OptimizeEnumeration' % wsmn)
+        ElementTree.SubElement(enum_msg, '{%s}MaxElements' % wsmn).text = '32000'
+
+        if selector_filter:
+            filter = ElementTree.SubElement(enum_msg, '{%s}Filter' % wsmn,
+                                            Dialect='http://schemas.dmtf.org/wbem/wsman/1/wsman/SelectorFilter')
+            filter.append(selector_filter.pack())
+
+        self.wsman.enumerate(resource_uri, enum_msg)
+
     def data_to_send(
             self,
             amount: typing.Optional[int] = None,
@@ -74,6 +105,26 @@ class WinRS:
         print("Received %s" % event)
         if isinstance(event, CreateResponseEvent):
             self._parse_shell_create(event.body)
+
+        elif isinstance(event, EnumerateResponseEvent):
+            shells = []
+            commands = []
+            for raw in event.items:
+                if raw.tag == '{%s}Shell' % NAMESPACES['rsp']:
+                    profile_loaded = raw.find('rsp:ProfileLoaded', NAMESPACES).text.lower() == 'yes'
+
+                    shell = WinRS(self.wsman, no_profile=not profile_loaded)
+                    shell._parse_shell_create(raw, base_element='')
+                    shell.selector_set = SelectorSet()
+                    shell.selector_set.add_option('ShellId', shell.shell_id)
+                    shells.append(shell)
+
+                else:
+                    commands.append(raw.find('rsp:CommandId', NAMESPACES).text)
+
+            event = WinRSEnumerateResponseEvent(event._raw)
+            event.shells = shells
+            event.commands = commands
 
         return event
 
@@ -207,6 +258,7 @@ class WinRS:
     def _parse_shell_create(
             self,
             response: ElementTree.Element,
+            base_element: str = 's:Body/rsp:Shell/'
     ):
         """ Process a WSMan Create response. """
         fields = {
@@ -221,11 +273,11 @@ class WinRS:
             'rsp:ShellInactivity': 'shell_inactivity',
         }
         for xml_element, shell_attr in fields.items():
-            element = response.find('s:Body/rsp:Shell/%s' % xml_element, NAMESPACES)
+            element = response.find(f'{base_element}{xml_element}', NAMESPACES)
             if element is not None:
                 setattr(self, shell_attr, element.text)
 
-        selector_set = response.find("wst:ResourceCreated/wsa:ReferenceParameters/wsman:SelectorSet", NAMESPACES)
+        selector_set = response.find('wst:ResourceCreated/wsa:ReferenceParameters/wsman:SelectorSet', NAMESPACES)
         if selector_set is not None:
             self.selector_set = SelectorSet()
             for selector in selector_set:

@@ -611,6 +611,7 @@ class _RunspacePoolBase:
     @state_check(
         'send PSRP message',
         require_states=[
+            RunspacePoolState.Connecting,
             RunspacePoolState.Opened,
             RunspacePoolState.Opening,
             RunspacePoolState.NegotiationSent,
@@ -633,7 +634,8 @@ class _RunspacePoolBase:
         if message_type is None:
             message_type = PSRPMessageType(message.PSObject.psrp_message_type)
 
-        message = _create_message(True, message_type, b_data, self.runspace_id, pipeline_id)
+        is_client = isinstance(self, RunspacePool)
+        message = _create_message(is_client, message_type, b_data, self.runspace_id, pipeline_id)
 
         object_id = self._fragment_counter
         psrp_message = PSRPMessage(message_type, message, self.runspace_id, pipeline_id, object_id, stream_type)
@@ -691,6 +693,7 @@ class RunspacePool(_RunspacePoolBase):
         thread_options: Determines whether a new thread is created for each invocation.
         min_runspaces: The minimum number of Runspaces a pool can hold.
         max_runspaces: The maximum number of Runspaces a pool can hold.
+        runspace_pool_id: Manually set the Runspace Pool ID, used when reconnecting to an existing Runspace Pool.
 
     .. _System.Management.Automation.Runspaces.RunspacePool:
         https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.runspaces.runspacepool
@@ -706,9 +709,10 @@ class RunspacePool(_RunspacePoolBase):
             thread_options: PSThreadOptions = PSThreadOptions.Default,
             min_runspaces: int = 1,
             max_runspaces: int = 1,
+            runspace_pool_id: typing.Optional[str] = None,
     ):
         super().__init__(
-            str(uuid.uuid4()),
+            runspace_pool_id or str(uuid.uuid4()),
             capability=_DEFAULT_CAPABILITY,
             application_arguments=application_arguments or {},
             application_private_data={},
@@ -778,12 +782,7 @@ class RunspacePool(_RunspacePoolBase):
         self.state = RunspacePoolState.Connecting
 
         self.prepare_message(self.our_capability)
-
-        connect_pool = ConnectRunspacePool(
-            MinRunspaces=self.min_runspaces,
-            MaxRunspaces=self.max_runspaces,
-        )
-        self.prepare_message(connect_pool)
+        self.prepare_message(ConnectRunspacePool())
 
     @state_check(
         skip_states=[RunspacePoolState.Closed, RunspacePoolState.Closing, RunspacePoolState.Broken],

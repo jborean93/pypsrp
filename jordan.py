@@ -37,31 +37,42 @@ from psrp.protocol.powershell import (
 endpoint = 'server2019.domain.test'
 
 script = '''
-sleep 600
+'1'
+sleep 5
+'2'
 '''
 
 
 async def async_psrp(connection_info):
     async with AsyncRunspacePool(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')) as rp1:
-        await rp1.disconnect()
+        print(rp1.protocol.runspace_id)
+        #await rp1.disconnect()
         #await rp1.connect()
 
-        #ps = AsyncPowerShell(rp1)
-        #ps.add_script('"testing"')
+        ps = AsyncPowerShell(rp1)
+        ps.add_script(script)
+        await ps.begin_invoke()
         #async for out in ps.invoke():
         #    print(out)
 
-        #await rp1.disconnect()
+        await rp1.disconnect()
 
     a = ''
 
-    async with AsyncRunspacePool(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')) as rp2:
-        await rp2.disconnect()
+    #async with AsyncRunspacePool(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')) as rp2:
+    #    print(rp2.protocol.runspace_id)
+    #    await rp2.disconnect()
 
     a = ''
 
-    async for pool in AsyncRunspacePool.get_runspace_pools(connection_info):
-        a = ''
+    async for rp in AsyncRunspacePool.get_runspace_pools(connection_info):
+        async with rp:
+            for pipeline in rp.create_disconnected_power_shells():
+                async for out in pipeline.connect():
+                    print(out)
+
+                a = ''
+            a = ''
 
 
 async def main():
