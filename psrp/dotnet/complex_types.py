@@ -16,6 +16,9 @@ PSRP specific ones and the actual .NET types.
     https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/e41c4a38-a821-424b-bc1c-89f8478c39ae
 """
 
+import collections
+import ntpath
+import posixpath
 import typing
 
 from .primitive_types import (
@@ -41,8 +44,13 @@ from .ps_base import (
     PSObjectMetaGeneric,
     PSObjectMetaEnum,
     PSQueueBase,
+    PSScriptProperty,
     PSStackBase,
 )
+
+# We are just using a named tuple for now, this should be a class in the future
+# if CommandInfo is ever implemented.
+_RemoteCommandInfo = collections.namedtuple('RemoteCommandInfo', ['CommandType', 'Name', 'Definition', 'Visibility'])
 
 
 class PSCustomObject(PSObject):
@@ -1054,6 +1062,123 @@ class HostInfo(PSObject):
         )
 
 
+class ScriptPosition(PSObject):
+    """ScriptPosition.
+
+    Represents a single point in a script. This script may come from a file or
+    interactive input. This is the actual .NET type
+    `System.Management.Automation.Language.ScriptPosition`_.
+
+    Args:
+        File: The name of the file, or if the script did not come from a file, then null.
+        LineNumber: The line number of the position, with the value 1 being the first line.
+        ColumnNumber: The column number of the position, with the value 1 being the first column.
+        Line: The complete text of the line that this position is included on.
+
+    .. _System.Management.Automation.Language.ScriptPosition:
+        https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.language.scriptposition
+    """
+    PSObject = PSObjectMeta(
+        type_names=[
+            'System.Management.Automation.Language.ScriptPosition',
+            'System.Object',
+        ],
+        adapted_properties=[
+            PSNoteProperty('File', ps_type=PSString),
+            PSNoteProperty('LineNumber', ps_type=PSInt),
+            PSNoteProperty('ColumnNumber', ps_type=PSInt),
+            PSNoteProperty('Line', ps_type=PSString),
+            PSScriptProperty('Offset', lambda o: 0, ps_type=PSInt),  # Not used in pwsh.
+        ],
+    )
+
+
+class ScriptExtent(PSObject):
+    """ScriptExtent.
+
+    A script extend used to customize the display of error location
+    information. This is the actual .NET type
+    `System.Management.Automation.Language.ScriptExtent`_.
+
+    Args:
+        StartPosition: The position beginning the extent.
+        EndPosition: The position ending the extent.
+
+    .. _System.Management.Automation.Language.ScriptExtent:
+        https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.language.scriptextent
+    """
+    PSObject = PSObjectMeta(
+        type_names=[
+            'System.Management.Automation.Language.ScriptExtent',
+            'System.Object',
+        ],
+        adapted_properties=[
+            PSScriptProperty('File', lambda o: o._start.File, ps_type=PSString),
+            PSScriptProperty('StartScriptPosition', lambda o: o._start, ps_type=PSString),
+            PSScriptProperty('EndScriptPosition', lambda o: o._end, ps_type=PSString),
+            PSScriptProperty('StartLineNumber', lambda o: o._start.LineNumber, ps_type=PSInt),
+            PSScriptProperty('StartColumnNumber', lambda o: o._start.ColumnNumber, ps_type=PSInt),
+            PSScriptProperty('EndLineNumber', lambda o: o._end.LineNumber, ps_type=PSInt),
+            PSScriptProperty('EndColumnNumber', lambda o: o._end.ColumnNumber, ps_type=PSInt),
+            PSScriptProperty('StartOffset', lambda o: o._start.Offset, ps_type=PSInt),
+            PSScriptProperty('EndOffset', lambda o: o._end.Offset, ps_type=PSInt),
+            PSAliasProperty('Text', '_text', ps_type=PSString),
+        ],
+    )
+
+    def __init__(
+            self,
+            StartPosition: ScriptPosition,
+            EndPosition: ScriptPosition,
+    ):
+        super().__init__()
+        self._start = StartPosition
+        self._end = EndPosition
+
+    @property
+    def _text(self) -> PSString:
+        if self.EndColumnNumber < 1:
+            val = ''
+
+        elif self.StartLineNumber == self.EndLineNumber:
+            val = self._start.Line[self.StartColumnNumber - 1:self.EndColumnNumber]
+
+        else:
+            start = self._start.Line[self.StartColumnNumber:]
+            end = self._end.Line[self.EndColumnNumber:]
+            val = f'{start}...{end}'
+
+        return PSString(val)
+
+
+def _script_extent_from_ps_object(
+        obj: PSObject,
+) -> ScriptExtent:
+    """ Used by ErrorRecord and InformationalRecord to deserialize the invocation info details. """
+    file = obj.ScriptExtent_File
+    start_line = obj.ScriptExtent_StartLineNumber
+    end_line = obj.ScriptExtent_EndLineNumber
+    start_column = obj.ScriptExtent_StartColumnNumber
+    end_column = obj.ScriptExtent_EndColumnNumber
+
+    return ScriptExtent(
+        StartPosition=ScriptPosition(file, start_line, start_column, ""),
+        EndPosition=ScriptPosition(file, end_line, end_column, ""),
+    )
+
+
+def _script_extent_to_ps_object(
+        script_extent: ScriptExtent,
+        obj: PSObject,
+):
+    """ Used by InvocationInfo to serialize the script extent details. """
+    add_note_property(obj, 'ScriptExtent_File', script_extent.File)
+    add_note_property(obj, 'ScriptExtent_StartLineNumber', script_extent.StartLineNumber)
+    add_note_property(obj, 'ScriptExtent_StartColumnNumber', script_extent.StartColumnNumber)
+    add_note_property(obj, 'ScriptExtent_EndLineNumber', script_extent.EndLineNumber)
+    add_note_property(obj, 'ScriptExtent_EndColumnNumber', script_extent.EndColumnNumber)
+
+
 class InvocationInfo(PSObject):
     """InvocationInfo.
 
@@ -1086,7 +1211,7 @@ class InvocationInfo(PSObject):
         ScriptLineNumber: The line number in the executing script that contains
             this cmdlet.
         ScriptName: The name of the script containing the cmdlet.
-        UnboundArguments: THe list of arguments that were not bound to any
+        UnboundArguments: The list of arguments that were not bound to any
             parameter.
 
     .. _System.Management.Automation.InvocationInfo:
@@ -1100,12 +1225,12 @@ class InvocationInfo(PSObject):
         adapted_properties=[
             PSNoteProperty('BoundParameters', ps_type=PSDict),
             PSNoteProperty('CommandOrigin', ps_type=CommandOrigin),
-            PSNoteProperty('DisplayScriptPosition'),  # ScriptExtent
+            PSNoteProperty('DisplayScriptPosition', ps_type=ScriptExtent),
             PSNoteProperty('ExpectingInput', ps_type=PSBool),
             PSNoteProperty('HistoryId', ps_type=PSInt64),
             PSNoteProperty('InvocationName', ps_type=PSString),
             PSNoteProperty('Line', ps_type=PSString),
-            PSNoteProperty('MyCommand'),  # ComamndInfo,
+            PSNoteProperty('MyCommand'),  # CommandInfo,
             PSNoteProperty('OffsetInLine', ps_type=PSInt),
             PSNoteProperty('PipelineLength', ps_type=PSInt),
             PSNoteProperty('PipelinePosition', ps_type=PSInt),
@@ -1123,17 +1248,53 @@ def _invocation_info_from_ps_object(
         obj: PSObject,
 ) -> InvocationInfo:
     """ Used by ErrorRecord and InformationalRecord to deserialize the invocation info details. """
-    # TODO: Deserialize MyCommand, DisplayScriptPosition (when SerializeExtent=True)
+    line = getattr(obj, 'InvocationInfo_Line', None) or ''
+    ps_command_path = ''
+    ps_script_root = ''
+
+    if getattr(obj, 'SerializeExtent') or False:
+        display_script_position = _script_extent_from_ps_object(obj)
+
+    else:
+        script_name = obj.InvocationInfo_ScriptName or ''
+        script_line_number = obj.InvocationInfo_ScriptLineNumber
+        offset_in_line = obj.InvocationInfo_OffsetInLine
+        start_position = ScriptPosition(script_name, script_line_number, offset_in_line, line)
+
+        end_position = start_position
+        if line:
+            end_position = ScriptPosition(script_name, script_line_number, len(line) + 1, line)
+
+        display_script_position = ScriptExtent(start_position, end_position)
+
+        ps_command_path = display_script_position.File
+        fs_type = posixpath if posixpath.sep in ps_command_path else ntpath
+        ps_script_root = fs_type.dirname(ps_command_path)
+
+    my_command = None
+    command_type = getattr(obj, 'CommandInfo_CommandType', None)
+    if command_type is not None:
+        my_command = _RemoteCommandInfo(
+            CommandType=CommandTypes(command_type),
+            Name=obj.CommandInfo_Name,
+            Definition=obj.CommandInfo_Definition,
+            Visibility=SessionStateEntryVisibility(obj.CommandInfo_Visibility),
+        )
+
     return InvocationInfo(
         BoundParameters=getattr(obj, 'InvocationInfo_BoundParameters', None) or PSDict(),
         CommandOrigin=CommandOrigin(obj.InvocationInfo_CommandOrigin),
+        DisplayScriptPosition=display_script_position,
         ExpectingInput=obj.InvocationInfo_ExpectingInput,
         HistoryId=obj.InvocationInfo_HistoryId,
         InvocationName=obj.InvocationInfo_InvocationName,
-        Line=obj.InvocationInfo_Line,
+        Line=line,
+        MyCommand=my_command,
         OffsetInLine=obj.InvocationInfo.OffsetInLine,
         PipelineLength=obj.InvocationInfo_PipelineLength,
         PipelinePosition=obj.InvocationInfo_PipelinePosition,
+        PSCommandPath=ps_command_path,
+        PSScriptRoot=ps_script_root,
         ScriptLineNumber=obj.InvocationInfo.ScriptLineNumber,
         ScriptName=obj.InvocationInfo.ScriptName,
         UnboundArguments=getattr(obj, 'InvocationInfo_UnboundArguments', None) or PSList(),
@@ -1162,9 +1323,22 @@ def _invocation_info_to_ps_object(
     add_note_property(obj, 'InvocationInfo_ScriptName', invocation_info.ScriptName)
     add_note_property(obj, 'InvocationInfo_UnboundArguments', invocation_info.UnboundArguments)
 
-    # TODO: support serializing DisplayScriptPosition
-    add_note_property(obj, 'SerializeExtent', False)
-    # TODO: support serializing MyCommand
+    if invocation_info.DisplayScriptPosition:
+        _script_extent_to_ps_object(invocation_info.DisplayScriptPosition, obj)
+        add_note_property(obj, 'SerializeExtent', True)
+
+    else:
+        add_note_property(obj, 'SerializeExtent', False)
+
+    if invocation_info.MyCommand:
+        # This should be a CommandInfo type but we are being pretty lax with the property checks.
+        my_command = invocation_info.MyCommand
+        add_note_property(obj, 'CommandInfo_CommandType', getattr(my_command, 'CommandType',
+                                                                  CommandTypes.Application))
+        add_note_property(obj, 'CommandInfo_Definition', getattr(my_command, 'Definition', ''))
+        add_note_property(obj, 'CommandInfo_Name', getattr(my_command, 'Name', ''))
+        add_note_property(obj, 'CommandInfo_Visibility', getattr(my_command, 'Definition',
+                                                                 SessionStateEntryVisibility.Public))
 
 
 class ErrorCategoryInfo(PSObject):
