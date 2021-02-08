@@ -3,7 +3,9 @@
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 import asyncio
+import enum
 import base64
+import threading
 import typing
 import xml.etree.ElementTree as ElementTree
 
@@ -28,6 +30,7 @@ from .exceptions import (
 
 from .io.process import (
     AsyncProcess,
+    Process,
 )
 
 from .io.wsman import (
@@ -40,6 +43,10 @@ from .protocol.powershell import (
     StreamType,
 )
 
+from .protocol.powershell_events import (
+    PSRPEvent,
+)
+
 from .protocol.winrs import (
     WinRS,
 )
@@ -48,9 +55,52 @@ from .protocol.wsman import (
     CommandState,
     NAMESPACES,
     OptionSet,
+    ReceiveResponseEvent,
     SignalCode,
     WSMan,
 )
+
+
+class OutputBufferingMode(enum.Enum):
+    none = enum.auto()
+    block = enum.auto()
+    drop = enum.auto()
+
+
+class _MessageEvent:
+
+    def __init__(self):
+        self._events = {}
+        self._event_lock = threading.Lock()
+
+    def wait(
+            self,
+            identifier: str,
+            pipeline_id: typing.Optional[str] = None,
+    ):
+        key = f'{identifier}:{(pipeline_id or "").upper()}'
+        wait_event = self._get_event(key)
+        wait_event.wait()
+
+    def set(
+            self,
+            identifier: str,
+            pipeline_id: typing.Optional[str] = None,
+    ):
+        key = f'{identifier}:{(pipeline_id or "").upper()}'
+        event = self._get_event(key)
+        event.set()
+        event.clear()
+
+    def _get_event(
+            self,
+            identifier: typing.Union[str, int],
+    ) -> threading.Event:
+        with self._event_lock:
+            if identifier not in self._events:
+                self._events[identifier] = threading.Event()
+
+        return self._events[identifier]
 
 
 class _AsyncMessageEvent:
@@ -64,9 +114,10 @@ class _AsyncMessageEvent:
             self,
             identifier: str,
             pipeline_id: typing.Optional[str] = None,
-    ) -> typing.Any:
+    ):
         key = f'{identifier}:{(pipeline_id or "").upper()}'
-        await (await self._get_event(key)).wait()
+        wait_event = await self._get_event(key)
+        await wait_event.wait()
 
     async def set(
             self,
@@ -264,23 +315,6 @@ class AsyncConnectionInfo(ConnectionInfo):
             self,
             pipeline_id: typing.Optional[str] = None,
     ):
-        """Closes a Pipeline or RunspacePool.
-
-        WSMan:
-            Pipeline:
-                Seems like the Signal with terminate?
-
-        OutOfProc:
-            Pipeline:
-                Send:       <Close PSGuid='blah'>
-                Receive:    <Close Ack PSGuid='blah'>
-
-                The RunspacePoolState was set to 4 (Completed) when it was finished (before close)
-
-            RunspacePool:
-
-
-        """
         return NotImplemented
 
     async def create(
@@ -306,21 +340,6 @@ class AsyncConnectionInfo(ConnectionInfo):
             self,
             pipeline_id: typing.Optional[str] = None,
     ):
-        """Stops a pipeline.
-
-        This must be targeted towards a pipeline, cannot be sent to a RunspacePool.
-
-        WSMan:
-            Sends the Signal message with the PS_CTRL_C signal code
-            Awaits the SignalResponse message
-
-        OutOfProc:
-            Send:       <Signal PSGuid='blah'>
-            Receive:    <Data PIPELINE_STATE> (3 - Stopped and ErrorRecord PipelineHasStopped)
-            Receive:    <SignalAck PSGuid='blah'>
-
-            Once the SignalAck is received, the pipeline is closed as well
-        """
         return NotImplemented
 
     async def connect(
@@ -344,6 +363,105 @@ class AsyncConnectionInfo(ConnectionInfo):
             runspace_id: typing.Optional[str] = None,
     ):
         return NotImplemented
+
+
+class ProcessInfo(ConnectionInfo):
+
+    def __init__(
+            self,
+            executable: str = 'pwsh',
+            arguments: typing.Optional[typing.List[str]] = None,
+    ):
+        super().__init__()
+
+        self.executable = executable
+        self.arguments = arguments or []
+        if executable == 'pwsh' and arguments is None:
+            self.arguments = ['-NoProfile', '-NoLogo', '-s']
+
+        self._process = Process(self.executable, self.arguments)
+        self._listen_task = None
+        self._response_events = _MessageEvent()
+
+    def wait_event(
+            self,
+            pipeline_id: typing.Optional[str] = None,
+            message_type: typing.Optional[PSRPMessageType] = None,
+    ):
+        while True:
+            try:
+                return self.runspace_pool.next_event(pipeline_id=pipeline_id, message_type=message_type)
+            except RunspacePoolWantRead:
+                self._response_events.wait('Data', pipeline_id)
+
+    def start(self):
+        self._process.open()
+        self._listen_task = threading.Thread(target=self._listen)
+        self._listen_task.start()
+
+    def stop(self):
+        self._process.close()
+        self._listen_task.join()
+        self._listen_task = None
+
+    def close(
+            self,
+            pipeline_id: typing.Optional[str] = None,
+    ):
+        self._process.write(_ps_guid_packet('Close', ps_guid=pipeline_id))
+        self._response_events.wait('CloseAck', pipeline_id)
+
+    def create(
+            self,
+    ):
+        self.send()
+
+    def command(
+            self,
+            pipeline_id: str,
+    ):
+        self._process.write(_ps_guid_packet('Command', ps_guid=pipeline_id))
+        self._response_events.wait('CommandAck', pipeline_id)
+        self.send()
+
+    def send(
+            self,
+            buffer: bool = False,
+    ) -> bool:
+        payload = self.next_payload(buffer=buffer)
+        if not payload:
+            return False
+
+        self._process.write(_ps_data_packet(payload.data, stream_type=payload.stream_type,
+                                            ps_guid=payload.pipeline_id))
+        self._response_events.wait('DataAck', payload.pipeline_id)
+
+        return True
+
+    async def signal(
+            self,
+            pipeline_id: typing.Optional[str] = None,
+    ):
+        self._process.write(_ps_guid_packet('Signal', ps_guid=pipeline_id))
+        self._response_events.wait('SignalAck', pipeline_id)
+
+    def _listen(self):
+        while True:
+            data = self._process.read()
+            if not data:
+                break
+
+            packet = ElementTree.fromstring(data)
+            data = base64.b64decode(packet.text) if packet.text else None
+            ps_guid = packet.attrib['PSGuid'].upper()
+            if ps_guid == _EMPTY_UUID:
+                ps_guid = None
+
+            if data:
+                msg = PSRPPayload(data, StreamType.default, ps_guid)
+                self.runspace_pool.receive_data(msg)
+
+            self._response_events.set(packet.tag, ps_guid)
 
 
 class AsyncProcessInfo(AsyncConnectionInfo):
@@ -481,12 +599,22 @@ class AsyncWSManInfo(AsyncConnectionInfo):
             self,
             pipeline_id: typing.Optional[str] = None,
             message_type: typing.Optional[PSRPMessageType] = None,
-    ):
+    ) -> typing.Optional[PSRPEvent]:
         while True:
             try:
                 return self.runspace_pool.next_event(pipeline_id=pipeline_id, message_type=message_type)
             except RunspacePoolWantRead:
-                await self._response_events.wait('Data', pipeline_id)
+                # Need to wait for more data to come in, if the connection was closed we return nothing.
+                tasks = [
+                    asyncio_create_task(self._response_events.wait('Data', pipeline_id)),
+                    asyncio_create_task(self._response_events.wait('Disconnect', pipeline_id))
+                ]
+                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                [t.cancel() for t in pending]  # Make sure we cancel the pending tasks
+
+                done = next(iter(done))
+                if done == tasks[1]:
+                    return
 
     async def start(self):
         await self._connection.open()
@@ -599,10 +727,20 @@ class AsyncWSManInfo(AsyncConnectionInfo):
 
     async def disconnect(
             self,
+            buffer_mode: OutputBufferingMode = OutputBufferingMode.none,
+            idle_timeout: typing.Optional[typing.Union[int, float]] = None
     ):
         rsp = NAMESPACES['rsp']
 
         disconnect = ElementTree.Element('{%s}Disconnect' % rsp)
+        if buffer_mode != OutputBufferingMode.none:
+            buffer_mode_str = 'Block' if buffer_mode == OutputBufferingMode.block else 'Drop'
+            ElementTree.SubElement(disconnect, '{%s}BufferMode' % rsp).text = buffer_mode_str
+
+        if idle_timeout:
+            idle_str = f'PT{idle_timeout}S'
+            ElementTree.SubElement(disconnect, '{%s}IdleTimeout' % rsp).text = idle_str
+
         self._winrs.wsman.disconnect(self._winrs.resource_uri, disconnect, selector_set=self._winrs.selector_set)
         resp = await self._connection.send(self._winrs.data_to_send())
         self._winrs.receive_data(resp)
@@ -654,14 +792,15 @@ class AsyncWSManInfo(AsyncConnectionInfo):
             started.set()
 
             try:
-                event = self._winrs.receive_data(resp)
+                event: ReceiveResponseEvent = self._winrs.receive_data(resp)
 
             except OperationTimedOut:
                 # Occurs when there has been no output after the OperationTimeout set, just repeat the request
                 continue
 
-            except (OperationAborted, ServiceStreamDisconnected):
+            except (OperationAborted, ServiceStreamDisconnected) as e:
                 # Received when the shell has been closed
+                await self._response_events.set('Disconnect', pipeline_id)
                 break
 
             for psrp_data in event.get_streams().get('stdout', []):

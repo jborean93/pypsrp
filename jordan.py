@@ -4,6 +4,7 @@ import typing
 from psrp.connection_info import (
     AsyncProcessInfo,
     AsyncWSManInfo,
+    ProcessInfo,
 )
 
 from psrp.dotnet.complex_types import (
@@ -25,7 +26,8 @@ from psrp.host import (
 from psrp.powershell import (
     AsyncCommandMetaPipeline,
     AsyncPowerShell,
-    AsyncRunspacePool,
+    RunspacePool,
+    PowerShell,
 )
 
 from psrp.protocol.powershell import (
@@ -44,18 +46,19 @@ sleep 5
 
 
 async def async_psrp(connection_info):
-    async with AsyncRunspacePool(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')) as rp1:
+    async with RunspacePool(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')) as rp1:
         print(rp1.protocol.runspace_id)
         #await rp1.disconnect()
         #await rp1.connect()
 
         ps = AsyncPowerShell(rp1)
         ps.add_script(script)
-        await ps.begin_invoke()
+        task = await ps.invoke_async()
         #async for out in ps.invoke():
         #    print(out)
 
         await rp1.disconnect()
+        a = await task
 
     a = ''
 
@@ -65,8 +68,9 @@ async def async_psrp(connection_info):
 
     a = ''
 
-    async for rp in AsyncRunspacePool.get_runspace_pools(connection_info):
+    async for rp in RunspacePool.get_runspace_pools(connection_info):
         async with rp:
+            a = ''
             for pipeline in rp.create_disconnected_power_shells():
                 async for out in pipeline.connect():
                     print(out)
@@ -75,14 +79,23 @@ async def async_psrp(connection_info):
             a = ''
 
 
-async def main():
+async def a_main():
     await asyncio.gather(
         #async_psrp(AsyncProcessInfo()),
         async_psrp(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
     )
 
 
-asyncio.run(main())
+def main():
+    with RunspacePool(ProcessInfo()) as rp:
+        p = PowerShell(rp)
+        p.add_script('echo "hi"')
+        for out in p.invoke():
+            print(out)
+
+
+#asyncio.run(a_main())
+main()
 
 
 """

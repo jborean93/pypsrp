@@ -2,6 +2,8 @@
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 import asyncio
+import subprocess
+import threading
 import typing
 
 
@@ -16,6 +18,8 @@ class Process:
         self.arguments = arguments or []
         self._process = None
 
+        self._write_lock = threading.Lock()
+
     def __enter__(self):
         self.open()
         return self
@@ -24,16 +28,37 @@ class Process:
         self.close()
 
     def close(self):
-        raise NotImplementedError()
+        if self._process.poll() is None:
+            self._process.kill()
+            self._process.wait()
 
     def open(self):
-        raise NotImplementedError()
+        pipe = asyncio.subprocess.PIPE
+        arguments = [self.executable]
+        arguments.extend(self.arguments)
+
+        self._process = subprocess.Popen(
+            arguments, stdin=pipe, stdout=pipe, stderr=pipe
+        )
 
     def read(self):
-        raise NotImplementedError()
+        stdout = self._process.stdout.readline()
+
+        if not stdout:
+            stdout, stderr = self._process.communicate()
+            if stderr:
+                raise Exception(stderr.decode())
+
+            return
+
+        print("Read\t" + stdout.decode().strip())
+        return stdout
 
     def write(self, data):
-        raise NotImplementedError()
+        with self._write_lock:
+            print("Write\t" + data.decode().strip())
+            self._process.stdin.write(data)
+            self._process.stdin.flush()
 
 
 class AsyncProcess(Process):
