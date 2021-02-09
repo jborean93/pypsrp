@@ -1,6 +1,13 @@
 import asyncio
 import typing
 
+from psrp import (
+    AsyncRunspacePool,
+    AsyncPowerShell,
+    RunspacePool,
+    PowerShell,
+)
+
 from psrp.connection_info import (
     AsyncProcessInfo,
     AsyncWSManInfo,
@@ -23,13 +30,6 @@ from psrp.host import (
     PSHostRawUI,
 )
 
-from psrp.powershell import (
-    AsyncCommandMetaPipeline,
-    AsyncPowerShell,
-    RunspacePool,
-    PowerShell,
-)
-
 from psrp.protocol.powershell import (
     Command,
     PipelineResultTypes,
@@ -46,6 +46,13 @@ sleep 5
 
 
 async def async_psrp(connection_info):
+    async with AsyncRunspacePool(connection_info) as rp:
+        ps = AsyncPowerShell(rp)
+        ps.add_script('echo "hi"')
+        print(await ps.invoke())
+
+    return
+
     async with RunspacePool(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')) as rp1:
         print(rp1.protocol.runspace_id)
         #await rp1.disconnect()
@@ -81,8 +88,8 @@ async def async_psrp(connection_info):
 
 async def a_main():
     await asyncio.gather(
-        #async_psrp(AsyncProcessInfo()),
-        async_psrp(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
+        async_psrp(AsyncProcessInfo()),
+        #async_psrp(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
     )
 
 
@@ -94,8 +101,8 @@ def main():
             print(out)
 
 
-#asyncio.run(a_main())
-main()
+asyncio.run(a_main())
+# main()
 
 
 """

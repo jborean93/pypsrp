@@ -491,7 +491,7 @@ class AsyncProcessInfo(AsyncConnectionInfo):
             try:
                 return self.runspace_pool.next_event(pipeline_id=pipeline_id, message_type=message_type)
             except RunspacePoolWantRead:
-                await self._response_events.wait('Data', pipeline_id)
+                await self._response_events.wait('Data', None)
 
     async def start(self):
         await self._process.open()
@@ -559,6 +559,7 @@ class AsyncProcessInfo(AsyncConnectionInfo):
                 msg = PSRPPayload(data, StreamType.default, ps_guid)
                 self.runspace_pool.receive_data(msg)
 
+            ps_guid = None if packet.tag == 'Data' else ps_guid
             await self._response_events.set(packet.tag, ps_guid)
 
 

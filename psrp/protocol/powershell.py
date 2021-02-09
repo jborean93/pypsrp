@@ -594,9 +594,9 @@ class _RunspacePoolBase:
                 continue
 
             elif isinstance(event, PSRPMessage):
-                if event.pipeline_id != pipeline_id or \
-                        (message_type is not None and event.message_type != message_type):
-                    continue
+                #if event.pipeline_id != pipeline_id or \
+                #        (message_type is not None and event.message_type != message_type):
+                #    continue
 
                 event = self._process_message(event)
                 self._incoming_buffer[object_id] = event
