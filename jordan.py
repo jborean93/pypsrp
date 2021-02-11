@@ -97,12 +97,11 @@ def main():
     with RunspacePool(ProcessInfo()) as rp:
         p = PowerShell(rp)
         p.add_script('echo "hi"')
-        for out in p.invoke():
-            print(out)
+        print(p.invoke())
 
 
-asyncio.run(a_main())
-# main()
+#asyncio.run(a_main())
+main()
 
 
 """

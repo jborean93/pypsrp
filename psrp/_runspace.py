@@ -73,6 +73,10 @@ async def _invoke_async(func, *args, **kwargs):
         return func(*args, **kwargs)
 
 
+def _async_to_sync(func, *args, **kwargs):
+    return asyncio.get_event_loop().run_until_complete(_invoke_async(func, *args, **kwargs))
+
+
 class PSDataStream(list):
     _EOF = None
 
@@ -277,14 +281,7 @@ class RunspacePool(_RunspacePoolBase):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.state != RunspacePoolState.Disconnected:
-            # TODO: Close each pipeline as well.
-            self.connection.close()
-
-            while self.state not in [RunspacePoolState.Closed, RunspacePoolState.Broken]:
-                self.connection.wait_event()
-
-        self.connection.stop()
+        self.close()
 
     def connect(self):
         if self._new_client:
@@ -331,7 +328,7 @@ class RunspacePool(_RunspacePoolBase):
         Closes the Runspace Pool, any outstanding pipelines, and the connection to the peer.
         """
         if self.state != RunspacePoolState.Disconnected:
-            # TODO: Close pipelines
+            [p.close() for p in list(self.pipeline_table.values())]
             self.connection.close()
 
             while self.state not in [RunspacePoolState.Closed, RunspacePoolState.Broken]:
@@ -392,7 +389,7 @@ class RunspacePool(_RunspacePoolBase):
         self.connection.send_all()
         self._wait_response(PSRPMessageType.RunspaceAvailability)
 
-    async def set_min_runspaces(
+    def set_min_runspaces(
             self,
             value: int,
     ):
@@ -400,7 +397,7 @@ class RunspacePool(_RunspacePoolBase):
         self.connection.send_all()
         self._wait_response(PSRPMessageType.SetMinRunspaces)
 
-    async def set_max_runspaces(
+    def set_max_runspaces(
             self,
             value: int,
     ):
@@ -408,25 +405,34 @@ class RunspacePool(_RunspacePoolBase):
         self.connection.send_all()
         self._wait_response(PSRPMessageType.SetMaxRunspaces)
 
-    async def get_available_runspaces(self) -> int:
+    def get_available_runspaces(self) -> int:
         self.pool.get_available_runspaces()
         self.connection.send_all()
         event = self._wait_response(PSRPMessageType.RunspaceAvailability)
 
         return event.count
 
-    async def _response_listener(self):
-        while self.state in [
-            RunspacePoolState.Connecting,
-            RunspacePoolState.Opened,
-            RunspacePoolState.Opening,
-            RunspacePoolState.NegotiationSent,
-            RunspacePoolState.NegotiationSucceeded
-        ]:
+    def _response_listener(self):
+        while True:
             event = self.connection.wait_event()
-            for func in self._registrations[event.MESSAGE_TYPE]:
+            if event is None:
+                return
+
+            if event.pipeline_id:
+                pipeline = self.pipeline_table[event.pipeline_id]
+                reg_table = pipeline._registrations
+
+            else:
+                reg_table = self._registrations
+
+            if event.MESSAGE_TYPE not in reg_table:
+                # TODO: log.warning this
+                print(f'Message type not found in registration table: {event!s}')
+                continue
+
+            for func in reg_table[event.MESSAGE_TYPE]:
                 try:
-                    await func(event)
+                    func(event)
 
                 except Exception as e:
                     # TODO: log.warning this
@@ -704,6 +710,12 @@ class _PipelineBase:
 
         if user_completed:
             user_completed.set()
+
+    def _host_callback(
+            self,
+            event: PSRPEvent,
+    ):
+        a = ''
 
 
 class Pipeline(_PipelineBase):

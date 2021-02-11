@@ -392,7 +392,7 @@ class ProcessInfo(ConnectionInfo):
             try:
                 return self.runspace_pool.next_event(pipeline_id=pipeline_id, message_type=message_type)
             except RunspacePoolWantRead:
-                self._response_events.wait('Data', pipeline_id)
+                self._response_events.wait('Data', None)
 
     def start(self):
         self._process.open()
@@ -461,6 +461,7 @@ class ProcessInfo(ConnectionInfo):
                 msg = PSRPPayload(data, StreamType.default, ps_guid)
                 self.runspace_pool.receive_data(msg)
 
+            ps_guid = None if packet.tag == 'Data' else ps_guid
             self._response_events.set(packet.tag, ps_guid)
 
 
