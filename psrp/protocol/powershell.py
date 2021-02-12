@@ -441,10 +441,10 @@ class _RunspacePoolBase:
         self.their_capability: typing.Optional[SessionCapability] = None
         self.application_arguments = application_arguments
         self.application_private_data = application_private_data
+        self.ci_table = {}
 
         self.__ci_counter = 1
         self.__fragment_counter = 1
-        self._ci_table = {}
         self._cipher: typing.Optional[PSRemotingCrypto] = None
         self._exchange_key = None
         self._min_runspaces = 0
@@ -711,56 +711,6 @@ class RunspacePool(_RunspacePoolBase):
         self._min_runspaces = min_runspaces
         self._max_runspaces = max_runspaces
 
-    @property
-    def max_runspaces(self) -> int:
-        return super().max_runspaces
-
-    @max_runspaces.setter
-    def max_runspaces(
-            self,
-            value: int,
-    ):
-        """Set the maximum number of runspaces.
-
-        Build a request to set the maximum number of Runspaces the pool maintains. The `max_runspaces` property is
-        updated once the `:class:SetMaxRunspacesEvent` is fired.
-
-        Args:
-            value: The maximum number of runspaces in a pool to change to.
-        """
-        if self.state == RunspacePoolState.BeforeOpen or self._max_runspaces == value:
-            self._max_runspaces = value
-            return
-
-        ci = self._ci_counter
-        self._ci_table[ci] = lambda e: setattr(self, '_max_runspaces', value)
-        self.prepare_message(SetMaxRunspaces(MaxRunspaces=value, ci=ci))
-
-    @property
-    def min_runspaces(self) -> int:
-        return super().min_runspaces
-
-    @min_runspaces.setter
-    def min_runspaces(
-            self,
-            value: int,
-    ):
-        """Set the minimum number of runspaces.
-
-        Build a request to set the minimum number of Runspaces the pool maintains. The `min_runspaces` property is
-        updated once the `:class:SetMinRunspacesEvent` is fired.
-
-        Args:
-            value: The minimum number of runspaces in a pool to change to.
-        """
-        if self.state == RunspacePoolState.BeforeOpen or self._min_runspaces == value:
-            self._min_runspaces = value
-            return
-
-        ci = self._ci_counter
-        self._ci_table[ci] = lambda e: setattr(self, '_min_runspaces', value)
-        self.prepare_message(SetMinRunspaces(MinRunspaces=value, ci=ci))
-
     @state_check(
         'connect to Runspace Pool',
         require_states=[RunspacePoolState.Disconnected],
@@ -790,15 +740,17 @@ class RunspacePool(_RunspacePoolBase):
         'get available Runspaces',
         require_states=[RunspacePoolState.Opened],
     )
-    def get_available_runspaces(self):
+    def get_available_runspaces(self) -> int:
         """Get the number of Runspaces available.
 
         This builds a request to get the number of available Runspaces in the pool. The
         :class:`psrp.protocol.powershell_events.GetRunspaceAvailabilityEvent` is returned once the response is received from the server.
         """
         ci = self._ci_counter
-        self._ci_table[ci] = None
+        self.ci_table[ci] = None
         self.prepare_message(GetAvailableRunspaces(ci=ci))
+        
+        return ci
 
     @state_check(
         'open Runspace Pool',
@@ -861,7 +813,7 @@ class RunspacePool(_RunspacePoolBase):
             return_value: The return value for the host call.
             error_record: The error record raised by the host when running the host call.
         """
-        call_event = self._ci_table.pop(ci)
+        call_event = self.ci_table.pop(ci)
 
         method_identifier = call_event.ps_object.mi
         pipeline_id = call_event.pipeline_id
@@ -883,14 +835,60 @@ class RunspacePool(_RunspacePoolBase):
         require_version=PSVersion('2.3'),
         skip_states=[RunspacePoolState.BeforeOpen],
     )
-    def reset_runspace_state(self):
+    def reset_runspace_state(self) -> int:
         """Reset the Runspace Pool state.
 
         Resets the variable table for the Runspace Pool back to the default state.
         """
         ci = self._ci_counter
-        self._ci_table[ci] = None
+        self.ci_table[ci] = None
         self.prepare_message(ResetRunspaceState(ci=ci))
+        
+        return ci
+
+    def set_max_runspaces(
+            self,
+            value: int,
+    ) -> typing.Optional[int]:
+        """Set the maximum number of runspaces.
+
+        Build a request to set the maximum number of Runspaces the pool maintains. The `max_runspaces` property is
+        updated once the `:class:SetMaxRunspacesEvent` is fired.
+
+        Args:
+            value: The maximum number of runspaces in a pool to change to.
+        """
+        if self.state == RunspacePoolState.BeforeOpen or self._max_runspaces == value:
+            self._max_runspaces = value
+            return
+
+        ci = self._ci_counter
+        self.ci_table[ci] = lambda e: setattr(self, '_max_runspaces', value)
+        self.prepare_message(SetMaxRunspaces(MaxRunspaces=value, ci=ci))
+
+        return ci
+
+    def set_min_runspaces(
+            self,
+            value: int,
+    ) -> typing.Optional[int]:
+        """Set the minimum number of runspaces.
+
+        Build a request to set the minimum number of Runspaces the pool maintains. The `min_runspaces` property is
+        updated once the `:class:SetMinRunspacesEvent` is fired.
+
+        Args:
+            value: The minimum number of runspaces in a pool to change to.
+        """
+        if self.state == RunspacePoolState.BeforeOpen or self._min_runspaces == value:
+            self._min_runspaces = value
+            return
+
+        ci = self._ci_counter
+        self.ci_table[ci] = lambda e: setattr(self, '_min_runspaces', value)
+        self.prepare_message(SetMinRunspaces(MinRunspaces=value, ci=ci))
+
+        return ci
 
     def process_ApplicationPrivateData(
             self,
@@ -929,7 +927,7 @@ class RunspacePool(_RunspacePoolBase):
             event: PipelineHostCallEvent,
     ):
         # Store the event for the host response to use.
-        self._ci_table[event.ps_object.ci] = event
+        self.ci_table[event.ps_object.ci] = event
 
     def process_PipelineOutput(
             self,
@@ -964,7 +962,8 @@ class RunspacePool(_RunspacePoolBase):
             event: RunspaceAvailabilityEvent,
     ):
         ci = int(event.ps_object.ci)
-        handler = self._ci_table.pop(ci)
+        handler = self.ci_table[ci]
+        self.ci_table[ci] = event
         if handler is not None:
             handler(event)
 
@@ -973,7 +972,7 @@ class RunspacePool(_RunspacePoolBase):
             event: RunspacePoolHostCallEvent,
     ):
         # Store the event for the host response to use.
-        self._ci_table[event.ps_object.ci] = event
+        self.ci_table[int(event.ps_object.ci)] = event
 
     def process_RunspacePoolInitData(
             self,

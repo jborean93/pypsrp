@@ -254,6 +254,12 @@ class _RunspacePoolBase:
 
         self._new_client = False  # Used for reconnection as a new client.
 
+        self._event_task = None
+        self._registrations = {}
+        condition_type = asyncio.Condition if isinstance(self, AsyncRunspacePool) else threading.Condition
+        for mt in PSRPMessageType:
+            self._registrations[mt] = [condition_type()]
+
     @property
     def state(
             self,
@@ -265,22 +271,6 @@ class _RunspacePoolBase:
 
 
 class RunspacePool(_RunspacePoolBase):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self._event_task = None
-        self._registrations: typing.Dict[PSRPMessageType, typing.List[typing.Callable[[PSRPEvent], typing.Any]]] = {}
-        self._reg_conditions: typing.Dict[PSRPMessageType, threading.Condition] = {}
-
-        def callback(event: PSRPEvent):
-            condition = self._reg_conditions[event.MESSAGE_TYPE]
-            with condition:
-                condition.notify_all()
-
-        for mt in PSRPMessageType:
-            self._registrations[mt] = [callback]
-            self._reg_conditions[mt] = threading.Condition()
 
     def __enter__(self):
         if self.state == RunspacePoolState.Disconnected:
@@ -301,12 +291,16 @@ class RunspacePool(_RunspacePoolBase):
 
             self.pool.connect()
             self.connection.connect()
+            
+            with self._wait_condition(PSRPMessageType.SessionCapability) as sess, \
+                    self._wait_condition(PSRPMessageType.RunspacePoolInitData) as init, \
+                    self._wait_condition(PSRPMessageType.ApplicationPrivateData) as data:
 
-            self._event_task = threading.Thread(target=self._response_listener)
-            self._event_task.start()
-            self._wait_response(PSRPMessageType.SessionCapability)
-            self._wait_response(PSRPMessageType.RunspacePoolInitData)
-            self._wait_response(PSRPMessageType.ApplicationPrivateData)
+                self._event_task = threading.Thread(target=self._response_listener)
+                self._event_task.start()
+                sess.wait()
+                init.wait()
+                data.wait()
             self._new_client = False
 
         else:
@@ -329,10 +323,8 @@ class RunspacePool(_RunspacePoolBase):
         self.pool.open()
         self.connection.create()
 
-        self._event_task = threading.Thread(target=self._response_listener)
-
-        cond = self._reg_conditions[PSRPMessageType.RunspacePoolState]
-        with cond:
+        with self._wait_condition(PSRPMessageType.RunspacePoolState) as cond:
+            self._event_task = threading.Thread(target=self._response_listener)
             self._event_task.start()
             cond.wait()
 
@@ -343,10 +335,10 @@ class RunspacePool(_RunspacePoolBase):
         """
         if self.state != RunspacePoolState.Disconnected:
             [p.close() for p in list(self.pipeline_table.values())]
-            self.connection.close()
-
-            while self.state not in [RunspacePoolState.Closed, RunspacePoolState.Broken]:
-                self.connection.wait_event()
+            
+            with self._wait_condition(PSRPMessageType.RunspacePoolState) as cond:
+                self.connection.close()
+                cond.wait()
 
         self.connection.stop()
         self._event_task.join()
@@ -390,8 +382,10 @@ class RunspacePool(_RunspacePoolBase):
         operations that use secure strings but it's kept here as a manual option just in case.
         """
         self.pool.exchange_key()
-        self.connection.send_all()
-        self._wait_response(PSRPMessageType.EncryptedSessionKey)
+
+        with self._wait_condition(PSRPMessageType.EncryptedSessionKey) as cond:
+            self.connection.send_all()
+            cond.wait()
 
     def reset_runspace_state(self):
         """Resets the Runspace Pool session state.
@@ -399,35 +393,53 @@ class RunspacePool(_RunspacePoolBase):
         Resets the variable table for the Runspace Pool back to the default state. This only works on peers with a
         protocol version of 2.3 or greater (PowerShell v5+).
         """
-        self.pool.reset_runspace_state()
+        ci = self.pool.reset_runspace_state()
 
-        cond = self._reg_conditions[PSRPMessageType.RunspaceAvailability]
-        with cond:
+        with self._wait_condition(PSRPMessageType.RunspaceAvailability) as cond:
             self.connection.send_all()
-            cond.wait()
-
-    def set_min_runspaces(
-            self,
-            value: int,
-    ):
-        self.pool.min_runspaces = value
-        self.connection.send_all()
-        self._wait_response(PSRPMessageType.SetMinRunspaces)
+            cond.wait_for(lambda: isinstance(self.pool.ci_table[ci], PSRPEvent))
+            
+        # TODO: Validate the response.
+        resp = self.pool.ci_table[ci]
 
     def set_max_runspaces(
             self,
             value: int,
     ):
-        self.pool.max_runspaces = value
-        self.connection.send_all()
-        self._wait_response(PSRPMessageType.SetMaxRunspaces)
+        ci = self.pool.set_max_runspaces(value)
+        if ci is None:
+            return
+        
+        with self._wait_condition(PSRPMessageType.SetMaxRunspaces) as cond:
+            self.connection.send_all()
+            cond.wait_for(lambda: isinstance(self.pool.ci_table[ci], PSRPEvent))
+
+        # TODO: Validate the response.
+        resp = self.pool.ci_table[ci]
+
+    def set_min_runspaces(
+            self,
+            value: int,
+    ):
+        ci = self.pool.set_min_runspaces(value)
+        if ci is None:
+            return
+
+        with self._wait_condition(PSRPMessageType.SetMinRunspaces) as cond:
+            self.connection.send_all()
+            cond.wait_for(lambda: isinstance(self.pool.ci_table[ci], PSRPEvent))
+
+        # TODO: Validate the response.
+        resp = self.pool.ci_table[ci]
 
     def get_available_runspaces(self) -> int:
-        self.pool.get_available_runspaces()
-        self.connection.send_all()
-        event = self._wait_response(PSRPMessageType.RunspaceAvailability)
-
-        return event.count
+        ci = self.pool.get_available_runspaces()
+        
+        with self._wait_condition(PSRPMessageType.RunspaceAvailability) as cond:
+            self.connection.send_all()
+            cond.wait_for(lambda: isinstance(self.pool.ci_table[ci], PSRPEvent))
+            
+        return self.pool.ci_table[ci].count
 
     def _response_listener(self):
         while True:
@@ -442,18 +454,28 @@ class RunspacePool(_RunspacePoolBase):
             else:
                 reg_table = self._registrations
 
-            if event.MESSAGE_TYPE not in reg_table:
-                # TODO: log.warning this
-                print(f'Message type not found in registration table: {event!s}')
-                continue
+            for reg in reg_table[event.MESSAGE_TYPE]:
+                if isinstance(reg, threading.Condition):
+                    with reg:
+                        reg.notify_all()
+                        
+                    continue
 
-            for func in reg_table[event.MESSAGE_TYPE]:
                 try:
-                    func(event)
+                    reg(event)
 
                 except Exception as e:
                     # TODO: log.warning this
                     print(f'Error running registered callback: {e!s}')
+                    
+    @contextlib.contextmanager
+    def _wait_condition(
+            self,
+            message_type: PSRPMessageType,
+    ) -> typing.Iterable[threading.Condition]:
+        cond = self._registrations[message_type][0]
+        with cond:
+            yield cond
 
 
 class AsyncRunspacePool(_RunspacePoolBase):
@@ -479,9 +501,9 @@ class AsyncRunspacePool(_RunspacePoolBase):
             await self.connection.connect()
 
             self._event_task = asyncio_create_task(self._response_listener())
-            await self._wait_response(PSRPMessageType.SessionCapability)
-            await self._wait_response(PSRPMessageType.RunspacePoolInitData)
-            await self._wait_response(PSRPMessageType.ApplicationPrivateData)
+            await self._wait_condition(PSRPMessageType.SessionCapability)
+            await self._wait_condition(PSRPMessageType.RunspacePoolInitData)
+            await self._wait_condition(PSRPMessageType.ApplicationPrivateData)
             self._new_client = False
 
         else:
@@ -499,8 +521,9 @@ class AsyncRunspacePool(_RunspacePoolBase):
         self.pool.open()
         await self.connection.create()
 
-        self._event_task = asyncio_create_task(self._response_listener())
-        await self._wait_response(PSRPMessageType.RunspacePoolState)
+        async with self._wait_condition(PSRPMessageType.RunspacePoolState) as cond:
+            self._event_task = asyncio_create_task(self._response_listener())
+            await cond.wait()
 
     async def close(self):
         if self.state != RunspacePoolState.Disconnected:
@@ -547,7 +570,7 @@ class AsyncRunspacePool(_RunspacePoolBase):
     async def exchange_key(self):
         self.pool.exchange_key()
         await self.connection.send_all()
-        await self._wait_response(PSRPMessageType.EncryptedSessionKey)
+        await self._wait_condition(PSRPMessageType.EncryptedSessionKey)
 
     async def reset_runspace_state(self):
         self.pool.reset_runspace_state()
@@ -562,7 +585,7 @@ class AsyncRunspacePool(_RunspacePoolBase):
     ):
         self.pool.min_runspaces = value
         await self.connection.send_all()
-        await self._wait_response(PSRPMessageType.SetMinRunspaces)
+        await self._wait_condition(PSRPMessageType.SetMinRunspaces)
 
     async def set_max_runspaces(
             self,
@@ -570,12 +593,12 @@ class AsyncRunspacePool(_RunspacePoolBase):
     ):
         self.pool.max_runspaces = value
         await self.connection.send_all()
-        await self._wait_response(PSRPMessageType.SetMaxRunspaces)
+        await self._wait_condition(PSRPMessageType.SetMaxRunspaces)
 
     async def get_available_runspaces(self) -> int:
         self.pool.get_available_runspaces()
         await self.connection.send_all()
-        event = await self._wait_response(PSRPMessageType.RunspaceAvailability)
+        event = await self._wait_condition(PSRPMessageType.RunspaceAvailability)
 
         return event.count
 
@@ -592,47 +615,28 @@ class AsyncRunspacePool(_RunspacePoolBase):
             else:
                 reg_table = self._registrations
 
-            if event.MESSAGE_TYPE not in reg_table:
-                # TODO: log.warning this
-                print(f'Message type not found in registration table: {event!s}')
-                continue
+            for reg in reg_table[event.MESSAGE_TYPE]:
+                if isinstance(reg, asyncio.Condition):
+                    async with reg:
+                        reg.notify_all()
+                        
+                    continue
 
-            for func in reg_table[event.MESSAGE_TYPE]:
                 try:
-                    await _invoke_async(func, event)
+                    await _invoke_async(reg, event)
 
                 except Exception as e:
                     # TODO: log.warning this
                     print(f'Error running registered callback: {e!s}')
 
     @asynccontextmanager
-    async def _wait_condition(self, message_type):
-        condition = asyncio.Condition()
-
-        async def test(event):
-            async with condition:
-                condition.notify_all()
-
-        async with condition:
-            self._registrations[message_type].append(test)
-            try:
-                yield condition
-
-            finally:
-                # TODO: I think we need a unique identifier when adding the registration.
-                self._registrations[message_type].remove(test)
-
-    async def _wait_response(
+    async def _wait_condition(
             self,
             message_type: PSRPMessageType,
-    ) -> PSRPEvent:
-        wait_event = asyncio.Queue()
-
-        def wait_callback(event):
-            wait_event.put_nowait(event)
-
-        self._registrations[message_type].append(wait_callback)
-        return await wait_event.get()
+    ) -> typing.AsyncIterable[asyncio.Condition]:
+        cond = self._registrations[message_type][0]
+        async with cond:
+            yield cond
 
 
 class _PipelineBase:

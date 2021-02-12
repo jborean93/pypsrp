@@ -98,12 +98,14 @@ async def a_main():
 def main():
     with RunspacePool(ProcessInfo()) as rp:
         rp.reset_runspace_state()
+        print(rp.get_available_runspaces())
+
         p = PowerShell(rp)
         p.add_script('echo "hi"')
         print(p.invoke())
 
 
-#asyncio.run(a_main())
+asyncio.run(a_main())
 main()
 
 
