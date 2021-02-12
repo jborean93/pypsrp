@@ -3,8 +3,9 @@
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 import asyncio
-import enum
 import base64
+import enum
+import queue
 import threading
 import typing
 import xml.etree.ElementTree as ElementTree
@@ -17,14 +18,9 @@ from .dotnet.complex_types import (
     RunspacePoolState,
 )
 
-from .dotnet.psrp_messages import (
-    PSRPMessageType,
-)
-
 from .exceptions import (
     OperationAborted,
     OperationTimedOut,
-    RunspacePoolWantRead,
     ServiceStreamDisconnected,
 )
 
@@ -67,77 +63,77 @@ class OutputBufferingMode(enum.Enum):
     drop = enum.auto()
 
 
-class _MessageEvent:
+class _MessageQueue:
 
     def __init__(self):
-        self._events = {}
-        self._event_lock = threading.Lock()
+        self._queues = {}
+        self._queue_lock = threading.Lock()
 
-    def wait(
+    def get(
             self,
-            identifier: str,
+            identifier: typing.Optional[str] = None,
             pipeline_id: typing.Optional[str] = None,
-    ):
+    ) -> typing.Optional[PSRPPayload]:
         key = f'{identifier}:{(pipeline_id or "").upper()}'
-        wait_event = self._get_event(key)
-        wait_event.wait()
+        wait_queue = self._get_queue(key)
+        return wait_queue.get()
 
     def set(
             self,
-            identifier: str,
+            data: typing.Optional[PSRPPayload],
+            identifier: typing.Optional[str] = None,
             pipeline_id: typing.Optional[str] = None,
     ):
         key = f'{identifier}:{(pipeline_id or "").upper()}'
-        event = self._get_event(key)
-        event.set()
-        event.clear()
+        id_queue = self._get_queue(key)
+        id_queue.put(data)
 
-    def _get_event(
+    def _get_queue(
             self,
-            identifier: typing.Union[str, int],
-    ) -> threading.Event:
-        with self._event_lock:
-            if identifier not in self._events:
-                self._events[identifier] = threading.Event()
+            identifier: typing.Optional[str],
+    ) -> queue.Queue[typing.Optional[PSRPPayload]]:
+        with self._queue_lock:
+            if identifier not in self._queues:
+                self._queues[identifier] = queue.Queue()
 
-        return self._events[identifier]
+        return self._queues[identifier]
 
 
-class _AsyncMessageEvent:
+class _AsyncMessageQueue:
     """ Asyncio queue that allows the caller to wait and put messages based on a unique identifier. """
 
     def __init__(self):
-        self._events = {}
-        self._event_lock = asyncio.Lock()
+        self._queues = {}
+        self._queue_lock = asyncio.Lock()
 
-    async def wait(
+    async def get(
             self,
-            identifier: str,
+            identifier: typing.Optional[str] = None,
             pipeline_id: typing.Optional[str] = None,
-    ):
+    ) -> typing.Optional[PSRPPayload]:
         key = f'{identifier}:{(pipeline_id or "").upper()}'
-        wait_event = await self._get_event(key)
-        await wait_event.wait()
+        wait_queue = await self._get_queue(key)
+        return await wait_queue.get()
 
     async def set(
             self,
-            identifier: str,
+            data: typing.Optional[PSRPPayload],
+            identifier: typing.Optional[str] = None,
             pipeline_id: typing.Optional[str] = None,
     ):
         key = f'{identifier}:{(pipeline_id or "").upper()}'
-        event = await self._get_event(key)
-        event.set()
-        event.clear()
+        set_queue = await self._get_queue(key)
+        await set_queue.put(data)
 
-    async def _get_event(
+    async def _get_queue(
             self,
-            identifier: typing.Union[str, int],
-    ) -> asyncio.Event:
-        async with self._event_lock:
-            if identifier not in self._events:
-                self._events[identifier] = asyncio.Event()
+            identifier: typing.Optional[typing.Union[str, int]],
+    ) -> asyncio.Queue[typing.Optional[PSRPPayload]]:
+        async with self._queue_lock:
+            if identifier not in self._queues:
+                self._queues[identifier] = asyncio.Queue()
 
-        return self._events[identifier]
+        return self._queues[identifier]
 
 
 class ConnectionInfo:
@@ -153,8 +149,12 @@ class ConnectionInfo:
             self,
     ):
         self.runspace_pool: typing.Optional[RunspacePool] = None
-        self.fragment_size = 32_768
         self._buffer = bytearray()
+        self._message_queue = _MessageQueue()
+
+    @property
+    def fragment_size(self):
+        return 32_768
 
     def set_runspace_pool(
             self,
@@ -181,7 +181,7 @@ class ConnectionInfo:
             buffer: Wait until the buffer as set by `self.fragment_size`  has been reached before sending the payload.
 
         Returns:
-            (Optional[PSRPPayload]): The transport payload to send if there is one.
+            Optional[PSRPPayload]: The transport payload to send if there is one.
         """
         fragment_size = self.fragment_size - len(self._buffer)
         transport_action = self.runspace_pool.data_to_send(fragment_size)
@@ -201,12 +201,23 @@ class ConnectionInfo:
 
         return transport_action
 
-    def wait_event(
-            self,
-            pipeline_id: typing.Optional[str] = None,
-            message_type: typing.Optional[PSRPMessageType] = None,
-    ):
-        raise NotImplementedError()
+    def wait_event(self) -> typing.Optional[PSRPEvent]:
+        """Get the next PSRP event.
+
+        Get the next PSRP event generated from the responses of the perr.
+
+        Returns:
+            Optional[PSRPEvent]: The PSRPEvent or `None` if the connection has been closed with no more events.
+        """
+        while True:
+            event = self.runspace_pool.next_event()
+            if event:
+                return event
+
+            msg = self._message_queue.get()
+            if msg is None:
+                return
+            self.runspace_pool.receive_data(msg)
 
     ######################
     # Connection Methods #
@@ -290,12 +301,22 @@ class ConnectionInfo:
 
 class AsyncConnectionInfo(ConnectionInfo):
 
-    async def wait_event(
+    def __init__(
             self,
-            pipeline_id: typing.Optional[str] = None,
-            message_type: typing.Optional[PSRPMessageType] = None,
     ):
-        raise NotImplementedError()
+        super().__init__()
+        self._message_queue = _AsyncMessageQueue()
+
+    async def wait_event(self) -> typing.Optional[PSRPEvent]:
+        while True:
+            event = self.runspace_pool.next_event()
+            if event:
+                return event
+
+            msg = await self._message_queue.get()
+            if msg is None:
+                return
+            self.runspace_pool.receive_data(msg)
 
     async def start(self):
         """ Opens the connection to the peer. """
@@ -381,18 +402,6 @@ class ProcessInfo(ConnectionInfo):
 
         self._process = Process(self.executable, self.arguments)
         self._listen_task = None
-        self._response_events = _MessageEvent()
-
-    def wait_event(
-            self,
-            pipeline_id: typing.Optional[str] = None,
-            message_type: typing.Optional[PSRPMessageType] = None,
-    ):
-        while True:
-            try:
-                return self.runspace_pool.next_event(pipeline_id=pipeline_id, message_type=message_type)
-            except RunspacePoolWantRead:
-                self._response_events.wait('Data', None)
 
     def start(self):
         self._process.open()
@@ -409,19 +418,19 @@ class ProcessInfo(ConnectionInfo):
             pipeline_id: typing.Optional[str] = None,
     ):
         self._process.write(_ps_guid_packet('Close', ps_guid=pipeline_id))
-        self._response_events.wait('CloseAck', pipeline_id)
-
-    def create(
-            self,
-    ):
-        self.send()
+        self._message_queue.get('CloseAck', pipeline_id)
 
     def command(
             self,
             pipeline_id: str,
     ):
         self._process.write(_ps_guid_packet('Command', ps_guid=pipeline_id))
-        self._response_events.wait('CommandAck', pipeline_id)
+        self._message_queue.get('CommandAck', pipeline_id)
+        self.send()
+
+    def create(
+            self,
+    ):
         self.send()
 
     def send(
@@ -434,7 +443,7 @@ class ProcessInfo(ConnectionInfo):
 
         self._process.write(_ps_data_packet(payload.data, stream_type=payload.stream_type,
                                             ps_guid=payload.pipeline_id))
-        self._response_events.wait('DataAck', payload.pipeline_id)
+        self._message_queue.get('DataAck', payload.pipeline_id)
 
         return True
 
@@ -443,7 +452,7 @@ class ProcessInfo(ConnectionInfo):
             pipeline_id: typing.Optional[str] = None,
     ):
         self._process.write(_ps_guid_packet('Signal', ps_guid=pipeline_id))
-        self._response_events.wait('SignalAck', pipeline_id)
+        self._message_queue.get('SignalAck', pipeline_id)
 
     def _listen(self):
         while True:
@@ -458,11 +467,16 @@ class ProcessInfo(ConnectionInfo):
                 ps_guid = None
 
             if data:
-                msg = PSRPPayload(data, StreamType.default, ps_guid)
-                self.runspace_pool.receive_data(msg)
+                data = PSRPPayload(data, StreamType.default, ps_guid)
 
-            ps_guid = None if packet.tag == 'Data' else ps_guid
-            self._response_events.set(packet.tag, ps_guid)
+            tag = packet.tag
+            if tag == 'Data':
+                tag = None
+                ps_guid = None
+
+            self._message_queue.set(data, tag, ps_guid)
+
+        self._message_queue.set(None)
 
 
 class AsyncProcessInfo(AsyncConnectionInfo):
@@ -481,18 +495,6 @@ class AsyncProcessInfo(AsyncConnectionInfo):
 
         self._process = AsyncProcess(self.executable, self.arguments)
         self._listen_task = None
-        self._response_events = _AsyncMessageEvent()
-
-    async def wait_event(
-            self,
-            pipeline_id: typing.Optional[str] = None,
-            message_type: typing.Optional[PSRPMessageType] = None,
-    ):
-        while True:
-            try:
-                return self.runspace_pool.next_event(pipeline_id=pipeline_id, message_type=message_type)
-            except RunspacePoolWantRead:
-                await self._response_events.wait('Data', None)
 
     async def start(self):
         await self._process.open()
@@ -500,7 +502,7 @@ class AsyncProcessInfo(AsyncConnectionInfo):
 
     async def stop(self):
         await self._process.close()
-        self._listen_task.cancel()
+        await self._listen_task
         self._listen_task = None
 
     async def close(
@@ -508,14 +510,14 @@ class AsyncProcessInfo(AsyncConnectionInfo):
             pipeline_id: typing.Optional[str] = None,
     ):
         await self._process.write(_ps_guid_packet('Close', ps_guid=pipeline_id))
-        await self._response_events.wait('CloseAck', pipeline_id)
+        await self._message_queue.get('CloseAck', pipeline_id)
 
     async def command(
             self,
             pipeline_id: str,
     ):
         await self._process.write(_ps_guid_packet('Command', ps_guid=pipeline_id))
-        await self._response_events.wait('CommandAck', pipeline_id)
+        await self._message_queue.get('CommandAck', pipeline_id)
         await self.send()
 
     async def create(
@@ -533,7 +535,7 @@ class AsyncProcessInfo(AsyncConnectionInfo):
 
         await self._process.write(_ps_data_packet(payload.data, stream_type=payload.stream_type,
                                                   ps_guid=payload.pipeline_id))
-        await self._response_events.wait('DataAck', payload.pipeline_id)
+        await self._message_queue.get('DataAck', payload.pipeline_id)
 
         return True
 
@@ -542,7 +544,7 @@ class AsyncProcessInfo(AsyncConnectionInfo):
             pipeline_id: typing.Optional[str] = None,
     ):
         await self._process.write(_ps_guid_packet('Signal', ps_guid=pipeline_id))
-        await self._response_events.wait('SignalAck', pipeline_id)
+        await self._message_queue.get('SignalAck', pipeline_id)
 
     async def _listen(self):
         while True:
@@ -557,11 +559,16 @@ class AsyncProcessInfo(AsyncConnectionInfo):
                 ps_guid = None
 
             if data:
-                msg = PSRPPayload(data, StreamType.default, ps_guid)
-                self.runspace_pool.receive_data(msg)
+                data = PSRPPayload(data, StreamType.default, ps_guid)
 
-            ps_guid = None if packet.tag == 'Data' else ps_guid
-            await self._response_events.set(packet.tag, ps_guid)
+            tag = packet.tag
+            if tag == 'Data':
+                tag = None
+                ps_guid = None
+
+            await self._message_queue.set(data, tag, ps_guid)
+
+        await self._message_queue.set(None)
 
 
 class AsyncWSManInfo(AsyncConnectionInfo):
@@ -573,6 +580,7 @@ class AsyncWSManInfo(AsyncConnectionInfo):
             **kwargs,
     ):
         super().__init__()
+
         # Store the args/kwargs so we can create a copy of the class.
         self.__new_args = args
         self.__new_kwargs = kwargs
@@ -581,12 +589,9 @@ class AsyncWSManInfo(AsyncConnectionInfo):
         self._connection = AsyncWSManConnection(*args, **kwargs)
         self._winrs = WinRS(WSMan(connection_uri), 'http://schemas.microsoft.com/powershell/Microsoft.PowerShell',
                             input_streams='stdin pr', output_streams='stdout')
-        # FIXME: Calculate dynamically.
-        self.fragment_size = 32_768
 
         self._receive_tasks: typing.Dict[typing.Optional[str], typing.Tuple[AsyncWSManConnection, asyncio.Task]] = {}
         self._listen_tasks: typing.List[asyncio.Task] = []
-        self._response_events = _AsyncMessageEvent()
 
     def set_runspace_pool(
             self,
@@ -597,33 +602,12 @@ class AsyncWSManInfo(AsyncConnectionInfo):
         # To support reconnection we want to make sure the WinRS shell id matches our Runspace Id.
         self._winrs.shell_id = pool.runspace_id
 
-    async def wait_event(
-            self,
-            pipeline_id: typing.Optional[str] = None,
-            message_type: typing.Optional[PSRPMessageType] = None,
-    ) -> typing.Optional[PSRPEvent]:
-        while True:
-            try:
-                return self.runspace_pool.next_event(pipeline_id=pipeline_id, message_type=message_type)
-            except RunspacePoolWantRead:
-                # Need to wait for more data to come in, if the connection was closed we return nothing.
-                tasks = [
-                    asyncio_create_task(self._response_events.wait('Data', pipeline_id)),
-                    asyncio_create_task(self._response_events.wait('Disconnect', pipeline_id))
-                ]
-                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-                [t.cancel() for t in pending]  # Make sure we cancel the pending tasks
-
-                done = next(iter(done))
-                if done == tasks[1]:
-                    return
-
     async def start(self):
         await self._connection.open()
 
     async def stop(self):
         await self._connection.close()
-        [t.cancel() for t in self._listen_tasks]
+        await asyncio.gather(*self._listen_tasks)
         self._listen_tasks = None
 
     async def close(
@@ -802,19 +786,19 @@ class AsyncWSManInfo(AsyncConnectionInfo):
 
             except (OperationAborted, ServiceStreamDisconnected) as e:
                 # Received when the shell has been closed
-                await self._response_events.set('Disconnect', pipeline_id)
                 break
 
             for psrp_data in event.get_streams().get('stdout', []):
                 msg = PSRPPayload(psrp_data, StreamType.default, pipeline_id)
-                self.runspace_pool.receive_data(msg)
-
-            await self._response_events.set('Data', pipeline_id)
+                await self._message_queue.set(msg)
 
             # If the command is done then we've got nothing left to do here.
             # TODO: do we need to surface the exit_code into the protocol.
             if event.command_state == CommandState.done:
                 break
+
+        if pipeline_id is None:
+            await self._message_queue.set(None)
 
 
 _EMPTY_UUID = '00000000-0000-0000-0000-000000000000'

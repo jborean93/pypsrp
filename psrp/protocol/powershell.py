@@ -135,7 +135,6 @@ from ..exceptions import (
     InvalidProtocolVersion,
     InvalidRunspacePoolState,
     PSRPError,
-    RunspacePoolWantRead,
 )
 
 
@@ -558,20 +557,15 @@ class _RunspacePoolBase:
 
     def next_event(
             self,
-            pipeline_id: typing.Optional[str] = None,
-            message_type: typing.Optional[PSRPMessageType] = None,
-    ) -> PSRPEvent:
+    ) -> typing.Optional[PSRPEvent]:
         """Process data received from the peer.
 
         This processes any PSRP data that has been received from the peer. Will return the next PSRP event in the
-        receive buffer or raise `RunspacePoolWantRead` if not enough data is available.
-
-        Args:
-            pipeline_id: Get the next event for the Runspace Pool (`None`) or Pipeline if specified.
-            message_type: Get events only for this message type, otherwise all if `None` is specified.
+        receive buffer or `None` if not enough data is available.
 
         Returns:
-            (PSRPEvent): The next event present in the incoming data buffer.
+            typing.Optional[PSRPEvent]: The next event present in the incoming data buffer or `None` if not enough data
+                has been received.
         """
         while self._receive_buffer:
             fragment = _unpack_fragment(self._receive_buffer)
@@ -593,20 +587,14 @@ class _RunspacePoolBase:
             if isinstance(event, list):
                 continue
 
-            elif isinstance(event, PSRPMessage):
-                #if event.pipeline_id != pipeline_id or \
-                #        (message_type is not None and event.message_type != message_type):
-                #    continue
-
-                event = self._process_message(event)
-                self._incoming_buffer[object_id] = event
+            event = self._process_message(event)
 
             # We only want to clear the incoming buffer entry once we know the caller has the object.
             del self._incoming_buffer[object_id]
             return event
 
         # Need more data from te peer to produce an event.
-        raise RunspacePoolWantRead()
+        return
 
     @state_check(
         'send PSRP message',

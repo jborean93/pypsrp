@@ -34,6 +34,9 @@ setup(
         'pyspnego',
     ],
     extras_require={
+        ':python_version<"3.7"': {
+            'async_generator',
+        },
         'kerberos:sys_platform=="win32"': [],
         'kerberos:sys_platform!="win32"': [
             'gssapi>=1.5.0'

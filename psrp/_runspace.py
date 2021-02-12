@@ -3,12 +3,14 @@
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 import asyncio
+import contextlib
 import functools
 import queue
 import threading
 import typing
 
 from ._compat import (
+    asynccontextmanager,
     asyncio_create_task,
     iscoroutinefunction,
 )
@@ -75,6 +77,26 @@ async def _invoke_async(func, *args, **kwargs):
 
 def _async_to_sync(func, *args, **kwargs):
     return asyncio.get_event_loop().run_until_complete(_invoke_async(func, *args, **kwargs))
+
+
+def _condition_callback(
+        condition: threading.Condition,
+) -> typing.Callable[[PSRPEvent], typing.Any]:
+    def callback(event: PSRPEvent):
+        with condition:
+            condition.notify_all()
+
+    return callback
+
+
+async def _condition_callback_a(
+        condition: asyncio.Condition,
+) -> typing.Callable[[PSRPEvent], typing.Any]:
+    async def callback(event: PSRPEvent):
+        async with condition:
+            condition.notify_all()
+
+    return callback
 
 
 class PSDataStream(list):
@@ -231,27 +253,6 @@ class _RunspacePoolBase:
         self.pipeline_table: typing.Dict[str, typing.Any] = {}
 
         self._new_client = False  # Used for reconnection as a new client.
-        self._event_task = None
-        self._registrations: typing.Dict[PSRPMessageType, typing.List[typing.Callable[[PSRPEvent], typing.Any]]] = {
-            mt: [] for mt in [
-                PSRPMessageType.ApplicationPrivateData,
-                PSRPMessageType.DebugRecord,
-                PSRPMessageType.EncryptedSessionKey,
-                PSRPMessageType.ErrorRecord,
-                PSRPMessageType.InformationRecord,
-                PSRPMessageType.ProgressRecord,
-                PSRPMessageType.PublicKeyRequest,
-                PSRPMessageType.RunspaceAvailability,
-                PSRPMessageType.RunspacePoolHostCall,
-                PSRPMessageType.RunspacePoolInitData,
-                PSRPMessageType.RunspacePoolState,
-                PSRPMessageType.SessionCapability,
-                PSRPMessageType.UserEvent,
-                PSRPMessageType.VerboseRecord,
-                PSRPMessageType.WarningRecord,
-            ]
-        }
-        # TODO: add callbacks for things that run automatically in the background
 
     @property
     def state(
@@ -259,17 +260,27 @@ class _RunspacePoolBase:
     ) -> RunspacePoolState:
         return self.pool.state
 
-    def register_user_event(
-            self,
-            func: typing.Callable[[UserEventEvent], typing.Any],
-    ):
-        self._registrations[PSRPMessageType.UserEvent].append(func)
-
     def create_disconnected_power_shells(self) -> typing.List:
         return [p for p in self.pipeline_table.values() if p.pipeline.state == PSInvocationState.Disconnected]
 
 
 class RunspacePool(_RunspacePoolBase):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self._event_task = None
+        self._registrations: typing.Dict[PSRPMessageType, typing.List[typing.Callable[[PSRPEvent], typing.Any]]] = {}
+        self._reg_conditions: typing.Dict[PSRPMessageType, threading.Condition] = {}
+
+        def callback(event: PSRPEvent):
+            condition = self._reg_conditions[event.MESSAGE_TYPE]
+            with condition:
+                condition.notify_all()
+
+        for mt in PSRPMessageType:
+            self._registrations[mt] = [callback]
+            self._reg_conditions[mt] = threading.Condition()
 
     def __enter__(self):
         if self.state == RunspacePoolState.Disconnected:
@@ -293,9 +304,9 @@ class RunspacePool(_RunspacePoolBase):
 
             self._event_task = threading.Thread(target=self._response_listener)
             self._event_task.start()
-            self.connection.wait_event(message_type=PSRPMessageType.SessionCapability)
-            self.connection.wait_event(message_type=PSRPMessageType.RunspacePoolInitData)
-            self.connection.wait_event(message_type=PSRPMessageType.ApplicationPrivateData)
+            self._wait_response(PSRPMessageType.SessionCapability)
+            self._wait_response(PSRPMessageType.RunspacePoolInitData)
+            self._wait_response(PSRPMessageType.ApplicationPrivateData)
             self._new_client = False
 
         else:
@@ -319,8 +330,11 @@ class RunspacePool(_RunspacePoolBase):
         self.connection.create()
 
         self._event_task = threading.Thread(target=self._response_listener)
-        self._event_task.start()
-        self._wait_response(PSRPMessageType.RunspacePoolState)
+
+        cond = self._reg_conditions[PSRPMessageType.RunspacePoolState]
+        with cond:
+            self._event_task.start()
+            cond.wait()
 
     def close(self):
         """Closes the Runspace Pool.
@@ -386,8 +400,11 @@ class RunspacePool(_RunspacePoolBase):
         protocol version of 2.3 or greater (PowerShell v5+).
         """
         self.pool.reset_runspace_state()
-        self.connection.send_all()
-        self._wait_response(PSRPMessageType.RunspaceAvailability)
+
+        cond = self._reg_conditions[PSRPMessageType.RunspaceAvailability]
+        with cond:
+            self.connection.send_all()
+            cond.wait()
 
     def set_min_runspaces(
             self,
@@ -437,18 +454,6 @@ class RunspacePool(_RunspacePoolBase):
                 except Exception as e:
                     # TODO: log.warning this
                     print(f'Error running registered callback: {e!s}')
-
-    def _wait_response(
-            self,
-            message_type: PSRPMessageType,
-    ) -> PSRPEvent:
-        wait_event = queue.Queue()
-
-        def wait_callback(event):
-            wait_event.put(event)
-
-        self._registrations[message_type].append(wait_callback)
-        return wait_event.get()
 
 
 class AsyncRunspacePool(_RunspacePoolBase):
@@ -500,10 +505,9 @@ class AsyncRunspacePool(_RunspacePoolBase):
     async def close(self):
         if self.state != RunspacePoolState.Disconnected:
             tasks = [p.close() for p in self.pipeline_table.values()] + [self.connection.close()]
-            await asyncio.gather(*tasks)
-
-            while self.state not in [RunspacePoolState.Closed, RunspacePoolState.Broken]:
-                await self.connection.wait_event()
+            async with self._wait_condition(PSRPMessageType.RunspacePoolState) as cond:
+                await asyncio.gather(*tasks)
+                await cond.wait()
 
         await self.connection.stop()
         self._event_task.cancel()
@@ -547,8 +551,10 @@ class AsyncRunspacePool(_RunspacePoolBase):
 
     async def reset_runspace_state(self):
         self.pool.reset_runspace_state()
-        await self.connection.send_all()
-        await self._wait_response(PSRPMessageType.RunspaceAvailability)
+
+        async with self._wait_condition(PSRPMessageType.RunspaceAvailability) as cond:
+            await self.connection.send_all()
+            await cond.wait()
 
     async def set_min_runspaces(
             self,
@@ -598,6 +604,23 @@ class AsyncRunspacePool(_RunspacePoolBase):
                 except Exception as e:
                     # TODO: log.warning this
                     print(f'Error running registered callback: {e!s}')
+
+    @asynccontextmanager
+    async def _wait_condition(self, message_type):
+        condition = asyncio.Condition()
+
+        async def test(event):
+            async with condition:
+                condition.notify_all()
+
+        async with condition:
+            self._registrations[message_type].append(test)
+            try:
+                yield condition
+
+            finally:
+                # TODO: I think we need a unique identifier when adding the registration.
+                self._registrations[message_type].remove(test)
 
     async def _wait_response(
             self,

@@ -3,9 +3,18 @@
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 import asyncio
+import contextlib
 import functools
 import inspect
 import typing
+
+
+# TODO: Remove once Python 3.6 is dropped.
+if hasattr(contextlib, 'asynccontextmanager'):
+    asynccontextmanager = contextlib.asynccontextmanager
+
+else:
+    from async_generator import asynccontextmanager
 
 
 def asyncio_create_task(

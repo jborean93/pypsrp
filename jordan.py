@@ -47,6 +47,8 @@ sleep 5
 
 async def async_psrp(connection_info):
     async with AsyncRunspacePool(connection_info) as rp:
+        await rp.reset_runspace_state()
+
         ps = AsyncPowerShell(rp)
         ps.add_script('echo "hi"')
         print(await ps.invoke())
@@ -95,6 +97,7 @@ async def a_main():
 
 def main():
     with RunspacePool(ProcessInfo()) as rp:
+        rp.reset_runspace_state()
         p = PowerShell(rp)
         p.add_script('echo "hi"')
         print(p.invoke())
