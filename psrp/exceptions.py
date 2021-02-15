@@ -149,11 +149,6 @@ class MissingCipherError(PSRPError):
         return self.message
 
 
-class RunspacePoolWantRead(PSRPError):
-    """ Runspace Pool must receive more data to generate the next event. """
-    pass
-
-
 class _InvalidState(PSRPError):
     _STATE_OBJ = None
 

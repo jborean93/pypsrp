@@ -571,7 +571,7 @@ class AsyncProcessInfo(AsyncConnectionInfo):
         await self._message_queue.set(None)
 
 
-class AsyncWSManInfo(AsyncConnectionInfo):
+class WSManInfo(ConnectionInfo):
 
     def __init__(
             self,
@@ -586,8 +586,27 @@ class AsyncWSManInfo(AsyncConnectionInfo):
         self.__new_kwargs = kwargs
         self.__new_kwargs['connection_uri'] = connection_uri
 
+
+class AsyncWSManInfo(AsyncConnectionInfo):
+
+    def __init__(
+            self,
+            connection_uri,
+            configuration_name='Microsoft.PowerShell',
+            buffer_mode: OutputBufferingMode = OutputBufferingMode.none,
+            idle_timeout: typing.Optional[int] = None,
+            *args,
+            **kwargs,
+    ):
+        super().__init__()
+
+        # Store the args/kwargs so we can create a copy of the class.
+        self.__new_args = args
+        self.__new_kwargs = kwargs
+        self.__new_kwargs['connection_uri'] = connection_uri
+
         self._connection = AsyncWSManConnection(*args, **kwargs)
-        self._winrs = WinRS(WSMan(connection_uri), 'http://schemas.microsoft.com/powershell/Microsoft.PowerShell',
+        self._winrs = WinRS(WSMan(connection_uri), f'http://schemas.microsoft.com/powershell/{configuration_name}',
                             input_streams='stdin pr', output_streams='stdout')
 
         self._receive_tasks: typing.Dict[typing.Optional[str], typing.Tuple[AsyncWSManConnection, asyncio.Task]] = {}
@@ -607,7 +626,7 @@ class AsyncWSManInfo(AsyncConnectionInfo):
 
     async def stop(self):
         await self._connection.close()
-        await asyncio.gather(*self._listen_tasks)
+        await asyncio.gather(*(self._listen_tasks or []))
         self._listen_tasks = None
 
     async def close(

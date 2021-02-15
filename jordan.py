@@ -40,7 +40,7 @@ endpoint = 'server2019.domain.test'
 
 script = '''
 '1'
-sleep 5
+sleep 2
 '2'
 '''
 
@@ -48,6 +48,8 @@ sleep 5
 async def async_psrp(connection_info):
     async with AsyncRunspacePool(connection_info) as rp:
         await rp.reset_runspace_state()
+        await rp.set_max_runspaces(10)
+        await rp.get_available_runspaces()
 
         ps = AsyncPowerShell(rp)
         ps.add_script('echo "hi"')
@@ -55,8 +57,10 @@ async def async_psrp(connection_info):
 
     return
 
-    async with RunspacePool(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')) as rp1:
-        print(rp1.protocol.runspace_id)
+
+async def async_reconnection(connection_info):
+    async with AsyncRunspacePool(connection_info) as rp1:
+        print(rp1.pool.runspace_id)
         #await rp1.disconnect()
         #await rp1.connect()
 
@@ -67,7 +71,6 @@ async def async_psrp(connection_info):
         #    print(out)
 
         await rp1.disconnect()
-        a = await task
 
     a = ''
 
@@ -77,12 +80,11 @@ async def async_psrp(connection_info):
 
     a = ''
 
-    async for rp in RunspacePool.get_runspace_pools(connection_info):
+    async for rp in AsyncRunspacePool.get_runspace_pools(connection_info):
         async with rp:
             a = ''
             for pipeline in rp.create_disconnected_power_shells():
-                async for out in pipeline.connect():
-                    print(out)
+                print(await pipeline.connect())
 
                 a = ''
             a = ''
@@ -90,14 +92,17 @@ async def async_psrp(connection_info):
 
 async def a_main():
     await asyncio.gather(
-        async_psrp(AsyncProcessInfo()),
+        #async_psrp(AsyncProcessInfo()),
         #async_psrp(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
+        async_reconnection(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
     )
 
 
 def main():
     with RunspacePool(ProcessInfo()) as rp:
         rp.reset_runspace_state()
+        rp.set_max_runspaces(10)
+        rp.get_available_runspaces()
         print(rp.get_available_runspaces())
 
         p = PowerShell(rp)

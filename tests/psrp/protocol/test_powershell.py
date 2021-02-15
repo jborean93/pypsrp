@@ -39,7 +39,6 @@ from psrp.dotnet.psrp_messages import (
 
 from psrp.exceptions import (
     MissingCipherError,
-    RunspacePoolWantRead,
 )
 
 from psrp.protocol.powershell import (
@@ -159,8 +158,7 @@ def test_open_runspacepool():
     assert client.state == RunspacePoolState.NegotiationSucceeded
     assert server.state == RunspacePoolState.Opened
 
-    with pytest.raises(RunspacePoolWantRead):
-        server.next_event()
+    assert server.next_event() is None
 
     third = server.data_to_send()
     assert len(third.data) > 0
@@ -182,8 +180,7 @@ def test_open_runspacepool():
     assert client.state == RunspacePoolState.Opened
     assert server.state == RunspacePoolState.Opened
 
-    with pytest.raises(RunspacePoolWantRead):
-        client.next_event()
+    assert client.next_event() is None
 
     assert client.data_to_send() is None
 
@@ -204,32 +201,27 @@ def test_open_runspacepool_small():
     assert first.pipeline_id is None
 
     server.receive_data(first)
-    with pytest.raises(RunspacePoolWantRead):
-        server.next_event()
+    assert server.next_event() is None
     assert client.state == RunspacePoolState.Opening
     assert server.state == RunspacePoolState.BeforeOpen
 
     server.receive_data(client.data_to_send(60))
-    with pytest.raises(RunspacePoolWantRead):
-        server.next_event()
+    assert server.next_event() is None
     assert client.state == RunspacePoolState.Opening
     assert server.state == RunspacePoolState.BeforeOpen
 
     server.receive_data(client.data_to_send(60))
-    with pytest.raises(RunspacePoolWantRead):
-        server.next_event()
+    assert server.next_event() is None
     assert client.state == RunspacePoolState.Opening
     assert server.state == RunspacePoolState.BeforeOpen
 
     server.receive_data(client.data_to_send(60))
-    with pytest.raises(RunspacePoolWantRead):
-        server.next_event()
+    assert server.next_event() is None
     assert client.state == RunspacePoolState.Opening
     assert server.state == RunspacePoolState.BeforeOpen
 
     server.receive_data(client.data_to_send(60))
-    with pytest.raises(RunspacePoolWantRead):
-        server.next_event()
+    assert server.next_event() is None
     assert client.state == RunspacePoolState.Opening
     assert server.state == RunspacePoolState.BeforeOpen
 
@@ -238,8 +230,7 @@ def test_open_runspacepool_small():
     assert isinstance(session_cap, SessionCapabilityEvent)
     assert client.state == RunspacePoolState.NegotiationSent
     assert server.state == RunspacePoolState.NegotiationSucceeded
-    with pytest.raises(RunspacePoolWantRead):
-        server.next_event()
+    assert server.next_event() is None
 
     client.receive_data(server.data_to_send())
     assert server.data_to_send() is None
@@ -247,8 +238,7 @@ def test_open_runspacepool_small():
     assert isinstance(session_cap, SessionCapabilityEvent)
     assert client.state == RunspacePoolState.NegotiationSucceeded
     assert server.state == RunspacePoolState.NegotiationSucceeded
-    with pytest.raises(RunspacePoolWantRead):
-        client.next_event()
+    assert client.next_event() is None
 
     server.receive_data(client.data_to_send())
     init_runspace = server.next_event()
@@ -267,9 +257,7 @@ def test_open_runspacepool_small():
     assert isinstance(runspace_state, RunspacePoolStateEvent)
     assert client.state == RunspacePoolState.Opened
     assert server.state == RunspacePoolState.Opened
-
-    with pytest.raises(RunspacePoolWantRead):
-        client.next_event()
+    assert client.next_event() is None
 
 
 def test_exchange_key_client():
@@ -292,7 +280,7 @@ def test_exchange_key_client():
     assert b'my_secret' not in c_pipeline_data.data
 
     server.receive_data(c_pipeline_data)
-    create_pipeline = server.next_event(c_pipeline.pipeline_id)
+    create_pipeline = server.next_event()
     assert isinstance(create_pipeline, CreatePipelineEvent)
 
     s_pipeline = create_pipeline.pipeline
@@ -310,12 +298,12 @@ def test_exchange_key_client():
     assert b'secret output' not in s_output
 
     client.receive_data(s_output)
-    out = client.next_event(c_pipeline.pipeline_id)
+    out = client.next_event()
     assert isinstance(out, PipelineOutputEvent)
     assert isinstance(out.ps_object, PSSecureString)
     assert out.ps_object == 'secret output'
 
-    state = client.next_event(c_pipeline.pipeline_id)
+    state = client.next_event()
     assert isinstance(state, PipelineStateEvent)
     assert state.state == PSInvocationState.Completed
 
@@ -330,7 +318,7 @@ def test_exchange_key_request():
     c_pipeline.add_script('command')
     c_pipeline.invoke()
     server.receive_data(client.data_to_send())
-    s_pipeline = server.next_event(c_pipeline.pipeline_id).pipeline
+    s_pipeline = server.next_event().pipeline
     s_pipeline.start()
 
     with pytest.raises(MissingCipherError):
@@ -361,12 +349,12 @@ def test_exchange_key_request():
     client.receive_data(b_data)
     assert b'secret' not in b_data
 
-    out = client.next_event(c_pipeline.pipeline_id)
+    out = client.next_event()
     assert isinstance(out, PipelineOutputEvent)
     assert isinstance(out.ps_object, PSSecureString)
     assert out.ps_object == 'secret'
 
-    state = client.next_event(c_pipeline.pipeline_id)
+    state = client.next_event()
     assert isinstance(state, PipelineStateEvent)
     assert state.state == PSInvocationState.Completed
     assert c_pipeline.state == PSInvocationState.Completed
@@ -387,7 +375,8 @@ def test_runspace_pool_set_runspaces():
     assert server.min_runspaces == 2
     assert server.max_runspaces == 4
 
-    client.min_runspaces = 3
+    actual_ci = client.set_min_runspaces(3)
+    assert actual_ci == 1
     assert client.min_runspaces == 2  # Won't change until it receives confirmation form server
 
     server.receive_data(client.data_to_send())
@@ -407,7 +396,8 @@ def test_runspace_pool_set_runspaces():
     assert server.min_runspaces == 3
     assert client.min_runspaces == 3
 
-    client.max_runspaces = 5
+    actual_ci = client.set_max_runspaces(5)
+    assert actual_ci == 2
     assert client.max_runspaces == 4
     assert server.max_runspaces == 4
 
@@ -428,9 +418,10 @@ def test_runspace_pool_set_runspaces():
     assert server.max_runspaces == 5
     assert client.max_runspaces == 5
 
-    client.get_available_runspaces()
+    actual_ci = client.get_available_runspaces()
     server.receive_data(client.data_to_send())
     get_avail = server.next_event()
+    assert actual_ci == 3
     assert isinstance(get_avail, GetAvailableRunspacesEvent)
     assert get_avail.ps_object.ci == 3
 
@@ -444,19 +435,21 @@ def test_runspace_pool_set_runspaces():
 
 def test_runspace_host_call():
     client, server = get_runspace_pair()
-    server.host_call(HostMethodIdentifier.WriteLine1, ['line'])
+    actual_ci = server.host_call(HostMethodIdentifier.WriteLine1, ['line'])
     client.receive_data(server.data_to_send())
     host_call = client.next_event()
 
+    assert actual_ci == 1
     assert isinstance(host_call, RunspacePoolHostCallEvent)
     assert host_call.ps_object.ci == 1
     assert host_call.ps_object.mi == HostMethodIdentifier.WriteLine1
     assert host_call.ps_object.mp == ['line']
 
-    server.host_call(HostMethodIdentifier.ReadLine)
+    actual_ci = server.host_call(HostMethodIdentifier.ReadLine)
     client.receive_data(server.data_to_send())
     host_call = client.next_event()
 
+    assert actual_ci == 2
     assert isinstance(host_call, RunspacePoolHostCallEvent)
     assert host_call.ps_object.ci == 2
     assert host_call.ps_object.mi == HostMethodIdentifier.ReadLine
@@ -485,10 +478,11 @@ def test_runspace_host_call():
 
 def test_runspace_reset():
     client, server = get_runspace_pair()
-    client.reset_runspace_state()
+    actual_ci = client.reset_runspace_state()
     server.receive_data(client.data_to_send())
     reset = server.next_event()
 
+    assert actual_ci == 1
     assert isinstance(reset, ResetRunspaceStateEvent)
     assert reset.ps_object.ci == 1
 
@@ -527,7 +521,7 @@ def test_create_pipeline():
 
     c_command = client.data_to_send()
     server.receive_data(c_command)
-    create_pipeline = server.next_event(c_command.pipeline_id)
+    create_pipeline = server.next_event()
     s_pipeline = create_pipeline.pipeline
     assert isinstance(create_pipeline, CreatePipelineEvent)
     assert isinstance(s_pipeline, ServerPowerShell)
@@ -560,12 +554,12 @@ def test_create_pipeline():
     s_pipeline.write_output('output msg')
     s_pipeline.close()
     client.receive_data(server.data_to_send())
-    out = client.next_event(c_pipeline.pipeline_id)
+    out = client.next_event()
     assert server.pipeline_table == {}
     assert isinstance(out, PipelineOutputEvent)
     assert out.ps_object == 'output msg'
 
-    state = client.next_event(c_pipeline.pipeline_id)
+    state = client.next_event()
     assert isinstance(state, PipelineStateEvent)
     assert state.state == PSInvocationState.Completed
     assert c_pipeline.state == PSInvocationState.Completed
@@ -600,7 +594,7 @@ def test_create_pipeline_host_data():
     c_pipeline.invoke()
 
     server.receive_data(client.data_to_send())
-    create_pipeline = server.next_event(c_pipeline.pipeline_id)
+    create_pipeline = server.next_event()
     s_pipeline = create_pipeline.pipeline
     s_host = s_pipeline.host
 
@@ -644,7 +638,7 @@ def test_pipeline_multiple_commands():
     c_pipeline.invoke()
 
     server.receive_data(client.data_to_send())
-    create_pipe = server.next_event(c_pipeline.pipeline_id)
+    create_pipe = server.next_event()
     s_pipeline = create_pipe.pipeline
 
     assert len(s_pipeline.commands) == 3
@@ -688,7 +682,7 @@ def test_pipeline_multiple_statements():
     c_pipeline.add_command('Format-Table')
     c_pipeline.invoke()
     server.receive_data(client.data_to_send())
-    create_pipe = server.next_event(c_pipeline.pipeline_id)
+    create_pipe = server.next_event()
     s_pipeline = create_pipe.pipeline
 
     assert len(s_pipeline.commands) == 5
@@ -744,7 +738,7 @@ def test_pipeline_parameters():
 
     c_pipeline.invoke()
     server.receive_data(client.data_to_send())
-    create_pipe = server.next_event(c_pipeline.pipeline_id)
+    create_pipe = server.next_event()
     s_pipeline = create_pipe.pipeline
 
     assert s_pipeline.commands[0].parameters == [(None, '/tmp'), (None, True)]
@@ -808,7 +802,7 @@ def test_pipeline_redirection():
 
     c_pipeline.invoke()
     server.receive_data(client.data_to_send())
-    create_pipe = server.next_event(c_pipeline.pipeline_id)
+    create_pipe = server.next_event()
     s_pipeline = create_pipe.pipeline
 
     assert s_pipeline.commands[0].command_text == 'My-Cmdlet'
@@ -894,7 +888,7 @@ def test_pipeline_input_output():
 
     c_command = client.data_to_send()
     server.receive_data(c_command)
-    create_pipeline = server.next_event(c_command.pipeline_id)
+    create_pipeline = server.next_event()
     s_pipeline = create_pipeline.pipeline
     assert isinstance(create_pipeline, CreatePipelineEvent)
     assert isinstance(s_pipeline, ServerPowerShell)
@@ -912,12 +906,11 @@ def test_pipeline_input_output():
     c_pipeline.send(3)
     server.receive_data(client.data_to_send())
 
-    input1 = server.next_event(c_command.pipeline_id)
-    input2 = server.next_event(c_command.pipeline_id)
-    input3 = server.next_event(c_command.pipeline_id)
-    with pytest.raises(RunspacePoolWantRead):
-        server.next_event(c_command.pipeline_id)
+    input1 = server.next_event()
+    input2 = server.next_event()
+    input3 = server.next_event()
 
+    assert server.next_event() is None
     assert isinstance(input1, PipelineInputEvent)
     assert isinstance(input1.ps_object, PSString)
     assert input1.ps_object == 'input 1'
@@ -930,7 +923,7 @@ def test_pipeline_input_output():
 
     c_pipeline.send_end()
     server.receive_data(client.data_to_send())
-    end_of_input = server.next_event(c_command.pipeline_id)
+    end_of_input = server.next_event()
     assert isinstance(end_of_input, EndOfPipelineInputEvent)
 
     s_pipeline.write_output('output')
@@ -943,19 +936,19 @@ def test_pipeline_input_output():
     s_pipeline.close()
     client.receive_data(server.data_to_send())
 
-    output_event = client.next_event(c_pipeline.pipeline_id)
+    output_event = client.next_event()
     assert isinstance(output_event, PipelineOutputEvent)
     assert isinstance(output_event.ps_object, PSString)
     assert output_event.ps_object == 'output'
 
-    debug_event = client.next_event(c_pipeline.pipeline_id)
+    debug_event = client.next_event()
     assert isinstance(debug_event, DebugRecordEvent)
     assert isinstance(debug_event.ps_object, InformationalRecord)
     assert debug_event.ps_object.InvocationInfo is None
     assert debug_event.ps_object.Message == 'debug'
     assert debug_event.ps_object.PipelineIterationInfo is None
 
-    error_event = client.next_event(c_pipeline.pipeline_id)
+    error_event = client.next_event()
     assert isinstance(error_event, ErrorRecordEvent)
     assert isinstance(error_event.ps_object, ErrorRecord)
     assert str(error_event.ps_object) == 'error'
@@ -973,21 +966,21 @@ def test_pipeline_input_output():
     assert error_event.ps_object.ScriptStackTrace is None
     assert error_event.ps_object.TargetObject is None
 
-    verbose_event = client.next_event(c_pipeline.pipeline_id)
+    verbose_event = client.next_event()
     assert isinstance(verbose_event, VerboseRecordEvent)
     assert isinstance(verbose_event.ps_object, InformationalRecord)
     assert verbose_event.ps_object.InvocationInfo is None
     assert verbose_event.ps_object.Message == 'verbose'
     assert verbose_event.ps_object.PipelineIterationInfo is None
 
-    warning_event = client.next_event(c_pipeline.pipeline_id)
+    warning_event = client.next_event()
     assert isinstance(warning_event, WarningRecordEvent)
     assert isinstance(warning_event.ps_object, InformationalRecord)
     assert warning_event.ps_object.InvocationInfo is None
     assert warning_event.ps_object.Message == 'warning'
     assert warning_event.ps_object.PipelineIterationInfo is None
 
-    info_event = client.next_event(c_pipeline.pipeline_id)
+    info_event = client.next_event()
     assert isinstance(info_event, InformationRecordEvent)
     assert isinstance(info_event.ps_object, InformationRecord)
     assert info_event.ps_object.Computer is not None
@@ -1000,7 +993,7 @@ def test_pipeline_input_output():
     assert info_event.ps_object.TimeGenerated is not None
     assert info_event.ps_object.User is not None
 
-    progress_event = client.next_event(c_pipeline.pipeline_id)
+    progress_event = client.next_event()
     assert isinstance(progress_event, ProgressRecordEvent)
     assert progress_event.ps_object.Activity == 'activity'
     assert progress_event.ps_object.ActivityId == 1
@@ -1011,12 +1004,10 @@ def test_pipeline_input_output():
     assert progress_event.ps_object.StatusDescription == 'description'
     assert progress_event.ps_object.Type == ProgressRecordType.Processing
 
-    state_event = client.next_event(c_pipeline.pipeline_id)
+    state_event = client.next_event()
     assert isinstance(state_event, PipelineStateEvent)
     assert state_event.state == PSInvocationState.Completed
-
-    with pytest.raises(RunspacePoolWantRead):
-        client.next_event(c_pipeline.pipeline_id)
+    assert client.next_event() is None
 
 
 def test_pipeline_stop():
@@ -1031,7 +1022,7 @@ def test_pipeline_stop():
 
     c_command = client.data_to_send()
     server.receive_data(c_command)
-    create_pipeline = server.next_event(c_command.pipeline_id)
+    create_pipeline = server.next_event()
     s_pipeline = create_pipeline.pipeline
     s_pipeline.start()
 
@@ -1040,10 +1031,9 @@ def test_pipeline_stop():
     assert server.pipeline_table == {}
 
     client.receive_data(server.data_to_send())
-    state = client.next_event(c_pipeline.pipeline_id)
-    with pytest.raises(RunspacePoolWantRead):
-        client.next_event(c_pipeline.pipeline_id)
+    state = client.next_event()
 
+    assert client.next_event() is None
     assert isinstance(state, PipelineStateEvent)
     assert isinstance(state.reason, ErrorRecord)
     assert state.state == PSInvocationState.Stopped
@@ -1072,7 +1062,7 @@ def test_pipeline_host_call():
     c_pipeline.invoke()
 
     server.receive_data(client.data_to_send())
-    s_pipeline = server.next_event(c_pipeline.pipeline_id).pipeline
+    s_pipeline = server.next_event().pipeline
     s_pipeline.start()
     s_pipeline.host_call(
         HostMethodIdentifier.PromptForCredential1,
@@ -1080,7 +1070,7 @@ def test_pipeline_host_call():
     )
 
     client.receive_data(server.data_to_send())
-    host_call = client.next_event(c_pipeline.pipeline_id)
+    host_call = client.next_event()
     assert isinstance(host_call, PipelineHostCallEvent)
     assert host_call.ps_object.ci == 1
     assert host_call.ps_object.mi == HostMethodIdentifier.PromptForCredential1
@@ -1088,7 +1078,7 @@ def test_pipeline_host_call():
 
     c_pipeline.host_response(1, 'prompt response')
     server.receive_data(client.data_to_send())
-    host_response = server.next_event(c_pipeline.pipeline_id)
+    host_response = server.next_event()
     assert isinstance(host_response, PipelineHostResponseEvent)
     assert host_response.ps_object.ci == 1
     assert host_response.ps_object.mi == HostMethodIdentifier.PromptForCredential1
@@ -1102,7 +1092,7 @@ def test_command_metadata():
     c_pipeline.invoke()
 
     server.receive_data(client.data_to_send())
-    command_meta = server.next_event(c_pipeline.pipeline_id)
+    command_meta = server.next_event()
     assert isinstance(command_meta, GetCommandMetadataEvent)
     assert isinstance(command_meta.pipeline, ServerGetCommandMetadata)
     s_pipeline = command_meta.pipeline
@@ -1119,12 +1109,11 @@ def test_command_metadata():
     assert server.pipeline_table == {}
 
     client.receive_data(server.data_to_send())
-    count = client.next_event(c_pipeline.pipeline_id)
-    iex = client.next_event(c_pipeline.pipeline_id)
-    state = client.next_event(c_pipeline.pipeline_id)
-    with pytest.raises(RunspacePoolWantRead):
-        client.next_event(c_pipeline.pipeline_id)
+    count = client.next_event()
+    iex = client.next_event()
+    state = client.next_event()
 
+    assert client.next_event() is None
     assert c_pipeline.state == PSInvocationState.Completed
     assert client.pipeline_table == {}
 
