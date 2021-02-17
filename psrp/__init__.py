@@ -10,3 +10,10 @@ from ._runspace import (
     PSDataStream,
     RunspacePool,
 )
+
+from .connection_info import (
+    AsyncProcessInfo,
+    AsyncWSManInfo,
+    ProcessInfo,
+    WSManInfo,
+)

@@ -6,12 +6,11 @@ from psrp import (
     AsyncPowerShell,
     RunspacePool,
     PowerShell,
-)
 
-from psrp.connection_info import (
     AsyncProcessInfo,
     AsyncWSManInfo,
     ProcessInfo,
+    WSManInfo,
 )
 
 from psrp.dotnet.complex_types import (
@@ -111,7 +110,7 @@ def main():
 
 
 asyncio.run(a_main())
-main()
+#main()
 
 
 """

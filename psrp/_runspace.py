@@ -223,7 +223,6 @@ class _RunspacePoolBase:
             runspace_pool_id=runspace_pool_id,
         )
         self.connection = connection
-        self.connection.set_runspace_pool(self.pool)
 
         self.host = host
         self.pipeline_table: typing.Dict[str, typing.Any] = {}
@@ -292,7 +291,7 @@ class RunspacePool(_RunspacePoolBase):
                 self.pool.host = self.host.get_host_info()
 
             self.pool.connect()
-            self.connection.connect()
+            self.connection.connect(self.pool)
 
             with self._wait_condition(PSRPMessageType.SessionCapability) as sess, \
                     self._wait_condition(PSRPMessageType.RunspacePoolInitData) as init, \
@@ -306,7 +305,7 @@ class RunspacePool(_RunspacePoolBase):
             self._new_client = False
 
         else:
-            self.connection.reconnect()
+            self.connection.reconnect(self.pool)
             self._event_task = threading.Thread(target=self._response_listener)
             self._event_task.start()
 
@@ -317,13 +316,11 @@ class RunspacePool(_RunspacePoolBase):
 
         Opens the connection to the peer and subsequently the Runspace Pool.
         """
-        self.connection.start()
-
         if self.host:
             self.pool.host = self.host.get_host_info()
 
         self.pool.open()
-        self.connection.create()
+        self.connection.create(self.pool)
 
         with self._wait_condition(PSRPMessageType.RunspacePoolState) as cond:
             self._event_task = threading.Thread(target=self._response_listener)
@@ -339,15 +336,14 @@ class RunspacePool(_RunspacePoolBase):
             [p.close() for p in list(self.pipeline_table.values())]
 
             with self._wait_condition(PSRPMessageType.RunspacePoolState) as cond:
-                self.connection.close()
+                self.connection.close(self.pool)
                 cond.wait()
 
-        self.connection.stop()
         self._event_task.join()
 
     def disconnect(self):
         self.pool.state = RunspacePoolState.Disconnecting
-        self.connection.disconnect()
+        self.connection.disconnect(self.pool)
         self.pool.state = RunspacePoolState.Disconnected
 
         for pipeline in self.pipeline_table.values():
@@ -359,23 +355,18 @@ class RunspacePool(_RunspacePoolBase):
             connection_info: ConnectionInfo,
             host: typing.Optional[PSHost] = None,
     ) -> typing.Iterable['RunspacePool']:
-        connection_info.start()
-        try:
-            for rpid, command_list, connection in connection_info.enumerate():
-                runspace_pool = RunspacePool(connection, host=host, runspace_pool_id=rpid)
-                runspace_pool.pool.state = RunspacePoolState.Disconnected
-                runspace_pool._new_client = True
+        for rpid, command_list in connection_info.enumerate():
+            runspace_pool = RunspacePool(connection_info, host=host, runspace_pool_id=rpid)
+            runspace_pool.pool.state = RunspacePoolState.Disconnected
+            runspace_pool._new_client = True
 
-                for cmd_id in command_list:
-                    ps = PowerShell(runspace_pool)
-                    ps.pipeline.pipeline_id = cmd_id
-                    ps.pipeline.state = PSInvocationState.Disconnected
-                    runspace_pool.pipeline_table[cmd_id] = ps
+            for cmd_id in command_list:
+                ps = PowerShell(runspace_pool)
+                ps.pipeline.pipeline_id = cmd_id
+                ps.pipeline.state = PSInvocationState.Disconnected
+                runspace_pool.pipeline_table[cmd_id] = ps
 
-                yield runspace_pool
-
-        finally:
-            connection_info.stop()
+            yield runspace_pool
 
     def exchange_key(self):
         """Exchange session key.
@@ -421,7 +412,7 @@ class RunspacePool(_RunspacePoolBase):
 
     def _response_listener(self):
         while True:
-            event = self.connection.wait_event()
+            event = self.connection.wait_event(self.pool)
             if event is None:
                 return
 
@@ -446,7 +437,7 @@ class RunspacePool(_RunspacePoolBase):
             predicate: typing.Optional[typing.Callable] = None,
     ):
         with self._wait_condition(message_type) as cond:
-            self.connection.send_all()
+            self.connection.send_all(self.pool)
             cond.wait_for(predicate) if predicate else cond.wait()
 
     def _validate_runspace_availability(
@@ -493,7 +484,7 @@ class AsyncRunspacePool(_RunspacePoolBase):
                 self.pool.host = await _invoke_async(self.host.get_host_info)
 
             self.pool.connect()
-            await self.connection.connect()
+            await self.connection.connect(self.pool)
 
             async with self._wait_condition(PSRPMessageType.SessionCapability) as sess, \
                     self._wait_condition(PSRPMessageType.RunspacePoolInitData) as init, \
@@ -506,19 +497,17 @@ class AsyncRunspacePool(_RunspacePoolBase):
             self._new_client = False
 
         else:
-            await self.connection.reconnect()
+            await self.connection.reconnect(self.pool)
             self._event_task = asyncio_create_task(self._response_listener())
 
         self.pool.state = RunspacePoolState.Opened
 
     async def open(self):
-        await self.connection.start()
-
         if self.host:
             self.pool.host = await _invoke_async(self.host.get_host_info)
 
         self.pool.open()
-        await self.connection.create()
+        await self.connection.create(self.pool)
 
         async with self._wait_condition(PSRPMessageType.RunspacePoolState) as cond:
             self._event_task = asyncio_create_task(self._response_listener())
@@ -526,17 +515,16 @@ class AsyncRunspacePool(_RunspacePoolBase):
 
     async def close(self):
         if self.state != RunspacePoolState.Disconnected:
-            tasks = [p.close() for p in self.pipeline_table.values()] + [self.connection.close()]
+            tasks = [p.close() for p in self.pipeline_table.values()] + [self.connection.close(self.pool)]
             async with self._wait_condition(PSRPMessageType.RunspacePoolState) as cond:
                 await asyncio.gather(*tasks)
                 await cond.wait_for(lambda: self.state != RunspacePoolState.Opened)
 
-        await self.connection.stop()
         await asyncio.gather(self._event_task)
 
     async def disconnect(self):
         self.pool.state = RunspacePoolState.Disconnecting
-        await self.connection.disconnect()
+        await self.connection.disconnect(self.pool)
         self.pool.state = RunspacePoolState.Disconnected
 
         for pipeline in self.pipeline_table.values():
@@ -548,23 +536,18 @@ class AsyncRunspacePool(_RunspacePoolBase):
             connection_info,
             host: typing.Optional[PSHost] = None,
     ) -> typing.AsyncIterable['AsyncRunspacePool']:
-        await connection_info.start()
-        try:
-            async for rpid, command_list, connection in connection_info.enumerate():
-                runspace_pool = AsyncRunspacePool(connection, host=host, runspace_pool_id=rpid)
-                runspace_pool.pool.state = RunspacePoolState.Disconnected
-                runspace_pool._new_client = True
+        async for rpid, command_list in connection_info.enumerate():
+            runspace_pool = AsyncRunspacePool(connection_info, host=host, runspace_pool_id=rpid)
+            runspace_pool.pool.state = RunspacePoolState.Disconnected
+            runspace_pool._new_client = True
 
-                for cmd_id in command_list:
-                    ps = AsyncPowerShell(runspace_pool)
-                    ps.pipeline.pipeline_id = cmd_id
-                    ps.pipeline.state = PSInvocationState.Disconnected
-                    runspace_pool.pipeline_table[cmd_id] = ps
+            for cmd_id in command_list:
+                ps = AsyncPowerShell(runspace_pool)
+                ps.pipeline.pipeline_id = cmd_id
+                ps.pipeline.state = PSInvocationState.Disconnected
+                runspace_pool.pipeline_table[cmd_id] = ps
 
-                yield runspace_pool
-
-        finally:
-            await connection_info.stop()
+            yield runspace_pool
 
     async def exchange_key(self):
         self.pool.exchange_key()
@@ -600,7 +583,7 @@ class AsyncRunspacePool(_RunspacePoolBase):
 
     async def _response_listener(self):
         while True:
-            event = await self.connection.wait_event()
+            event = await self.connection.wait_event(self.pool)
             if event is None:
                 return
 
@@ -625,7 +608,7 @@ class AsyncRunspacePool(_RunspacePoolBase):
             predicate: typing.Optional[typing.Callable] = None,
     ):
         async with self._wait_condition(message_type) as cond:
-            await self.connection.send_all()
+            await self.connection.send_all(self.pool)
             await (cond.wait_for(predicate) if predicate else cond.wait())
 
     async def _validate_runspace_availability(
@@ -751,7 +734,7 @@ class Pipeline(_PipelineBase):
             if not pipeline or pipeline.pipeline.state == PSInvocationState.Disconnected:
                 return
 
-            self.runspace_pool.connection.close(self.pipeline.pipeline_id)
+            self.runspace_pool.connection.close(self.runspace_pool.pool, self.pipeline.pipeline_id)
             del self.runspace_pool.pipeline_table[self.pipeline.pipeline_id]
 
     def connect(self) -> typing.Iterable[typing.Optional[PSObject]]:
@@ -764,7 +747,7 @@ class Pipeline(_PipelineBase):
     ) -> PipelineTask:
         task = self._new_task(output_stream, completed)
 
-        self.runspace_pool.connection.connect(self.pipeline.pipeline_id)
+        self.runspace_pool.connection.connect(self.runspace_pool.pool, self.pipeline.pipeline_id)
         self.runspace_pool.pipeline_table[self.pipeline.pipeline_id] = self
         self.runspace_pool.pool.pipeline_table[self.pipeline.pipeline_id] = self.pipeline
         self.pipeline.state = PSInvocationState.Running
@@ -792,6 +775,7 @@ class Pipeline(_PipelineBase):
             buffer_input: bool = True,
     ) -> PipelineTask:
         task = self._new_task(output_stream, completed)
+        pool = self.runspace_pool.pool
 
         try:
             self.pipeline.invoke()
@@ -799,9 +783,9 @@ class Pipeline(_PipelineBase):
             self.runspace_pool.exchange_key()
             self.pipeline.invoke()
 
-        self.runspace_pool.connection.command(self.pipeline.pipeline_id)
         self.runspace_pool.pipeline_table[self.pipeline.pipeline_id] = self
-        self.runspace_pool.connection.send_all()
+        self.runspace_pool.connection.command(pool, self.pipeline.pipeline_id)
+        self.runspace_pool.connection.send_all(pool)
 
         if input_data is not None:
             for data in input_data:
@@ -813,12 +797,12 @@ class Pipeline(_PipelineBase):
                     self.pipeline.send(data)
 
                 if buffer_input:
-                    self.runspace_pool.connection.send(buffer=True)
+                    self.runspace_pool.connection.send(pool, buffer=True)
                 else:
-                    self.runspace_pool.connection.send_all()
+                    self.runspace_pool.connection.send_all(pool)
 
             self.pipeline.send_end()
-            self.runspace_pool.connection.send_all()
+            self.runspace_pool.connection.send_all(pool)
 
         return task
 
@@ -834,7 +818,7 @@ class Pipeline(_PipelineBase):
             completed: typing.Optional[threading.Event] = None,
     ) -> PipelineTask:
         task = self._new_task(completed=completed, for_stop=True)
-        self.runspace_pool.connection.signal(self.pipeline.pipeline_id)
+        self.runspace_pool.connection.signal(self.runspace_pool.pool, self.pipeline.pipeline_id)
 
         return task
 
@@ -898,7 +882,7 @@ class Pipeline(_PipelineBase):
         if not method_metadata.is_void:
             self.runspace_pool.pool.host_response(host_call.ci, return_value=return_value,
                                                   error_record=error_record)
-            self.runspace_pool.connection.send_all()
+            self.runspace_pool.connection.send_all(self.runspace_pool.pool)
 
 
 class AsyncPipeline(_PipelineBase):
@@ -915,7 +899,7 @@ class AsyncPipeline(_PipelineBase):
             if not pipeline or pipeline.pipeline.state == PSInvocationState.Disconnected:
                 return
 
-            await self.runspace_pool.connection.close(self.pipeline.pipeline_id)
+            await self.runspace_pool.connection.close(self.runspace_pool.pool, self.pipeline.pipeline_id)
             del self.runspace_pool.pipeline_table[self.pipeline.pipeline_id]
 
     async def connect(self) -> typing.AsyncIterable[PSObject]:
@@ -929,7 +913,7 @@ class AsyncPipeline(_PipelineBase):
     ) -> AsyncPipelineTask:
         task = self._new_task(output_stream, completed)
 
-        await self.runspace_pool.connection.connect(self.pipeline.pipeline_id)
+        await self.runspace_pool.connection.connect(self.runspace_pool.pool, self.pipeline.pipeline_id)
         self.runspace_pool.pipeline_table[self.pipeline.pipeline_id] = self
         self.runspace_pool.pool.pipeline_table[self.pipeline.pipeline_id] = self.pipeline
         self.pipeline.state = PSInvocationState.Running
@@ -983,6 +967,7 @@ class AsyncPipeline(_PipelineBase):
                 they are received.
         """
         task = self._new_task(output_stream, completed)
+        pool = self.runspace_pool.pool
 
         try:
             self.pipeline.invoke()
@@ -990,9 +975,9 @@ class AsyncPipeline(_PipelineBase):
             await self.runspace_pool.exchange_key()
             self.pipeline.invoke()
 
-        await self.runspace_pool.connection.command(self.pipeline.pipeline_id)
         self.runspace_pool.pipeline_table[self.pipeline.pipeline_id] = self
-        await self.runspace_pool.connection.send_all()
+        await self.runspace_pool.connection.command(pool, self.pipeline.pipeline_id)
+        await self.runspace_pool.connection.send_all(pool)
 
         if input_data is not None:
             if isinstance(input_data, typing.Iterable):
@@ -1013,12 +998,12 @@ class AsyncPipeline(_PipelineBase):
                     self.pipeline.send(data)
 
                 if buffer_input:
-                    await self.runspace_pool.connection.send(buffer=True)
+                    await self.runspace_pool.connection.send(pool, buffer=True)
                 else:
-                    await self.runspace_pool.connection.send_all()
+                    await self.runspace_pool.connection.send_all(pool)
 
             self.pipeline.send_end()
-            await self.runspace_pool.connection.send_all()
+            await self.runspace_pool.connection.send_all(pool)
 
         return task
 
@@ -1035,7 +1020,7 @@ class AsyncPipeline(_PipelineBase):
             completed: typing.Optional[asyncio.Event] = None,
     ) -> AsyncPipelineTask:
         task = self._new_task(completed=completed, for_stop=True)
-        await self.runspace_pool.connection.signal(self.pipeline.pipeline_id)
+        await self.runspace_pool.connection.signal(self.runspace_pool.pool, self.pipeline.pipeline_id)
 
         return task
 
@@ -1097,9 +1082,9 @@ class AsyncPipeline(_PipelineBase):
                 return
 
         if not method_metadata.is_void:
-            self.runspace_pool.protocol.host_response(host_call.ci, return_value=return_value,
-                                                      error_record=error_record)
-            await self.runspace_pool.connection.send_all()
+            self.runspace_pool.pool.host_response(host_call.ci, return_value=return_value,
+                                                  error_record=error_record)
+            await self.runspace_pool.connection.send_all(self.runspace_pool.pool)
 
 
 class _CommandMetaPipelineBase(_PipelineBase):
