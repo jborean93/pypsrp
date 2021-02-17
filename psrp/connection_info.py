@@ -102,10 +102,12 @@ class _ConnectionInfoBase:
 
         Args:
             pool: The Runspace Pool to get the next payload for.
-            buffer: Wait until the buffer as set by `self.fragment_size`  has been reached before sending the payload.
+            buffer: Wait until the buffer as set by `self.fragment_size` has
+                been reached before sending the payload.
 
         Returns:
-            Optional[PSRPPayload]: The transport payload to send if there is one.
+            Optional[PSRPPayload]: The transport payload to send if there is
+                one.
         """
         pool_buffer = self._buffer.setdefault(pool.runspace_id, bytearray())
         fragment_size = self.get_fragment_size(pool)
@@ -134,6 +136,16 @@ class _ConnectionInfoBase:
             pool: RunspacePool,
             pipeline_id: typing.Optional[str] = None,
     ):
+        """Close the Runspace Pool/Pipeline.
+
+        Closes the Runspace Pool or Pipeline inside the Runspace Pool. This
+            should also close the underlying connection if no more resources
+            are being used.
+
+        Args:
+            pool: The Runspace Pool to close.
+            pipeline_id: Closes this pipeline in the Runspace Pool.
+        """
         raise NotImplementedError()
 
     def command(
@@ -141,18 +153,47 @@ class _ConnectionInfoBase:
             pool: RunspacePool,
             pipeline_id: str,
     ):
+        """Create the pipeline.
+
+        Creates a pipeline in the Runspace Pool. This should send the first
+        fragment of the
+        :class:`CreatePipeline <psrp.dotnet.psrp_messages.CreatePipeline>` PSRP
+        message.
+
+        Args:
+            pool: The Runspace Pool to create the pipeline in.
+            pipeline_id: The Pipeline ID that needs to be created.
+        """
         raise NotImplementedError()
 
     def create(
             self,
             pool: RunspacePool,
     ):
+        """Create the Runspace Pool
+
+        Creates the Runspace Pool specified. This should send only one fragment
+        that contains at least the
+        :class:`SessionCapability <psrp.dotnet.psrp_messages.SessionCapability>`
+        PSRP message. The underlying connection should also be done if not
+        already done so.
+
+        Args:
+            pool: The Runspace Pool to create.
+        """
         raise NotImplementedError()
 
     def send_all(
             self,
             pool: RunspacePool,
     ):
+        """Send all PSRP payloads.
+
+        Send all PSRP payloads that are ready to send.
+
+        Args:
+            pool: The Runspace Pool to send all payloads to.
+        """
         while True:
             sent = self.send(pool)
             if not sent:
@@ -163,6 +204,20 @@ class _ConnectionInfoBase:
             pool: RunspacePool,
             buffer: bool = False,
     ) -> bool:
+        """Send PSRP payload.
+
+        Send the next PSRP payload for the Runspace Pool.
+
+        Args:
+            pool: The Runspace Pool to send the payload to.
+            buffer: When set to `False` will always send the payload regardless
+                of the size. When set to `True` will only send the payload if
+                it hits the max fragment size.
+
+        Returns:
+            bool: Set to `True` if a payload was sent and `False` if there was
+                no payloads for the pool to send.
+        """
         raise NotImplementedError()
 
     def signal(
@@ -170,6 +225,15 @@ class _ConnectionInfoBase:
             pool: RunspacePool,
             pipeline_id: typing.Optional[str] = None,
     ):
+        """Send a signal to the Runspace Pool/Pipeline
+
+        Sends a signal to the Runspace Pool or Pipeline. Currently PSRP only
+        uses a signal to a Pipeline to ask the server to stop.
+
+        Args:
+            pool: The Runspace Pool that contains the pipeline to signal.
+            pipeline_id: The pipeline to send the signal to.
+        """
         raise NotImplementedError()
 
     #####################
@@ -181,23 +245,61 @@ class _ConnectionInfoBase:
             pool: RunspacePool,
             pipeline_id: typing.Optional[str] = None,
     ):
+        """Connect to a Runspace Pool/Pipeline.
+
+        Connects to a Runspace Pool or Pipeline that has been disconnected by
+        another client. This is an optional feature that does not have to be
+        implemented for the core PSRP scenarios.
+
+        Args:
+            pool: The Runspace Pool to connect to.
+            pipeline_id: If connecting to a pipeline, this is the pipeline id.
+        """
         raise NotImplementedError()
 
     def disconnect(
             self,
             pool: RunspacePool,
     ):
+        """Disconnect a Runspace Pool.
+
+        Disconnects from a Runspace Pool so another client can connect to it.
+        This is an optional feature that does not have to be implemented for
+        the core PSRP scenarios.
+
+        Args:
+            pool: The Runspace Pool to disconnect.
+        """
         raise NotImplementedError()
 
     def reconnect(
             self,
             pool: RunspacePool,
     ):
+        """Reconnect a Runspace Pool.
+
+        Reconnect to a Runspace Pool that has been disconnected by the same
+        client. This is an optional feature that does not have to be
+        implemented for the core PSRP scenarios.
+
+        Args:
+            pool: The Runspace Pool to disconnect.
+        """
         raise NotImplementedError()
 
-    def enumerate(
-            self,
-    ):
+    def enumerate(self) -> typing.Iterable[typing.Tuple[str, typing.List[str]]]:
+        """Find Runspace Pools or Pipelines.
+
+        Find all the Runspace Pools or Pipelines on the connection. This is
+        used to enumerate any disconnected Runspace Pools or Pipelines for
+        `:meth:connect()` and `:meth:reconnect()`. This is an optional feature
+        that does not have to be implemented for the core PSRP scenarios.
+
+        Returns:
+            Iterable[Tuple[str, List[str]]]: Will yield tuples that contains
+                the Runspace Pool ID with a list of all the pipeline IDs for
+                that Runspace Pool.
+        """
         raise NotImplementedError()
 
 
@@ -218,11 +320,14 @@ class ConnectionInfo(_ConnectionInfoBase):
     ):
         """Queue received data.
 
-        Queues the received data into the internal message queue for later processing.
+        Queues the data received from the peer into the internal message queue
+        for later processing. It is up to the implementing class to retrieve
+        the data and queue it.
 
         Args:
-            runspace_pool_id:
-            data:
+            runspace_pool_id: The Runspace Pool ID the data is associated with.
+            data: The data to queue, can be set to `None` to indicate no more
+                data is expected.
         """
         data_queue = self._get_pool_queue(runspace_pool_id)
         data_queue.put(data)
@@ -233,10 +338,16 @@ class ConnectionInfo(_ConnectionInfoBase):
     ) -> typing.Optional[PSRPEvent]:
         """Get the next PSRP event.
 
-        Get the next PSRP event generated from the responses of the perr.
+        Get the next PSRP event generated from the responses of the peer. It is
+        up to the implementing class to retrieve the data and queue it so
+        events can be generated.
+
+        Args:
+            pool: The Runspace Pool to get the next event for.
 
         Returns:
-            Optional[PSRPEvent]: The PSRPEvent or `None` if the connection has been closed with no more events.
+            Optional[PSRPEvent]: The PSRPEvent or `None` if the Runspace Pool
+                has been closed with no more events expected.
         """
         while True:
             event = pool.next_event()
@@ -390,18 +501,42 @@ class OutOfProcInfo(ConnectionInfo):
     #####################
 
     def read(self) -> bytes:
+        """Get the response data.
+
+        Called by the background thread to read any responses from the peer.
+        This should block until data is available.
+
+        Returns:
+            bytes: The raw response from the peer.
+        """
         raise NotImplementedError()
 
     def write(
             self,
             data: bytes,
     ):
+        """Write data.
+
+        Write a request to send to the peer.
+
+        Args:
+            data: The data to write.
+        """
         raise NotImplementedError()
 
     def start(self):
+        """Start the connection.
+
+        Starts the connection to the peer so it is ready to read and write to.
+        """
         raise NotImplementedError()
 
     def stop(self):
+        """Stop the connection.
+
+        Stops the connection to the peer once the Runspace Pool has been
+        closed.
+        """
         raise NotImplementedError()
 
     def close(
@@ -522,18 +657,42 @@ class AsyncOutOfProcInfo(AsyncConnectionInfo):
     #####################
 
     async def read(self) -> bytes:
+        """Get the response data.
+
+        Called by the background thread to read any responses from the peer.
+        This should block until data is available.
+
+        Returns:
+            bytes: The raw response from the peer.
+        """
         raise NotImplementedError()
 
     async def write(
             self,
             data: bytes,
     ):
+        """Write data.
+
+        Write a request to send to the peer.
+
+        Args:
+            data: The data to write.
+        """
         raise NotImplementedError()
 
     async def start(self):
+        """Start the connection.
+
+        Starts the connection to the peer so it is ready to read and write to.
+        """
         raise NotImplementedError()
 
     async def stop(self):
+        """Stop the connection.
+
+        Stops the connection to the peer once the Runspace Pool has been
+        closed.
+        """
         raise NotImplementedError()
 
     async def close(
@@ -637,6 +796,19 @@ class AsyncOutOfProcInfo(AsyncConnectionInfo):
 
 
 class ProcessInfo(OutOfProcInfo):
+    """ConnectionInfo for a Process.
+
+    ConnectionInfo implementation for a native process. The data is read from
+    the ``stdout`` pipe of the process and the input is read to the ``stdin``
+    pipe. This can be used to create a Runspace Pool on a local PowerShell
+    instance or any other process that can handle the raw PSRP OutOfProc
+    messages.
+
+    Args:
+        executable: The executable to run, defaults to `pwsh`.
+        arguments: A list of arguments to run, when the executable is `pwsh`
+            then this defaults to `-NoProfile -NoLogo -s`.
+    """
 
     def __init__(
             self,
@@ -651,7 +823,6 @@ class ProcessInfo(OutOfProcInfo):
             self.arguments = ['-NoProfile', '-NoLogo', '-s']
 
         self._process = Process(self.executable, self.arguments)
-        self._listen_task = None
 
     def read(self) -> bytes:
         return self._process.read()
@@ -670,6 +841,19 @@ class ProcessInfo(OutOfProcInfo):
 
 
 class AsyncProcessInfo(AsyncOutOfProcInfo):
+    """Async ConnectionInfo for a Process.
+
+    Async ConnectionInfo implementation for a native process. The data is read
+    from the ``stdout`` pipe of the process and the input is read to the
+    ``stdin`` pipe. This can be used to create a Runspace Pool on a local
+    PowerShell instance or any other process that can handle the raw PSRP
+    OutOfProc messages.
+
+    Args:
+        executable: The executable to run, defaults to `pwsh`.
+        arguments: A list of arguments to run, when the executable is `pwsh`
+            then this defaults to `-NoProfile -NoLogo -s`.
+    """
 
     def __init__(
             self,
@@ -725,6 +909,15 @@ class WSManInfo(ConnectionInfo):
 
 
 class AsyncWSManInfo(AsyncConnectionInfo):
+    """Async ConnectionInfo for WSMan.
+
+    Async ConnectionInfo implementation for WSMan/WinRM. This is the
+    traditional PSRP connection used on Windows before SSH became available.
+    It uses a series of SOAP based messages sent over HTTP/HTTPS.
+
+    Args:
+        connection_uri: The WSMan URI to connect to.
+    """
 
     def __init__(
             self,
@@ -861,7 +1054,8 @@ class AsyncWSManInfo(AsyncConnectionInfo):
             options = OptionSet()
             options.add_option('protocolversion', pool.our_capability.protocolversion, {'MustComply': 'true'})
 
-            open_content = ElementTree.SubElement(connect, 'connectXml', xmlns='http://schemas.microsoft.com/powershell')
+            open_content = ElementTree.SubElement(connect, 'connectXml',
+                                                  xmlns='http://schemas.microsoft.com/powershell')
             open_content.text = base64.b64encode(payload.data).decode()
 
         winrs = self._runspace_table[pool.runspace_id]
@@ -909,10 +1103,7 @@ class AsyncWSManInfo(AsyncConnectionInfo):
         resp = await self._connection.send(winrs.data_to_send())
         winrs.receive_data(resp)
 
-    async def enumerate(
-            self,
-            runspace_id: typing.Optional[str] = None,
-    ) -> typing.AsyncIterable[typing.Tuple[str, typing.List[str]]]:
+    async def enumerate(self) -> typing.AsyncIterable[typing.Tuple[str, typing.List[str]]]:
         winrs = WinRS(WSMan(self._connection_uri))
         winrs.enumerate()
         resp = await self._connection.send(winrs.data_to_send())
@@ -985,12 +1176,14 @@ def _ps_data_packet(
 ) -> bytes:
     """Data packet for PSRP fragments
 
-    This creates a data packet that is used to encode PSRP fragments when sending to the server.
+    This creates a data packet that is used to encode PSRP fragments when
+    sending to the server.
 
     Args:
         data: The PSRP fragments to encode.
         stream_type: The stream type to target, Default or PromptResponse.
-        ps_guid: Set to `None` or a 0'd UUID to target the RunspacePool, otherwise this should be the pipeline UUID.
+        ps_guid: Set to `None` or a 0'd UUID to target the RunspacePool,
+            otherwise this should be the pipeline UUID.
 
     Returns:
         bytes: The encoded data XML packet.
@@ -1006,12 +1199,15 @@ def _ps_guid_packet(
 ) -> bytes:
     """Common PSGuid packet for PSRP message.
 
-    This creates a PSGuid packet that is used to signal events and stages in the PSRP exchange. Unlike the data
-    packet this does not contain any PSRP fragments.
+    This creates a PSGuid packet that is used to signal events and stages in
+    the PSRP exchange. Unlike the data packet this does not contain any PSRP
+    fragments.
 
     Args:
-        element: The element type, can be DataAck, Command, CommandAck, Close, CloseAck, Signal, and SignalAck.
-        ps_guid: Set to `None` or a 0'd UUID to target the RunspacePool, otherwise this should be the pipeline UUID.
+        element: The element type, can be DataAck, Command, CommandAck, Close,
+            CloseAck, Signal, and SignalAck.
+        ps_guid: Set to `None` or a 0'd UUID to target the RunspacePool,
+            otherwise this should be the pipeline UUID.
 
     Returns:
         bytes: The encoded PSGuid packet.

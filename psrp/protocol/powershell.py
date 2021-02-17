@@ -744,7 +744,8 @@ class RunspacePool(_RunspacePoolBase):
         """Get the number of Runspaces available.
 
         This builds a request to get the number of available Runspaces in the pool. The
-        :class:`psrp.protocol.powershell_events.GetRunspaceAvailabilityEvent` is returned once the response is received from the server.
+        :class:`psrp.protocol.powershell_events.GetRunspaceAvailabilityEvent` is returned once the response is received
+        from the server.
         """
         ci = self._ci_counter
         self._ci_table[ci] = None
