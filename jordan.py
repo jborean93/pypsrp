@@ -39,7 +39,7 @@ endpoint = 'server2019.domain.test'
 
 script = '''
 '1'
-sleep 2
+sleep 10
 '2'
 '''
 
@@ -50,8 +50,21 @@ async def async_psrp(connection_info):
         await rp.set_max_runspaces(10)
         await rp.get_available_runspaces()
 
+        await asyncio.sleep(10)
+
+        async def run_command(time_sec):
+            ps = AsyncPowerShell(rp)
+            ps.add_script(f'echo "hi"; sleep {time_sec}; echo "end"')
+            print(await ps.invoke())
+
+        #done, pending = await asyncio.wait([run_command(1), run_command(2), run_command(3)])
+        #for d in done:
+        #    print(d.result())
+
+
+
         ps = AsyncPowerShell(rp)
-        ps.add_script('echo "hi"')
+        ps.add_script('echo "hi"; echo 2; echo "test"')
         print(await ps.invoke())
 
     return
@@ -92,8 +105,8 @@ async def async_reconnection(connection_info):
 async def a_main():
     await asyncio.gather(
         #async_psrp(AsyncProcessInfo()),
-        #async_psrp(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
-        async_reconnection(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
+        async_psrp(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
+        #async_reconnection(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
     )
 
 

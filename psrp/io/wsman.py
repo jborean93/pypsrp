@@ -4,6 +4,7 @@
 
 import abc
 import base64
+import httpcore
 import httpx
 import re
 import spnego
@@ -342,7 +343,7 @@ class AsyncWSManConnection(WSManConnectionBase):
     def __init__(
             self,
             connection_uri: str,
-            encryption: str = 'never',
+            encryption: str = 'auto',
             verify: typing.Union[str, bool] = True,
             connection_timeout: int = 30,
             read_timeout: int = 30,
@@ -422,13 +423,22 @@ class AsyncWSManConnection(WSManConnectionBase):
 
         # TODO: Proxy/SOCKS
         # TODO: Reconnection
+        # FIXME: Use keepalive_expiry in Limits() when 0.17.0 is out instead of creating custom transport
+        # https://github.com/encode/httpx/pull/1403
         httpx.Limits()
         timeout = httpx.Timeout(max(connection_timeout, read_timeout), connect=connection_timeout, read=read_timeout)
-        self._http = httpx.AsyncClient(headers=headers, timeout=timeout, verify=verify, **self._auth_kwargs)
+        ssl_context = httpx.create_ssl_context()
+        transport = httpcore.AsyncConnectionPool(
+            ssl_context=ssl_context,
+            max_connections=100,
+            max_keepalive_connections=20,
+            keepalive_expiry=60.0,
+        )
+        self._http = httpx.AsyncClient(headers=headers, timeout=timeout, verify=verify, transport=transport,
+                                       **self._auth_kwargs)
 
-        # FIXME: Remove this hack
-        # https://github.com/encode/httpx/issues/1395
-        self._http._transport._keepalive_expiry = 120.0
+
+        # self._http._transport._keepalive_expiry = 120.0
 
     async def send(
             self,

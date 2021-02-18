@@ -420,20 +420,20 @@ class AsyncConnectionInfo(_ConnectionInfoBase):
             pool: RunspacePool,
             pipeline_id: typing.Optional[str] = None,
     ):
-        return NotImplemented
+        raise NotImplementedError()
 
     async def command(
             self,
             pool: RunspacePool,
             pipeline_id: str,
     ):
-        return NotImplemented
+        raise NotImplementedError()
 
     async def create(
             self,
             pool: RunspacePool,
     ):
-        return NotImplemented
+        raise NotImplementedError()
 
     async def send_all(
             self,
@@ -449,39 +449,36 @@ class AsyncConnectionInfo(_ConnectionInfoBase):
             pool: RunspacePool,
             buffer: bool = False,
     ) -> bool:
-        return NotImplemented
+        raise NotImplementedError()
 
     async def signal(
             self,
             pool: RunspacePool,
             pipeline_id: typing.Optional[str] = None,
     ):
-        return NotImplemented
+        raise NotImplementedError()
 
     async def connect(
             self,
             pool: RunspacePool,
             pipeline_id: typing.Optional[str] = None,
     ):
-        return NotImplemented
+        raise NotImplementedError()
 
     async def disconnect(
             self,
             pool: RunspacePool,
     ):
-        return NotImplemented
+        raise NotImplementedError()
 
     async def reconnect(
             self,
             pool: RunspacePool,
     ):
-        return NotImplemented
+        raise NotImplementedError()
 
-    async def enumerate(
-            self,
-            runspace_id: typing.Optional[str] = None,
-    ):
-        return NotImplemented
+    async def enumerate(self) -> typing.AsyncIterable[typing.Tuple[str, typing.List[str]]]:
+        raise NotImplementedError()
 
 
 class OutOfProcInfo(ConnectionInfo):
