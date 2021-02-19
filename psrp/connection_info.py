@@ -927,7 +927,10 @@ class AsyncWSManInfo(AsyncConnectionInfo):
     ):
         super().__init__()
 
-        self._connection = AsyncWSManConnection(connection_uri=connection_uri, *args, **kwargs)
+        self._connection_args = args
+        self._connection_kwargs = kwargs
+        self._connection_kwargs['connection_uri'] = connection_uri
+        self._connection = AsyncWSManConnection(*self._connection_args, **self._connection_kwargs)
 
         self._runspace_table: typing.Dict[str, WinRS] = {}
         self._listener_tasks: typing.Dict[str, asyncio.Task] = {}
@@ -1132,35 +1135,37 @@ class AsyncWSManInfo(AsyncConnectionInfo):
             pipeline_id: typing.Optional[str] = None,
     ):
         winrs = self._runspace_table[pool.runspace_id]
-        while True:
-            winrs.receive('stdout', command_id=pipeline_id)
 
-            resp = await self._connection.send(winrs.data_to_send())
-            # TODO: Will the ReceiveResponse block if not all the fragments have been sent?
-            started.set()
+        async with AsyncWSManConnection(*self._connection_args, **self._connection_kwargs) as conn:
+            while True:
+                winrs.receive('stdout', command_id=pipeline_id)
 
-            try:
-                event: ReceiveResponseEvent = winrs.receive_data(resp)
+                resp = await conn.send(winrs.data_to_send())
+                # TODO: Will the ReceiveResponse block if not all the fragments have been sent?
+                started.set()
 
-            except OperationTimedOut:
-                # Occurs when there has been no output after the OperationTimeout set, just repeat the request
-                continue
+                try:
+                    event: ReceiveResponseEvent = winrs.receive_data(resp)
 
-            except (OperationAborted, ServiceStreamDisconnected) as e:
-                # Received when the shell or pipeline has been closed
-                break
+                except OperationTimedOut:
+                    # Occurs when there has been no output after the OperationTimeout set, just repeat the request
+                    continue
 
-            for psrp_data in event.get_streams().get('stdout', []):
-                msg = PSRPPayload(psrp_data, StreamType.default, pipeline_id)
-                await self.queue_response(pool.runspace_id, msg)
+                except (OperationAborted, ServiceStreamDisconnected) as e:
+                    # Received when the shell or pipeline has been closed
+                    break
 
-            # If the command is done then we've got nothing left to do here.
-            # TODO: do we need to surface the exit_code into the protocol.
-            if event.command_state == CommandState.done:
-                break
+                for psrp_data in event.get_streams().get('stdout', []):
+                    msg = PSRPPayload(psrp_data, StreamType.default, pipeline_id)
+                    await self.queue_response(pool.runspace_id, msg)
 
-        if pipeline_id is None:
-            await self.queue_response(pool.runspace_id, None)
+                # If the command is done then we've got nothing left to do here.
+                # TODO: do we need to surface the exit_code into the protocol.
+                if event.command_state == CommandState.done:
+                    break
+
+            if pipeline_id is None:
+                await self.queue_response(pool.runspace_id, None)
 
 
 _EMPTY_UUID = '00000000-0000-0000-0000-000000000000'

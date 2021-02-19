@@ -39,7 +39,7 @@ endpoint = 'server2019.domain.test'
 
 script = '''
 '1'
-sleep 10
+#sleep 10
 '2'
 '''
 
@@ -67,6 +67,7 @@ async def async_psrp(connection_info):
         ps.add_script('echo "hi"; echo 2; echo "test"')
         print(await ps.invoke())
 
+    print("exit")
     return
 
 

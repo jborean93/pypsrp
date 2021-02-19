@@ -3,7 +3,9 @@
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 import abc
+import asyncio
 import base64
+import functools
 import httpcore
 import httpx
 import re
@@ -20,7 +22,44 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.exceptions import UnsupportedAlgorithm
 
 
+def _async_wrap(func, *args, **kwargs):
+    """ Runs a sync function in the background. """
+    loop = asyncio.get_running_loop()
+    task = loop.run_in_executor(None, functools.partial(func, *args, **kwargs))
+
+    return task
+
+
+class _AsyncWinRMTransport(httpcore.AsyncConnectionPool):
+
+    def _create_connection(self, *args, **kwargs):
+        # We need to hook into the connection close() method so we can be alerted when we've started a new connection
+        # due to a keep-alive timeout.
+        connection = super()._create_connection(*args, **kwargs)
+        orig_close = connection.aclose
+
+        async def new_close():
+            await orig_close()
+            raise _NoAuthenticationContext()
+        connection.aclose = new_close
+        return connection
+
+
+class _SyncWinRMTransport(httpcore.SyncConnectionPool):
+
+    def _create_connection(self, *args, **kwargs):
+        connection = super()._create_connection(*args, **kwargs)
+        orig_close = connection.close
+
+        def new_close():
+            orig_close()
+            raise _NoAuthenticationContext()
+        connection.close = new_close()
+        return connection
+
+
 class _NoAuthenticationContext(Exception):
+    # Used to notify the http client that we need to send a blank request for encryption.
     pass
 
 
@@ -221,7 +260,6 @@ class WSManAuth(httpx.Auth):
         self, request: httpx.Request
     ) -> typing.AsyncGenerator[httpx.Request, httpx.Response]:
         """ Handles the authentication attempts for WSMan when receiving a 401 response. """
-        # TODO: Send first header optimistically
         response = yield request
         if response.status_code != 401:
             return
@@ -239,13 +277,14 @@ class WSManAuth(httpx.Auth):
             cert_hash = get_tls_server_end_point_hash(cert)
             cbt = spnego.channel_bindings.GssChannelBindings(application_data=b"tls-server-end-point:" + cert_hash)
 
-        # FIXME: Need to run this in a separate thread? so it doesn't block other connections.
         auth_hostname = self.hostname_override or response.url.host
-        self._context = spnego.client(self.username, self.password, hostname=auth_hostname, service=self.service,
-                                      channel_bindings=cbt, context_req=self._context_req, protocol=selected_protocol,
-                                      options=self._spnego_options)
+        self._context = await _async_wrap(
+            spnego.client, self.username, self.password, hostname=auth_hostname,
+            service=self.service, channel_bindings=cbt, context_req=self._context_req,
+            protocol=selected_protocol, options=self._spnego_options
+        )
 
-        out_token = self._context.step()
+        out_token = await _async_wrap(self._context.step)
         while not self._context.complete or out_token is not None:
             request.headers['Authorization'] = "%s %s" % (self._auth_header, base64.b64encode(out_token).decode())
 
@@ -261,7 +300,7 @@ class WSManAuth(httpx.Auth):
             if in_token in [None, b""]:
                 break
 
-            out_token = self._context.step(in_token)
+            out_token = await _async_wrap(self._context.step, in_token)
 
     def wrap(self, data: bytes) -> typing.Tuple[bytes, int]:
         """ Wraps the data for use with WSMan encryption. """
@@ -423,22 +462,16 @@ class AsyncWSManConnection(WSManConnectionBase):
 
         # TODO: Proxy/SOCKS
         # TODO: Reconnection
-        # FIXME: Use keepalive_expiry in Limits() when 0.17.0 is out instead of creating custom transport
-        # https://github.com/encode/httpx/pull/1403
-        httpx.Limits()
         timeout = httpx.Timeout(max(connection_timeout, read_timeout), connect=connection_timeout, read=read_timeout)
         ssl_context = httpx.create_ssl_context()
-        transport = httpcore.AsyncConnectionPool(
+        transport = _AsyncWinRMTransport(
             ssl_context=ssl_context,
-            max_connections=100,
-            max_keepalive_connections=20,
+            max_connections=1,
+            max_keepalive_connections=1,
             keepalive_expiry=60.0,
         )
         self._http = httpx.AsyncClient(headers=headers, timeout=timeout, verify=verify, transport=transport,
                                        **self._auth_kwargs)
-
-
-        # self._http._transport._keepalive_expiry = 120.0
 
     async def send(
             self,
@@ -446,20 +479,23 @@ class AsyncWSManConnection(WSManConnectionBase):
     ) -> bytes:
         content_type = 'application/soap+xml;charset=UTF-8'
 
-        if data and self.encrypt:
-            try:
-                data, content_type = _encrypt_wsman(data, content_type, self._http.auth)
+        try:
+            if data and self.encrypt:
+                prep_data, content_type = _encrypt_wsman(data, content_type, self._http.auth)
+            else:
+                prep_data = data
 
-            except _NoAuthenticationContext:
-                # Encryption requires an authentication context to be set up which only happens when we've sent a
-                # request. Send a blank request to set up the context and return again.
+            response = await self._http.post(self.connection_uri.geturl(), content=prep_data, headers={
+                'Content-Type': content_type,
+            })
+
+        except _NoAuthenticationContext:
+            # Encryption requires an authentication context to be set up which only happens when we've sent a
+            # request. Send a blank request to set up the context and return again.
+            if self.encrypt:
                 await self.send(b'')
-                return await self.send(data)
 
-        # FIXME: Handle connection being dropped from the pool after Keep-Alive expiry
-        response = await self._http.post(self.connection_uri.geturl(), content=data, headers={
-            'Content-Type': content_type,
-        })
+            return await self.send(data)
 
         content = response.content
         if content:
@@ -478,7 +514,10 @@ class AsyncWSManConnection(WSManConnectionBase):
         await self._http.__aenter__()
 
     async def close(self):
-        await self._http.aclose()
+        try:
+            await self._http.aclose()
+        except _NoAuthenticationContext:
+            pass  # Closing the connection raises this error, we cna safely ignore it.
 
 
 class WSManConnection(WSManConnectionBase):
