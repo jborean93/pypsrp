@@ -50,7 +50,7 @@ async def async_psrp(connection_info):
         await rp.set_max_runspaces(10)
         await rp.get_available_runspaces()
 
-        await asyncio.sleep(10)
+        #await asyncio.sleep(10)
 
         async def run_command(time_sec):
             ps = AsyncPowerShell(rp)
@@ -106,7 +106,7 @@ async def async_reconnection(connection_info):
 async def a_main():
     await asyncio.gather(
         #async_psrp(AsyncProcessInfo()),
-        async_psrp(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
+        async_psrp(AsyncWSManInfo(f'https://{endpoint}:5986/wsman', verify=False)),
         #async_reconnection(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
     )
 

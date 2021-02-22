@@ -94,8 +94,6 @@ class _AsyncWinRMTransport(httpcore.AsyncHTTPTransport):
         stream: httpcore.AsyncByteStream = None,
         ext: typing.Dict = None,
     ) -> typing.Tuple[int, httpx.Headers, httpcore.AsyncByteStream, typing.Dict]:
-        return await self._transport.arequest(method, url, headers, stream, ext)
-
         if not self._context:
             await self._authenticate(method, url, headers, ext)
             # TODO: return the response if it's still a 401
@@ -103,21 +101,39 @@ class _AsyncWinRMTransport(httpcore.AsyncHTTPTransport):
         new_headers = httpx.Headers(headers)
         new_stream = stream
         if self._encrypt:
-            enc_data, content_type = _encrypt_wsman(stream._body, new_headers['Content-Type'], self._encryption_type,
+            dec_data = b''
+            async for data in stream:
+                dec_data += data
+            enc_data, content_type = _encrypt_wsman(dec_data, new_headers['Content-Type'], self._encryption_type,
                                                     self._context)
             new_headers['Content-Type'] = content_type
             new_headers['Content-Length'] = str(len(enc_data))
             new_stream = httpcore.PlainByteStream(enc_data)
 
-        resp = await self._transport.arequest(method, url, new_headers.raw, new_stream, ext)
+        status_code, headers, stream, ext = await self._transport.arequest(method, url, new_headers.raw, new_stream,
+                                                                           ext)
 
         # When a cnnection is closed and we open a new one the first response will be a 401. Re-auth
         # ourselves again and try again.
-        if resp[0] == 401:
-            async for _ in resp[2]:
+        if status_code == 401:
+            async for _ in stream:
                 pass
+            await stream.aclose()
+
             self._context = None
             return await self.arequest(method, url, headers, stream, ext)
+
+        new_stream = stream
+        content_type = httpx.Headers(headers).get('content-type', '')
+        if content_type.startswith('multipart/encrypted;') or content_type.startswith('multipart/x-multi-encrypted;'):
+            enc_data = b''
+            async for data in stream:
+                enc_data += data
+            await stream.aclose()
+            dec_data = _decrypt_wsman(enc_data, content_type, self._context)
+            new_stream = httpcore.PlainByteStream(dec_data)
+
+        return status_code, headers, new_stream, ext
 
     async def _authenticate(
             self,
@@ -131,14 +147,12 @@ class _AsyncWinRMTransport(httpcore.AsyncHTTPTransport):
         new_headers['Content-Length'] = '0'
         response = await self._transport.arequest(method, url, headers=new_headers.raw, ext=ext)
 
-        await response[2].stream.aclose()
-
         if response[0] != 401:
             return response
 
-        async for a in response[2]:
-            a = ''
+        async for _ in response[2]:
             pass
+        await response[2].aclose()
 
         self._auth_header = _valid_auth_headers(httpx.Headers(response[1]).get('www-authenticate', ''),
                                                 self._accepted_protocols)
@@ -170,6 +184,7 @@ class _AsyncWinRMTransport(httpcore.AsyncHTTPTransport):
             response = await self._transport.arequest(method, url, headers=new_headers.raw, ext=ext)
             async for _ in response[2]:
                 pass
+            await response[2].aclose()
 
             auth_header = httpx.Headers(response[1]).get('www-authenticate', '')
             in_token = self._regex.search(auth_header)
@@ -278,202 +293,6 @@ def _valid_auth_headers(
                         "actual: '%s'" % (", ".join(accepted_protocols), www_authenticate))
 
     return matched_protocols[0]
-
-
-class WSManAuth(httpx.Auth):
-    """WSMan HTTP authentication handler for httpx.
-
-    The WSMan HTTP authentication handler for any request sent over the WSMan client. This handles Negotiate, Kerberos,
-    NTLM, and CredSSP authentication through the pyspnego library.
-
-    Args:
-        username: The username to use.
-        password: The password to use.
-        protocol: The protocol to use, can be negotiate, kerberos, ntlm, or credssp.
-        encryption_required: Whether WSMan encryption is required for the connection or not.
-        service: Override the default SPN service (HTTP) if required for Kerberos SPN lookups.
-        hostname_override: Override the default SPN principal name (endpoint) if required for Kerberos SPN lookups.
-        send_cbt: Whether to attach the Channel Binding Token over a HTTPS connection or not. Does not apply to
-            `protocol='credssp'`.
-        delegate: Whether to request a delegated Kerberos ticket or not. Does not apply to `protocol='credssp'`.
-        credssp_allow_tlsv1: For `protocol='credssp'`, allow TLSv1.0 connections, default is just TLSv1.2+.
-        credssp_require_kerberos: For `protocol='credssp'`, make sure that Kerberos is available for negotiation. This
-            does not ensure Kerberos is used in the authentication attempt, it just makes sure that it is available to
-            be used.
-    """
-
-    def __init__(
-            self,
-            username: typing.Optional[str] = None,
-            password: typing.Optional[str] = None,
-            protocol: str = 'negotiate',
-            encryption_required: bool = False,
-            service: str = 'HTTP',
-            hostname_override: typing.Optional[str] = None,
-            send_cbt: bool = True,
-            delegate: bool = False,
-            credssp_allow_tlsv1: bool = False,
-            credssp_require_kerberos: bool = False,
-    ):
-        self.username = username
-        self.password = password
-        self.protocol = protocol.lower()
-        self.service = service
-        self.hostname_override = hostname_override
-        self.send_cbt = False if self.protocol == 'credssp' else send_cbt  # CredSSP does not use CBT at all.
-
-        self._auth_header = None
-        self._context = None
-        self._context_req = spnego.ContextReq.default
-        self._spnego_options = spnego.NegotiateOptions.none
-
-        if encryption_required:
-            self._spnego_options |= spnego.NegotiateOptions.wrapping_winrm
-
-        if self.protocol == 'credssp':
-            self._accepted_protocols = ['CredSSP']
-
-            if credssp_allow_tlsv1:
-                self._spnego_options |= spnego.NegotiateOptions.credssp_allow_tlsv1
-
-            if credssp_require_kerberos:
-                self._spnego_options |= spnego.NegotiateOptions.negotiate_kerberos
-
-        elif self.protocol in ['negotiate', 'kerberos', 'ntlm']:
-            self._accepted_protocols = ['Negotiate', 'Kerberos', 'NTLM']
-
-            if delegate:
-                self._context_req |= spnego.ContextReq.delegate
-
-        else:
-            raise ValueError("%s only supports credssp, negotiate, kerberos, or ntlm authentication"
-                             % type(self).__name__)
-
-        escaped_protocols = '|'.join([re.escape(p) for p in self._accepted_protocols])
-        self._regex = re.compile(r'(%s)\s*([^,]*),?' % escaped_protocols, re.I)
-
-    @property
-    def encryption_type(self) -> str:
-        """ Returns the WSMan encryption Content-Type for the authentication protocol used. """
-        if self._auth_header is None:
-            raise _NoAuthenticationContext
-
-        elif self._auth_header in ['Negotiate', 'NTLM']:
-            protocol = 'SPNEGO'
-
-        elif self._auth_header == 'Kerberos':
-            protocol = 'Kerberos'
-
-        elif self._auth_header == 'CredSSP':
-            protocol = 'CredSSP'
-
-        else:
-            raise ValueError("Unknown authentication header used '%s'" % self._auth_header)
-
-        return 'application/HTTP-%s-session-encrypted' % protocol
-
-    def sync_auth_flow(
-        self, request: httpx.Request
-    ) -> typing.Generator[httpx.Request, httpx.Response, None]:
-        response = yield request
-        if response.status_code != 401:
-            return
-
-        self._auth_header = _valid_auth_headers(response.headers.get('www-authenticate', ''), self._accepted_protocols)
-        selected_protocol = _select_protocol(self._auth_header, self.protocol)
-
-        # Get the TLS object for CBT if required - will be None when connecting over HTTP
-        socket = response.stream.connection.connection.socket.sock
-
-        cbt = None
-        if self.send_cbt and hasattr(socket, 'getpeercert'):
-            cert = socket.getpeercert(True)
-            cert_hash = get_tls_server_end_point_hash(cert)
-            cbt = spnego.channel_bindings.GssChannelBindings(application_data=b"tls-server-end-point:" + cert_hash)
-
-        auth_hostname = self.hostname_override or response.url.host
-        self._context = spnego.client(self.username, self.password, hostname=auth_hostname, service=self.service,
-                                      channel_bindings=cbt, context_req=self._context_req, protocol=selected_protocol,
-                                      options=self._spnego_options)
-
-        out_token = self._context.step()
-        while not self._context.complete or out_token is not None:
-            request.headers['Authorization'] = "%s %s" % (self._auth_header, base64.b64encode(out_token).decode())
-
-            # send the request with the auth token and get the response
-            response = yield request
-
-            auth_header = response.headers.get('www-authenticate', '')
-            in_token = self._regex.search(auth_header)
-            if in_token:
-                in_token = base64.b64decode(in_token.group(2))
-
-            # If there was no token received from the host then we just break the auth cycle.
-            if in_token in [None, b""]:
-                break
-
-            out_token = self._context.step(in_token)
-
-    async def async_auth_flow(
-        self, request: httpx.Request
-    ) -> typing.AsyncGenerator[httpx.Request, httpx.Response]:
-        """ Handles the authentication attempts for WSMan when receiving a 401 response. """
-        response = yield request
-        if response.status_code != 401:
-            return
-
-        self._auth_header = _valid_auth_headers(response.headers.get('www-authenticate', ''), self._accepted_protocols)
-        selected_protocol = _select_protocol(self._auth_header, self.protocol)
-
-        # Get the TLS object for CBT if required - will be None when connecting over HTTP
-        sw = response.stream.connection.connection.socket.stream_writer
-        ssl_object = sw.get_extra_info('ssl_object')
-
-        cbt = None
-        if self.send_cbt and ssl_object:
-            cert = ssl_object.getpeercert(True)
-            cert_hash = get_tls_server_end_point_hash(cert)
-            cbt = spnego.channel_bindings.GssChannelBindings(application_data=b"tls-server-end-point:" + cert_hash)
-
-        auth_hostname = self.hostname_override or response.url.host
-        self._context = await _async_wrap(
-            spnego.client, self.username, self.password, hostname=auth_hostname,
-            service=self.service, channel_bindings=cbt, context_req=self._context_req,
-            protocol=selected_protocol, options=self._spnego_options
-        )
-
-        out_token = await _async_wrap(self._context.step)
-        while not self._context.complete or out_token is not None:
-            request.headers['Authorization'] = "%s %s" % (self._auth_header, base64.b64encode(out_token).decode())
-
-            # send the request with the auth token and get the response
-            response = yield request
-
-            auth_header = response.headers.get('www-authenticate', '')
-            in_token = self._regex.search(auth_header)
-            if in_token:
-                in_token = base64.b64decode(in_token.group(2))
-
-            # If there was no token received from the host then we just break the auth cycle.
-            if in_token in [None, b""]:
-                break
-
-            out_token = await _async_wrap(self._context.step, in_token)
-
-    def wrap(self, data: bytes) -> typing.Tuple[bytes, int]:
-        """ Wraps the data for use with WSMan encryption. """
-        enc_details = self._context.wrap_winrm(data)
-        enc_data = struct.pack("<i", len(enc_details.header)) + enc_details.header + enc_details.data
-
-        return enc_data, enc_details.padding_length
-
-    def unwrap(self, data: bytes) -> bytes:
-        """ Unwraps the data from WSMan encryption. """
-        header_length = struct.unpack("<i", data[:4])[0]
-        b_header = data[4:4 + header_length]
-        b_enc_data = data[4 + header_length:]
-
-        return self._context.unwrap_winrm(b_header, b_enc_data)
 
 
 class WSManConnectionBase(metaclass=abc.ABCMeta):
@@ -635,14 +454,15 @@ class AsyncWSManConnection(WSManConnectionBase):
             self,
             data: bytes,
     ) -> bytes:
-        content_type = 'application/soap+xml;charset=UTF-8'
-        response = await self._http.get('http://httpbin.org/status/401')
-        #content = response.content
+        a = ''
+        response = await self._http.post(self.connection_uri.geturl(), content=data, headers={
+            'Content-Type': 'application/soap+xml;charset=UTF-8',
+        })
 
-        response = await self._http.get('http://httpbin.org/status/401')
-        #content = response.content
+        content = await response.aread()
+        await response.aclose()
 
-        if response.status_code != 200:
+        if response.status_code != 200 and not content:
             response.raise_for_status()
 
         return content
@@ -696,7 +516,7 @@ def _decrypt_wsman(
 
         header_length = struct.unpack("<i", wrapped_data[:4])[0]
         b_header = wrapped_data[4:4 + header_length]
-        b_enc_data = data[4 + header_length:]
+        b_enc_data = wrapped_data[4 + header_length:]
         unwrapped_data = context.unwrap_winrm(b_header, b_enc_data)
         actual_length = len(unwrapped_data)
 
