@@ -6,6 +6,8 @@ import abc
 import asyncio
 import base64
 import functools
+from ssl import SSLContext
+
 import httpcore
 import httpx
 import re
@@ -21,6 +23,11 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from cryptography.exceptions import UnsupportedAlgorithm
 
+from httpcore._async.connection import (
+    AsyncHTTPConnection,
+    ConnectionState,
+)
+
 
 def _async_wrap(func, *args, **kwargs):
     """ Runs a sync function in the background. """
@@ -34,7 +41,8 @@ class _AsyncWinRMTransport(httpcore.AsyncHTTPTransport):
 
     def __init__(
             self,
-            transport: httpcore.AsyncHTTPTransport,
+            ssl_context: SSLContext,
+            keepalive_expiry: float,
             username: typing.Optional[str] = None,
             password: typing.Optional[str] = None,
             protocol: str = 'negotiate',
@@ -51,9 +59,11 @@ class _AsyncWinRMTransport(httpcore.AsyncHTTPTransport):
         self.protocol = protocol.lower()
         self.service = service
         self.hostname_override = hostname_override
-        self.send_cbt = False if self.protocol == 'credssp' else send_cbt  # CredSSP does not use CBT at all.
+        self.send_cbt = send_cbt
 
-        self._transport = transport
+        self._connection = None
+        self._ssl_context = ssl_context
+        self._keepalive_expiry = keepalive_expiry
 
         self._auth_header = None
         self._context = None
@@ -94,9 +104,23 @@ class _AsyncWinRMTransport(httpcore.AsyncHTTPTransport):
         stream: httpcore.AsyncByteStream = None,
         ext: typing.Dict = None,
     ) -> typing.Tuple[int, httpx.Headers, httpcore.AsyncByteStream, typing.Dict]:
+        ext = ext or {}
+        connection = await self._get_connection()
+
+        if not connection:
+            self._context = None
+            self._connection = connection = await self._create_connection(url, ext)
+
         if not self._context:
-            await self._authenticate(method, url, headers, ext)
-            # TODO: return the response if it's still a 401
+            # Set up the authentication context. If we are encrypting data we
+            # cannot send anything at the moment.
+            response = await self._authenticate(
+                connection, method, url, headers,
+                None if self._encrypt else stream, ext
+            )
+
+            if not self._encrypt:
+                return response
 
         new_headers = httpx.Headers(headers)
         new_stream = stream
@@ -110,18 +134,10 @@ class _AsyncWinRMTransport(httpcore.AsyncHTTPTransport):
             new_headers['Content-Length'] = str(len(enc_data))
             new_stream = httpcore.PlainByteStream(enc_data)
 
-        status_code, headers, stream, ext = await self._transport.arequest(method, url, new_headers.raw, new_stream,
-                                                                           ext)
-
-        # When a cnnection is closed and we open a new one the first response will be a 401. Re-auth
-        # ourselves again and try again.
-        if status_code == 401:
-            async for _ in stream:
-                pass
-            await stream.aclose()
-
-            self._context = None
-            return await self.arequest(method, url, headers, stream, ext)
+        status_code, headers, stream, ext = await self._connection.arequest(
+            method, url, headers=headers, stream=new_stream, ext=ext
+        )
+        connection.expires_at = await connection.backend.time() + self._keepalive_expiry
 
         new_stream = stream
         content_type = httpx.Headers(headers).get('content-type', '')
@@ -137,33 +153,17 @@ class _AsyncWinRMTransport(httpcore.AsyncHTTPTransport):
 
     async def _authenticate(
             self,
+            connection: AsyncHTTPConnection,
             method: bytes,
             url: httpx.URL,
             headers: httpx.Headers = None,
+            stream: httpcore.AsyncByteStream = None,
             ext: typing.Dict = None,
     ):
-        # Send a blank request so we have the TLS context for CBT and the auth headers.
-        new_headers = httpx.Headers(headers.copy())
-        new_headers['Content-Length'] = '0'
-        response = await self._transport.arequest(method, url, headers=new_headers.raw, ext=ext)
-
-        if response[0] != 401:
-            return response
-
-        async for _ in response[2]:
-            pass
-        await response[2].aclose()
-
-        self._auth_header = _valid_auth_headers(httpx.Headers(response[1]).get('www-authenticate', ''),
-                                                self._accepted_protocols)
-        selected_protocol = _select_protocol(self._auth_header, self.protocol)
-
         # Get the TLS object for CBT if required - will be None when connecting over HTTP
-        sw = response[2].connection.socket.stream_writer
-        ssl_object = sw.get_extra_info('ssl_object')
-
         cbt = None
-        if self.send_cbt and ssl_object:
+        ssl_object = connection.socket.stream_writer.get_extra_info('ssl_object')
+        if ssl_object and self.send_cbt and self.protocol != 'credssp':
             cert = ssl_object.getpeercert(True)
             cert_hash = get_tls_server_end_point_hash(cert)
             cbt = spnego.channel_bindings.GssChannelBindings(application_data=b"tls-server-end-point:" + cert_hash)
@@ -172,19 +172,24 @@ class _AsyncWinRMTransport(httpcore.AsyncHTTPTransport):
         self._context = await _async_wrap(
             spnego.client, self.username, self.password, hostname=auth_hostname,
             service=self.service, channel_bindings=cbt, context_req=self._context_req,
-            protocol=selected_protocol, options=self._spnego_options
+            protocol=self.protocol, options=self._spnego_options
         )
+
+        # Send a blank request for the first authentication packet
+        # TODO: Send actual if not encrypting data
+        new_headers = httpx.Headers(headers.copy())
+        if not stream:
+            new_headers['Content-Length'] = '0'
+        auth_header = 'Negotiate'
 
         out_token = await _async_wrap(self._context.step)
         while not self._context.complete or out_token is not None:
-            new_headers['Authorization'] = "%s %s" % (self._auth_header, base64.b64encode(out_token).decode())
+            new_headers['Authorization'] = "%s %s" % (auth_header, base64.b64encode(out_token).decode())
 
             # send the request with the auth token and get the response
-            # TODO: Find out why this isn't using the connection from above.
-            response = await self._transport.arequest(method, url, headers=new_headers.raw, ext=ext)
-            async for _ in response[2]:
-                pass
+            response = await connection.arequest(method, url, headers=new_headers.raw, stream=stream, ext=ext)
             await response[2].aclose()
+            connection.expires_at = await connection.backend.time() + self._keepalive_expiry
 
             auth_header = httpx.Headers(response[1]).get('www-authenticate', '')
             in_token = self._regex.search(auth_header)
@@ -197,23 +202,60 @@ class _AsyncWinRMTransport(httpcore.AsyncHTTPTransport):
 
             out_token = await _async_wrap(self._context.step, in_token)
 
+        return response
+
     async def aclose(self) -> None:
-        await self._transport.aclose()
+        await self._connection.aclose()
+        self._connection = None
+
+    async def _create_connection(
+            self,
+            url: httpx.URL,
+            ext: typing.Dict,
+    ):
+        connection = AsyncHTTPConnection(
+            origin=url[:3],
+            ssl_context=self._ssl_context,
+        )
+        socket = await connection._open_socket(timeout=ext.get('timeout', {}))
+        connection.socket = socket
+        connection.expires_at = await connection.backend.time() + self._keepalive_expiry
+
+        return connection
+
+    async def _get_connection(self):
+        connection = self._connection
+
+        if not connection:
+            return
+
+        must_close = False
+
+        if connection.state == ConnectionState.IDLE:
+            now = await connection.backend.time()
+            if connection.is_socket_readable() or now >= connection.expires_at:
+                must_close = True
+
+        else:
+            must_close = True
+
+        if must_close:
+            await connection.aclose()
+            self._connection = None
+
+        return self._connection
 
     @property
     def _encryption_type(self) -> str:
         """ Returns the WSMan encryption Content-Type for the authentication protocol used. """
-        if self._auth_header in ['Negotiate', 'NTLM']:
-            protocol = 'SPNEGO'
-
-        elif self._auth_header == 'Kerberos':
+        if self.protocol == 'kerberos':
             protocol = 'Kerberos'
 
-        elif self._auth_header == 'CredSSP':
+        elif self.protocol == 'credssp':
             protocol = 'CredSSP'
 
         else:
-            raise ValueError(f"Unknown authentication header used '{self._auth_header!s}'")
+            protocol = 'SPNEGO'
 
         return f'application/HTTP-{protocol}-session-encrypted'
 
@@ -407,11 +449,14 @@ class AsyncWSManConnection(WSManConnectionBase):
         }
 
         client_kwargs = {}
+        ssl_context = httpx.create_ssl_context(verify=verify)
+        keepalive_expiry = 60.0
+
         transport = httpcore.AsyncConnectionPool(
-            ssl_context=httpx.create_ssl_context(verify=verify),
+            ssl_context=ssl_context,
             max_connections=1,
             max_keepalive_connections=1,
-            keepalive_expiry=60.0,
+            keepalive_expiry=keepalive_expiry,
         )
 
         supported_auths = ['basic', 'certificate', 'negotiate', 'kerberos', 'ntlm', 'credssp']
@@ -437,7 +482,8 @@ class AsyncWSManConnection(WSManConnectionBase):
                 'credssp_require_kerberos': credssp_require_kerberos,
             }
             transport = _AsyncWinRMTransport(
-                transport=transport,
+                ssl_context=ssl_context,
+                keepalive_expiry=keepalive_expiry,
                 username=username,
                 password=password,
                 protocol=auth,
