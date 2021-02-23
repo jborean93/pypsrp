@@ -106,7 +106,7 @@ async def async_reconnection(connection_info):
 async def a_main():
     await asyncio.gather(
         #async_psrp(AsyncProcessInfo()),
-        async_psrp(AsyncWSManInfo(f'https://{endpoint}:5986/wsman', verify=False)),
+        async_psrp(AsyncWSManInfo(f'http://{endpoint}:5985/wsman', verify=False)),
         #async_reconnection(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
     )
 

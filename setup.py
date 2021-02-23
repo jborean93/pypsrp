@@ -26,10 +26,13 @@ setup(
         'psrp.dotnet',
         'psrp.io',
         'psrp.protocol',
+        'psrp._wsman',
     ],
     include_package_data=True,
     install_requires=[
         'cryptography',
+        'h11',
+        'httpcore',
         'httpx',
         'pyspnego',
     ],
