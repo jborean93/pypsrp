@@ -106,7 +106,8 @@ async def async_reconnection(connection_info):
 async def a_main():
     await asyncio.gather(
         #async_psrp(AsyncProcessInfo()),
-        async_psrp(AsyncWSManInfo(f'http://{endpoint}:5985/wsman', verify=False)),
+        #async_psrp(AsyncWSManInfo(f'http://test.wsman.env:5985/wsman')),
+        async_psrp(AsyncWSManInfo(f'http://test.wsman.env:29939/wsman', proxy='http://squid.wsman.env:3129/')),
         #async_reconnection(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
     )
 

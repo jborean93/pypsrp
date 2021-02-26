@@ -194,40 +194,14 @@ class AsyncHTTPConnection(AsyncHTTPTransport):
 
     def __init__(
             self,
-            origin: Origin,
-            ssl_context: ssl.SSLContext,
-            retries: int = 0,
+            sock: SocketStream,
     ):
-        self.origin = origin
-        self.ssl_context = ssl_context
-        self.socket = None
-        self.retries = retries
+        self.socket = sock
         self.request_lock = asyncio.Lock()
 
         self.h11_state = h11.Connection(our_role=h11.CLIENT)
         self.state = ConnectionState.PENDING
         self.expires_at: typing.Optional[float] = None
-
-    async def aopen(
-            self,
-            timeout: TimeoutDict = None,
-    ) -> None:
-        timeout = {} if timeout is None else timeout
-
-        async with self.request_lock:
-            if not self.socket:
-                scheme, hostname, port = self.origin
-                ssl_context = self.ssl_context if scheme == b'https' else None
-
-                try:
-                    self.socket = await SocketStream.open_socket(
-                        hostname.decode('utf-8'), port, ssl_context,
-                        timeout.get('connect'), self.retries,
-                    )
-
-                except Exception:
-                    self.state = ConnectionState.CLOSED
-                    raise
 
     async def aclose(self) -> None:
         async with self.request_lock:
@@ -237,9 +211,6 @@ class AsyncHTTPConnection(AsyncHTTPTransport):
                 if self.h11_state.our_state is h11.MUST_CLOSE:
                     event = h11.ConnectionClosed()
                     self.h11_state.send(event)
-
-                if self.socket:
-                    await self.socket.aclose()
 
     async def arequest(
             self,
@@ -253,8 +224,6 @@ class AsyncHTTPConnection(AsyncHTTPTransport):
         stream = PlainByteStream(b"") if stream is None else stream
         ext = {} if ext is None else ext
         timeout = typing.cast(TimeoutDict, ext.get("timeout", {}))
-
-        await self.aopen(timeout=timeout)
 
         self.state = ConnectionState.ACTIVE
 
@@ -401,6 +370,7 @@ class AsyncWSManTransport(AsyncHTTPTransport):
     ):
         # Connection options
         self._connection = None
+        self._socket = None
         self._ssl_context = ssl_context
         self._keepalive_expiry = keepalive_expiry
 
@@ -460,7 +430,7 @@ class AsyncWSManTransport(AsyncHTTPTransport):
             )
 
             # If we didn't encrypt then the response from the authentication phase contains our actual response.
-            if not self._encrypt:
+            if not self._encrypt or response[0] != 200:
                 return response
 
         headers, stream = await self._wrap_stream(headers, stream)
@@ -472,8 +442,13 @@ class AsyncWSManTransport(AsyncHTTPTransport):
         return status_code, headers.raw, stream, ext
 
     async def aclose(self) -> None:
-        await self._connection.aclose()
-        self._connection = None
+        if self._connection:
+            await self._connection.aclose()
+            self._connection = None
+
+        if self._socket:
+            await self._socket.aclose()
+            self._socket = None
 
     async def _authenticate(
             self,
@@ -508,10 +483,11 @@ class AsyncWSManTransport(AsyncHTTPTransport):
         )
 
         status_code = 500
+        send_headers = headers
         out_token = await _async_wrap(self._context.step)
         while not self._context.complete or out_token is not None:
-            headers['Authorization'] = f'{auth_header} {base64.b64encode(out_token).decode()}'
-            status_code, headers, stream, ext = await connection.arequest(method, url, headers=headers.raw,
+            send_headers['Authorization'] = f'{auth_header} {base64.b64encode(out_token).decode()}'
+            status_code, headers, stream, ext = await connection.arequest(method, url, headers=send_headers.raw,
                                                                           stream=stream, ext=ext)
             headers, stream = await self._unwrap_stream(headers, stream)
 
@@ -533,11 +509,16 @@ class AsyncWSManTransport(AsyncHTTPTransport):
             url: URL,
             ext: typing.Dict,
     ):
-        connection = AsyncHTTPConnection(
-            origin=url[:3],
-            ssl_context=self._ssl_context,
+        scheme, hostname, port = url[:3]
+        ssl_context = self._ssl_context if scheme == b'https' else None
+        timeout = ext.get('timeout', {})
+
+        self._socket = await SocketStream.open_socket(
+            hostname.decode('utf-8'), port, ssl_context,
+            timeout.get('connect'),
         )
-        await connection.aopen(ext.get('timeout') or {})
+
+        connection = AsyncHTTPConnection(self._socket)
         connection.expires_at = self._time + self._keepalive_expiry
 
         return connection

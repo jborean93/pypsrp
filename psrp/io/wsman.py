@@ -86,6 +86,7 @@ class AsyncWSManConnection(WSManConnectionBase):
             connection_timeout: int = 30,
             read_timeout: int = 30,
             # TODO reconnection and proxy settings
+            proxy: typing.Optional[str] = None,
 
             auth: str = 'negotiate',
             username: typing.Optional[str] = None,
@@ -174,7 +175,7 @@ class AsyncWSManConnection(WSManConnectionBase):
         # TODO: Proxy/SOCKS
         # TODO: Reconnection
         timeout = httpx.Timeout(max(connection_timeout, read_timeout), connect=connection_timeout, read=read_timeout)
-        self._http = httpx.AsyncClient(headers=headers, timeout=timeout, transport=transport)
+        self._http = httpx.AsyncClient(headers=headers, timeout=timeout, transport=transport, proxies={'http': proxy})
 
     async def send(
             self,
