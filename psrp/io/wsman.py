@@ -85,8 +85,16 @@ class AsyncWSManConnection(WSManConnectionBase):
             verify: typing.Union[str, bool] = True,
             connection_timeout: int = 30,
             read_timeout: int = 30,
-            # TODO reconnection and proxy settings
+
+            # TODO: reconnection settings
+
+            # Proxy settings
             proxy: typing.Optional[str] = None,
+            proxy_username: typing.Optional[str] = None,
+            proxy_password: typing.Optional[str] = None,
+            proxy_auth: typing.Optional[str] = None,
+            proxy_service: typing.Optional[str] = 'HTTP',
+            proxy_hostname: typing.Optional[str] = None,
 
             auth: str = 'negotiate',
             username: typing.Optional[str] = None,
@@ -108,13 +116,11 @@ class AsyncWSManConnection(WSManConnectionBase):
             credssp_require_kerberos: bool = False,
     ):
         self.connection_uri = urlparse(connection_uri)
-        self.username = username or ''
-        self.auth = auth
 
         if encryption not in ["auto", "always", "never"]:
             raise ValueError("The encryption value '%s' must be auto, always, or never" % encryption)
 
-        self.encrypt = {
+        encrypt = {
             'auto': self.connection_uri.scheme == 'http',
             'always': True,
             'never': False,
@@ -128,60 +134,50 @@ class AsyncWSManConnection(WSManConnectionBase):
             'Accept-Encoding': 'identity',
             'User-Agent': 'Python PSRP Client',
         }
-
-        client_kwargs = {}
         ssl_context = httpx.create_ssl_context(verify=verify)
-        keepalive_expiry = 5.0
+        credential = None
 
-        transport = httpcore.AsyncConnectionPool(
-            ssl_context=ssl_context,
-            max_connections=1,
-            max_keepalive_connections=1,
-            keepalive_expiry=keepalive_expiry,
-        )
-
-        supported_auths = ['basic', 'certificate', 'negotiate', 'kerberos', 'ntlm', 'credssp']
-        if auth not in supported_auths:
-            raise ValueError("The specified auth '%s' is not supported, please select one of '%s'"
-                             % (auth, ", ".join(supported_auths)))
-
-        elif auth == 'basic':
-            client_kwargs['auth'] = (username, password)
+        auth = auth.lower()
+        if auth == 'basic':
+            credential = (username, password)
 
         elif auth == 'certificate':
-            # TODO: Test password (3-tuple).
             headers['Authorization'] = 'http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual'
-            client_kwargs['cert'] = (certificate_pem, certificate_key_pem, certificate_password)
+            ssl_context.load_cert_chain(certfile=certificate_pem, keyfile=certificate_key_pem,
+                                        password=certificate_password)
+            auth = 'none'
 
-        else:
-            wsman_auth_kwargs = {
-                'service': negotiate_service,
-                'hostname_override': negotiate_hostname,
-                'disable_cbt': not send_cbt,
-                'delegate': negotiate_delegate,
-                'credssp_allow_tlsv1': credssp_allow_tlsv1,
-                'credssp_require_kerberos': credssp_require_kerberos,
-            }
-            transport = AsyncWSManTransport(
-                ssl_context=ssl_context,
-                keepalive_expiry=keepalive_expiry,
-                username=username,
-                password=password,
-                protocol=auth,
-                encrypt=self.encrypt,
-                **wsman_auth_kwargs,
-            )
+        elif auth in ['credssp', 'kerberos', 'negotiate', 'ntlm']:
+            credential = (username, password)
 
-        # TODO: Proxy/SOCKS
-        # TODO: Reconnection
+        transport = AsyncWSManTransport(
+            ssl_context=ssl_context,
+            keepalive_expiry=60.0,
+            encrypt=encrypt,
+
+            credential=credential,
+            protocol=auth,
+            service=negotiate_service,
+            hostname_override=negotiate_hostname,
+            disable_cbt=not send_cbt,
+            delegate=negotiate_delegate,
+            credssp_allow_tlsv1=credssp_allow_tlsv1,
+            credssp_require_kerberos=credssp_require_kerberos,
+
+            proxy_url=proxy,
+            proxy_credential=(proxy_username, proxy_password),
+            proxy_auth=proxy_auth,
+            proxy_service=proxy_service,
+            proxy_hostname=proxy_hostname,
+        )
+
         timeout = httpx.Timeout(max(connection_timeout, read_timeout), connect=connection_timeout, read=read_timeout)
-        self._http = httpx.AsyncClient(headers=headers, timeout=timeout, transport=transport, proxies={'http': proxy})
+        self._http = httpx.AsyncClient(headers=headers, timeout=timeout, transport=transport)
 
     async def send(
             self,
             data: bytes,
     ) -> bytes:
-        a = ''
         response = await self._http.post(self.connection_uri.geturl(), content=data, headers={
             'Content-Type': 'application/soap+xml;charset=UTF-8',
         })

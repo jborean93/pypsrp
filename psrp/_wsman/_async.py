@@ -17,6 +17,7 @@ import typing
 
 from httpcore import (
     AsyncByteStream,
+    AsyncConnectionPool,
     AsyncHTTPTransport,
     CloseError,
     ConnectError,
@@ -66,6 +67,47 @@ def _async_wrap(func, *args, **kwargs):
     return task
 
 
+def _time() -> float:
+    return asyncio.get_event_loop().time()
+
+
+async def backport_start_tls(
+    transport: asyncio.BaseTransport,
+    protocol: asyncio.BaseProtocol,
+    ssl_context: ssl.SSLContext,
+    *,
+    server_side: bool = False,
+    server_hostname: str = None,
+    ssl_handshake_timeout: float = None,
+) -> asyncio.Transport:  # pragma: nocover (Since it's not used on all Python versions.)
+    """
+    Python 3.6 asyncio doesn't have a start_tls() method on the loop
+    so we use this function in place of the loop's start_tls() method.
+    Adapted from this comment:
+    https://github.com/urllib3/urllib3/issues/1323#issuecomment-362494839
+    """
+    import asyncio.sslproto
+
+    loop = asyncio.get_event_loop()
+    waiter = loop.create_future()
+    ssl_protocol = asyncio.sslproto.SSLProtocol(
+        loop,
+        protocol,
+        ssl_context,
+        waiter,
+        server_side=False,
+        server_hostname=server_hostname,
+        call_connection_made=False,
+    )
+
+    transport.set_protocol(ssl_protocol)
+    loop.call_soon(ssl_protocol.connection_made, transport)
+    loop.call_soon(transport.resume_reading)  # type: ignore
+
+    await waiter
+    return ssl_protocol._app_transport
+
+
 class SocketStream:
     """ Based on httpcore._backends.async.SocketStream"""
     def __init__(
@@ -77,6 +119,8 @@ class SocketStream:
         self.stream_writer = stream_writer
         self.read_lock = asyncio.Lock()
         self.write_lock = asyncio.Lock()
+
+        self._inner = None
 
     async def read(
             self,
@@ -146,6 +190,49 @@ class SocketStream:
                 if hasattr(self.stream_writer, "wait_closed"):
                     # Python 3.7+ only.
                     await self.stream_writer.wait_closed()  # type: ignore
+
+    async def start_tls(
+            self,
+            hostname: bytes,
+            ssl_context: ssl.SSLContext,
+            timeout: TimeoutDict,
+    ) -> "SocketStream":
+        loop = asyncio.get_event_loop()
+
+        stream_reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(stream_reader)
+        transport = self.stream_writer.transport
+
+        loop_start_tls = getattr(loop, "start_tls", backport_start_tls)
+
+        exc_map = {asyncio.TimeoutError: ConnectTimeout, OSError: ConnectError}
+
+        with map_exceptions(exc_map):
+            transport = await asyncio.wait_for(
+                loop_start_tls(
+                    transport,
+                    protocol,
+                    ssl_context,
+                    server_hostname=hostname.decode('utf-8'),
+                ),
+                timeout=timeout.get('connect'),
+            )
+
+        # Initialize the protocol, so it is made aware of being tied to
+        # a TLS connection.
+        # See: https://github.com/encode/httpx/issues/859
+        protocol.connection_made(transport)
+
+        stream_writer = asyncio.StreamWriter(
+            transport=transport, protocol=protocol, reader=stream_reader, loop=loop
+        )
+
+        ssl_stream = SocketStream(stream_reader, stream_writer)
+        # When we return a new SocketStream with new StreamReader/StreamWriter instances
+        # we need to keep references to the old StreamReader/StreamWriter so that they
+        # are not garbage collected and closed while we're still using them.
+        ssl_stream._inner = self
+        return ssl_stream
 
     def is_readable(self) -> bool:
         transport = self.stream_reader._transport  # type: ignore
@@ -353,13 +440,15 @@ class AsyncHTTPConnection(AsyncHTTPTransport):
 
 class AsyncWSManTransport(AsyncHTTPTransport):
 
+    _REQUEST_HEADER = 'authorization'
+    _RESPONSE_HEADER = 'www-authenticate'
+
     def __init__(
             self,
-            ssl_context: ssl.SSLContext,
-            keepalive_expiry: float,
+            ssl_context: ssl.SSLContext = None,
+            keepalive_expiry: float = 60.0,
             encrypt: bool = True,
-            username: typing.Optional[str] = None,
-            password: typing.Optional[str] = None,
+            credential: typing.Any = None,
             protocol: str = 'negotiate',
             service: str = 'HTTP',
             hostname_override: typing.Optional[str] = None,
@@ -367,45 +456,55 @@ class AsyncWSManTransport(AsyncHTTPTransport):
             delegate: bool = False,
             credssp_allow_tlsv1: bool = False,
             credssp_require_kerberos: bool = False,
+            proxy_url: typing.Optional[str] = None,
+            proxy_credential: typing.Any = None,
+            proxy_auth: typing.Optional[str] = 'none',
+            proxy_service: typing.Optional[str] = 'HTTP',
+            proxy_hostname: typing.Optional[str] = None,
     ):
+        # none is only really valid for proxies, WinRM will most definitely enforce one of them.
+        # certificate auth shouldn't be a value in protocol or proxy_auth it's only in this list for the error message.
+        valid_protocols = ['basic', 'certificate', 'kerberos', 'negotiate', 'ntlm', 'credssp', 'none']
+
         # Connection options
         self._connection = None
         self._socket = None
         self._ssl_context = ssl_context
         self._keepalive_expiry = keepalive_expiry
 
+        # Proxy options
+        self._proxy_url = httpx.URL(proxy_url) if proxy_url else None
+        self._proxy_credential = proxy_credential
+        self._proxy_auth = proxy_auth or 'none'
+        self._proxy_service = proxy_service
+        self._proxy_hostname = proxy_hostname
+
+        if self._proxy_auth not in valid_protocols:
+            raise ValueError(f"{type(self).__name__} proxy_auth only supports {', '.join(valid_protocols)}")
+
         # Authentication options
         self.protocol = protocol.lower()
-        if self.protocol not in ['kerberos', 'negotiate', 'ntlm', 'credssp']:
-            raise ValueError(f"{type(self).__name__} only supports credssp, negotiate, kerberos, or ntlm "
-                             f"authentication")
+        if self.protocol not in valid_protocols:
+            raise ValueError(f"{type(self).__name__} only supports {', '.join(valid_protocols)}")
 
-        self._username = username
-        self._password = password
+        self._credential = credential
         self._service = service
         self._hostname_override = hostname_override
         self._disable_cbt = disable_cbt
+        self._delegate = delegate
+        self._credssp_allow_tlsv1 = credssp_allow_tlsv1
+        self._credssp_require_kerberos = credssp_require_kerberos
         self._context = None
-        self._context_req = spnego.ContextReq.default
-        self._spnego_options = spnego.NegotiateOptions.none
         self._encrypt = encrypt
 
-        if encrypt:
-            self._spnego_options |= spnego.NegotiateOptions.wrapping_winrm
+        self._auth_func = None
+        if self.protocol == 'basic':
+            if encrypt:
+                raise ValueError(f"{type(self).__name__} with protocol {self.protocol} does not support encryption")
+            self._auth_func = self._authenticate_basic
 
-        if self.protocol == 'credssp':
-            if credssp_allow_tlsv1:
-                self._spnego_options |= spnego.NegotiateOptions.credssp_allow_tlsv1
-
-            if credssp_require_kerberos:
-                self._spnego_options |= spnego.NegotiateOptions.negotiate_kerberos
-
-        elif delegate:
-            self._context_req |= spnego.ContextReq.delegate
-
-    @property
-    def _time(self) -> float:
-        return asyncio.get_event_loop().time()
+        elif self.protocol in ['credssp', 'kerberos', 'negotiate', 'ntlm']:
+            self._auth_func = self._authenticate_negotiate
 
     async def arequest(
         self,
@@ -422,9 +521,9 @@ class AsyncWSManTransport(AsyncHTTPTransport):
             self._context = None  # In case of a keep-alive expiry we want to remove any existing auth context.
             self._connection = connection = await self._create_connection(url, ext)
 
-        if not self._context:
+        if not self._context and self._auth_func:
             # Set up the authentication context. If we are encrypting data we cannot send anything at the moment.
-            response = await self._authenticate(
+            response = await self._auth_func(
                 connection, method, url, headers,
                 None if self._encrypt else stream, ext
             )
@@ -450,7 +549,7 @@ class AsyncWSManTransport(AsyncHTTPTransport):
             await self._socket.aclose()
             self._socket = None
 
-    async def _authenticate(
+    async def _authenticate_basic(
             self,
             connection: AsyncHTTPConnection,
             method: bytes,
@@ -458,7 +557,27 @@ class AsyncWSManTransport(AsyncHTTPTransport):
             headers: Headers = None,
             stream: AsyncByteStream = None,
             ext: typing.Dict = None,
-    ):
+    ) -> typing.Tuple[int, Headers, AsyncByteStream, typing.Dict]:
+        headers, stream = await self._wrap_stream(headers, stream)
+
+        credential = f'{self._credential[0] or ""}:{self._credential[1] or ""}'.encode('utf-8')
+        headers[self._REQUEST_HEADER] = f'Basic {base64.b64encode(credential).decode()}'
+
+        status_code, headers, stream, ext = await connection.arequest(method, url, headers=headers.raw,
+                                                                      stream=stream, ext=ext)
+        headers, stream = await self._unwrap_stream(headers, stream)
+
+        return status_code, headers.raw, stream, ext
+
+    async def _authenticate_negotiate(
+            self,
+            connection: AsyncHTTPConnection,
+            method: bytes,
+            url: URL,
+            headers: Headers = None,
+            stream: AsyncByteStream = None,
+            ext: typing.Dict = None,
+    ) -> typing.Tuple[int, Headers, AsyncByteStream, typing.Dict]:
         headers, stream = await self._wrap_stream(headers, stream)
         auth_header = {
             'negotiate': 'Negotiate',
@@ -475,23 +594,40 @@ class AsyncWSManTransport(AsyncHTTPTransport):
             cert_hash = get_tls_server_end_point_hash(cert)
             cbt = spnego.channel_bindings.GssChannelBindings(application_data=b"tls-server-end-point:" + cert_hash)
 
+        context_req = spnego.ContextReq.default
+        spnego_options = spnego.NegotiateOptions.none
+
+        if self._encrypt:
+            spnego_options |= spnego.NegotiateOptions.wrapping_winrm
+
+        if self.protocol == 'credssp':
+            if self._credssp_allow_tlsv1:
+                spnego_options |= spnego.NegotiateOptions.credssp_allow_tlsv1
+
+            if self._credssp_require_kerberos:
+                spnego_options |= spnego.NegotiateOptions.negotiate_kerberos
+
+        elif self._delegate:
+            context_req |= spnego.ContextReq.delegate
+
+        username, password = self._credential
         auth_hostname = self._hostname_override or url[1].decode('utf-8')
         self._context = await _async_wrap(
-            spnego.client, self._username, self._password, hostname=auth_hostname,
-            service=self._service, channel_bindings=cbt, context_req=self._context_req,
-            protocol=self.protocol, options=self._spnego_options
+            spnego.client, username, password, hostname=auth_hostname,
+            service=self._service, channel_bindings=cbt, context_req=context_req,
+            protocol=self.protocol, options=spnego_options
         )
 
         status_code = 500
         send_headers = headers
         out_token = await _async_wrap(self._context.step)
         while not self._context.complete or out_token is not None:
-            send_headers['Authorization'] = f'{auth_header} {base64.b64encode(out_token).decode()}'
+            send_headers[self._REQUEST_HEADER] = f'{auth_header} {base64.b64encode(out_token).decode()}'
             status_code, headers, stream, ext = await connection.arequest(method, url, headers=send_headers.raw,
                                                                           stream=stream, ext=ext)
             headers, stream = await self._unwrap_stream(headers, stream)
 
-            auth_header = headers.get('www-authenticate', '')
+            auth_header = headers.get(self._RESPONSE_HEADER, '')
             in_token = WWW_AUTH_PATTERN.search(auth_header)
             if in_token:
                 in_token = base64.b64decode(in_token.group(2))
@@ -509,17 +645,49 @@ class AsyncWSManTransport(AsyncHTTPTransport):
             url: URL,
             ext: typing.Dict,
     ):
-        scheme, hostname, port = url[:3]
-        ssl_context = self._ssl_context if scheme == b'https' else None
         timeout = ext.get('timeout', {})
+        proxy_url = self._proxy_url.raw if self._proxy_url else None
+        scheme, host, port = (proxy_url or url)[:3]
+        ssl_context = self._ssl_context if scheme == b'https' else None
 
         self._socket = await SocketStream.open_socket(
-            hostname.decode('utf-8'), port, ssl_context,
-            timeout.get('connect'),
+            host.decode('utf-8'), port, ssl_context, timeout.get('connect'),
         )
-
         connection = AsyncHTTPConnection(self._socket)
-        connection.expires_at = self._time + self._keepalive_expiry
+
+        if not proxy_url:
+            return connection
+
+        try:
+            target_scheme, target_host, target_port = url[:3]
+
+            if target_scheme == b'http':
+                # Add auth options
+                return AsyncHTTPProxy(proxy_url, connection)
+
+            # CONNECT
+            target = b'%b:%d' % (target_host, target_port)
+            connect_url = proxy_url[:3] + (target,)
+            connect_headers = [(b'Host', target), (b'Accept', b'*/*')]
+
+            proxy_status_code, _, proxy_stream, _ = await connection.arequest(
+                b'CONNECT', connect_url, headers=connect_headers, ext=ext,
+            )
+            async for _ in proxy_stream:
+                pass
+
+            if proxy_status_code < 200 or proxy_status_code > 299:
+                raise Exception(f'Proxy failed {proxy_status_code}')
+
+            # do start_tls on the connection
+            tls_sock = await self._socket.start_tls(target_host, self._ssl_context, timeout)
+            connection = AsyncHTTPConnection(tls_sock)
+            self._socket = tls_sock
+
+        except Exception:
+            await self._socket.aclose()
+            self._socket = None
+            raise
 
         return connection
 
@@ -532,7 +700,7 @@ class AsyncWSManTransport(AsyncHTTPTransport):
         must_close = False
 
         if connection.state == ConnectionState.IDLE:
-            now = self._time
+            now = _time()
             if connection.is_socket_readable() or now >= connection.expires_at:
                 must_close = True
 
@@ -542,6 +710,9 @@ class AsyncWSManTransport(AsyncHTTPTransport):
         if must_close:
             await connection.aclose()
             self._connection = None
+
+            await self._socket.aclose()
+            self._socket = None
 
         return self._connection
 
@@ -584,7 +755,7 @@ class AsyncWSManTransport(AsyncHTTPTransport):
         async for chunk in stream:
             data += chunk
         await stream.aclose()
-        self._connection.expires_at = self._time + self._keepalive_expiry
+        self._connection.expires_at = _time() + self._keepalive_expiry
 
         temp_headers = httpx.Headers(headers)
 
@@ -597,3 +768,84 @@ class AsyncWSManTransport(AsyncHTTPTransport):
             temp_headers['Content-Type'] = content_type
 
         return temp_headers, PlainByteStream(bytes(data))
+
+
+class AsyncHTTPProxy(AsyncWSManTransport):
+
+    _REQUEST_HEADER = 'proxy-authorization'
+    _RESPONSE_HEADER = 'proxy-authenticate'
+
+    def __init__(
+            self,
+            proxy_url: URL,
+            connection: AsyncHTTPConnection,
+
+            ssl_context: ssl.SSLContext = None,
+            credential: typing.Any = None,
+            protocol: str = 'none',
+            service: str = 'HTTP',
+            hostname_override: typing.Optional[str] = None,
+            disable_cbt: bool = False,
+    ):
+        super().__init__(
+            ssl_context=ssl_context,
+            encrypt=False,
+            credential=credential,
+            protocol=protocol,
+            service=service,
+            hostname_override=hostname_override,
+            disable_cbt=disable_cbt,
+        )
+
+        self.proxy_url = proxy_url
+        self.connection = connection
+
+    @property
+    def expires_at(self) -> float:
+        return self.connection.expires_at
+
+    @expires_at.setter
+    def expires_at(self, value: float):
+        self.connection.expires_at = value
+
+    @property
+    def socket(self) -> SocketStream:
+        return self.connection.socket
+
+    @property
+    def state(self) -> ConnectionState:
+        return self.connection.state
+
+    async def aclose(self) -> None:
+        if self.connection:
+            await self.connection.aclose()
+            self.connection = None
+
+    async def arequest(
+            self,
+            method: bytes,
+            url: URL,
+            headers: Headers = None,
+            stream: AsyncByteStream = None,
+            ext: typing.Dict = None,
+    ) -> typing.Tuple[int, Headers, AsyncByteStream, typing.Dict]:
+        ext = ext or {}
+
+        # Issue a forwarded proxy request...
+
+        # GET https://www.example.org/path HTTP/1.1
+        # [proxy headers]
+        # [headers]
+        scheme, host, port, path = url
+        if port is None:
+            target = b'%s://%b%b' % (scheme, host, path)
+        else:
+            target = b"%b://%b:%d%b" % (scheme, host, port, path)
+
+        url = self.proxy_url[:3] + (target,)
+        return await self.connection.arequest(
+            method, url, headers=headers, stream=stream, ext=ext
+        )
+
+    def is_socket_readable(self):
+        return self.connection.is_socket_readable()

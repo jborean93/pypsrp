@@ -64,7 +64,7 @@ async def async_psrp(connection_info):
 
 
         ps = AsyncPowerShell(rp)
-        ps.add_script('echo "hi"; echo 2; echo "test"')
+        ps.add_script('whoami.exe')
         print(await ps.invoke())
 
     print("exit")
@@ -107,7 +107,24 @@ async def a_main():
     await asyncio.gather(
         #async_psrp(AsyncProcessInfo()),
         #async_psrp(AsyncWSManInfo(f'http://test.wsman.env:5985/wsman')),
-        async_psrp(AsyncWSManInfo(f'http://test.wsman.env:29939/wsman', proxy='http://squid.wsman.env:3129/')),
+        #async_psrp(AsyncWSManInfo(f'http://test.wsman.env:29938/wsman', proxy='http://squid.wsman.env:3129/',
+        #                          verify=False)),
+        #async_psrp(AsyncWSManInfo(f'http://test.wsman.env:29938/wsman', proxy='https://squid.wsman.env:3030/',
+        #                          verify=False)),
+        #async_psrp(AsyncWSManInfo(f'https://test.wsman.env:29900/wsman', proxy='http://squid.wsman.env:3129/',
+        #                          verify=False)),
+        async_psrp(AsyncWSManInfo(f'https://test.wsman.env:29900/wsman', proxy='http://squid.wsman.env:3131/',
+                                  proxy_username='proxy_username', proxy_password='proxy_password',
+                                  verify=False)),
+        #async_psrp(AsyncWSManInfo(f'http://test.wsman.env:29936/wsman', auth='basic', username='ansible',
+        #                          password='Password123!', encryption='never')),
+        #async_psrp(AsyncWSManInfo(f'https://test.wsman.env:29900/wsman', auth='certificate', verify=False,
+        #                          certificate_pem='/home/jborean/dev/wsman-environment/build/client_auth.pem',
+        #                          certificate_key_pem='/home/jborean/dev/wsman-environment/build/client_auth.key')),
+        #async_psrp(AsyncWSManInfo(f'https://test.wsman.env:29900/wsman', auth='certificate', verify=False,
+        #                          certificate_pem='/home/jborean/dev/wsman-environment/build/client_auth.pem',
+        #                          certificate_key_pem='/home/jborean/dev/wsman-environment/build/client_auth_password.key',
+        #                          certificate_password='password')),
         #async_reconnection(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
     )
 
