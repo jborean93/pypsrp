@@ -106,25 +106,50 @@ async def async_reconnection(connection_info):
 async def a_main():
     await asyncio.gather(
         #async_psrp(AsyncProcessInfo()),
+        # http_nego_none_none
         #async_psrp(AsyncWSManInfo(f'http://test.wsman.env:5985/wsman')),
-        #async_psrp(AsyncWSManInfo(f'http://test.wsman.env:29938/wsman', proxy='http://squid.wsman.env:3129/',
-        #                          verify=False)),
+
+        # http_nego_http_anon
+        #async_psrp(AsyncWSManInfo(f'http://test.wsman.env:29938/wsman',
+        #                          proxy='http://squid.wsman.env:3129/')),
+
+        # http_nego_http_basic
+        #async_psrp(AsyncWSManInfo(f'http://test.wsman.env:29938/wsman',
+        #                          proxy='http://squid.wsman.env:3129/',
+        #                          proxy_auth='basic',
+        #                          proxy_username='proxy_username',
+        #                          proxy_password='proxy_password')),
+
+        # http_nego_http_kerb
+        async_psrp(AsyncWSManInfo(f'http://test.wsman.env:29938/wsman',
+                                  proxy='http://squid.wsman.env:3129/',
+                                  proxy_auth='negotiate')),
+
         #async_psrp(AsyncWSManInfo(f'http://test.wsman.env:29938/wsman', proxy='https://squid.wsman.env:3030/',
         #                          verify=False)),
+
         #async_psrp(AsyncWSManInfo(f'https://test.wsman.env:29900/wsman', proxy='http://squid.wsman.env:3129/',
         #                          verify=False)),
-        async_psrp(AsyncWSManInfo(f'https://test.wsman.env:29900/wsman', proxy='http://squid.wsman.env:3131/',
-                                  proxy_username='proxy_username', proxy_password='proxy_password',
-                                  verify=False)),
+
+        #async_psrp(AsyncWSManInfo(f'https://test.wsman.env:29900/wsman', proxy='http://squid.wsman.env:3131/',
+        #                          proxy_username='proxy_username', proxy_password='proxy_password',
+        #                          proxy_auth='basic', verify=False)),
+
+        #async_psrp(AsyncWSManInfo(f'https://test.wsman.env:29900/wsman', proxy='http://squid.wsman.env:3135/',
+        #                          proxy_auth='negotiate', verify=False)),
+
         #async_psrp(AsyncWSManInfo(f'http://test.wsman.env:29936/wsman', auth='basic', username='ansible',
         #                          password='Password123!', encryption='never')),
+
         #async_psrp(AsyncWSManInfo(f'https://test.wsman.env:29900/wsman', auth='certificate', verify=False,
         #                          certificate_pem='/home/jborean/dev/wsman-environment/build/client_auth.pem',
         #                          certificate_key_pem='/home/jborean/dev/wsman-environment/build/client_auth.key')),
+
         #async_psrp(AsyncWSManInfo(f'https://test.wsman.env:29900/wsman', auth='certificate', verify=False,
         #                          certificate_pem='/home/jborean/dev/wsman-environment/build/client_auth.pem',
         #                          certificate_key_pem='/home/jborean/dev/wsman-environment/build/client_auth_password.key',
         #                          certificate_password='password')),
+
         #async_reconnection(AsyncWSManInfo(f'http://{endpoint}:5985/wsman')),
     )
 

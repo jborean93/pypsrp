@@ -16,6 +16,11 @@ from .._wsman._async import (
     AsyncWSManTransport,
 )
 
+from .._wsman._auth import (
+    AsyncBasicAuth,
+    AsyncNegotiateAuth,
+)
+
 
 class WSManConnectionBase(metaclass=abc.ABCMeta):
     """The WSManConnection contract.
@@ -135,40 +140,61 @@ class AsyncWSManConnection(WSManConnectionBase):
             'User-Agent': 'Python PSRP Client',
         }
         ssl_context = httpx.create_ssl_context(verify=verify)
-        credential = None
 
         auth = auth.lower()
         if auth == 'basic':
-            credential = (username, password)
+            auth = AsyncBasicAuth(username, password)
 
         elif auth == 'certificate':
             headers['Authorization'] = 'http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual'
             ssl_context.load_cert_chain(certfile=certificate_pem, keyfile=certificate_key_pem,
                                         password=certificate_password)
-            auth = 'none'
+            auth = None
 
         elif auth in ['credssp', 'kerberos', 'negotiate', 'ntlm']:
-            credential = (username, password)
+            auth = AsyncNegotiateAuth(
+                credential=(username, password),
+                protocol=auth,
+                encrypt=encrypt,
+                service=negotiate_service,
+                hostname_override=negotiate_hostname,
+                disable_cbt=not send_cbt,
+                delegate=negotiate_delegate,
+                credssp_allow_tlsv1=credssp_allow_tlsv1,
+                credssp_require_kerberos=credssp_require_kerberos,
+            )
+
+        else:
+            raise ValueError('Invalid auth specified')
+
+        if encrypt and not auth.SUPPORTS_ENCRYPTION:
+            raise ValueError('Cannot encrypt without auth encryption')
+
+        proxy_auth = proxy_auth.lower() if proxy_auth else None
+        if proxy_auth == 'basic':
+            proxy_auth = AsyncBasicAuth(proxy_username, proxy_password)
+
+        elif proxy_auth in ['kerberos', 'negotiate', 'ntlm']:
+            proxy_auth = AsyncNegotiateAuth(
+                credential=(proxy_username, proxy_password),
+                protocol=proxy_auth,
+                encrypt=False,
+                service=proxy_service,
+                hostname_override=proxy_hostname,
+            )
+
+        elif proxy_auth is None or proxy_auth == 'none':
+            proxy_auth = None
+
+        else:
+            raise ValueError('Invalid proxy_auth specified')
 
         transport = AsyncWSManTransport(
+            auth=auth,
             ssl_context=ssl_context,
             keepalive_expiry=60.0,
-            encrypt=encrypt,
-
-            credential=credential,
-            protocol=auth,
-            service=negotiate_service,
-            hostname_override=negotiate_hostname,
-            disable_cbt=not send_cbt,
-            delegate=negotiate_delegate,
-            credssp_allow_tlsv1=credssp_allow_tlsv1,
-            credssp_require_kerberos=credssp_require_kerberos,
-
             proxy_url=proxy,
-            proxy_credential=(proxy_username, proxy_password),
             proxy_auth=proxy_auth,
-            proxy_service=proxy_service,
-            proxy_hostname=proxy_hostname,
         )
 
         timeout = httpx.Timeout(max(connection_timeout, read_timeout), connect=connection_timeout, read=read_timeout)
