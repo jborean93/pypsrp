@@ -13,6 +13,7 @@ from ._runspace import (
 
 from .connection_info import (
     AsyncProcessInfo,
+    AsyncSSHInfo,
     AsyncWSManInfo,
     ProcessInfo,
     WSManInfo,

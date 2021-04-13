@@ -29,6 +29,11 @@ from .io.process import (
     Process,
 )
 
+from .io.ssh import (
+    AsyncSSH,
+    SSH,
+)
+
 from .io.wsman import (
     AsyncWSManConnection,
     WSManConnection,
@@ -880,6 +885,41 @@ class AsyncProcessInfo(AsyncOutOfProcInfo):
 
     async def stop(self):
         await self._process.close()
+
+
+class AsyncSSHInfo(AsyncOutOfProcInfo):
+
+    def __init__(
+            self,
+            hostname: str,
+            port: int = 22,
+            username: typing.Optional[str] = None,
+            password: typing.Optional[str] = None,
+            subsystem: str = 'powershell',
+    ):
+        super().__init__()
+        self._ssh = AsyncSSH(
+            hostname,
+            port=port,
+            username=username,
+            password=password,
+            subsystem=subsystem,
+        )
+
+    async def read(self) -> bytes:
+        return await self._ssh.read()
+
+    async def write(
+            self,
+            data: bytes,
+    ):
+        await self._ssh.write(data)
+
+    async def start(self):
+        await self._ssh.open()
+
+    async def stop(self):
+        await self._ssh.close()
 
 
 class WSManInfo(ConnectionInfo):

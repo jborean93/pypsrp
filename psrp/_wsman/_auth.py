@@ -95,6 +95,7 @@ class AsyncNegotiateAuth(AsyncAuth):
         self.protocol = protocol.lower()
 
         self._context = None
+        self.__complete = False
         self._credential = credential
         self._encrypt = encrypt
         self._service = service
@@ -103,6 +104,11 @@ class AsyncNegotiateAuth(AsyncAuth):
         self._delegate = delegate
         self._credssp_allow_tlsv1 = credssp_allow_tlsv1
         self._credssp_require_kerberos = credssp_require_kerberos
+
+    @property
+    def _complete(self) -> bool:
+        # Some proxies don't reply with the
+        return self.__complete or (self._context and self._context.complete)
 
     async def arequest(
             self,
@@ -115,7 +121,7 @@ class AsyncNegotiateAuth(AsyncAuth):
             auths_header: str = 'WWW-Authenticate',
             authz_header: str = 'Authorization',
     ) -> typing.Tuple[int, Headers, AsyncByteStream, typing.Dict]:
-        if not (self._context and self._context.complete):
+        if not self._complete:
             response = await self.auth_flow(
                 connection, method, url, headers=headers,
                 stream=(None if self._encrypt else stream), ext=ext,
@@ -205,6 +211,10 @@ class AsyncNegotiateAuth(AsyncAuth):
 
             # If there was no token received from the host then we just break the auth cycle.
             if not in_token:
+                # Some proxies don't seem to return the mutual auth token which
+                # break the _context.complete checker later on. Because mutual
+                # auth doesn't matter for proxies we just override that check.
+                self.__complete = True
                 break
 
             out_token = await _async_wrap(self._context.step, in_token)
@@ -260,9 +270,15 @@ class AsyncNegotiateAuth(AsyncAuth):
         temp_headers = httpx.Headers(headers)
 
         content_type = temp_headers.get('Content-Type', '')
-        if content_type.startswith('multipart/encrypted;') or \
-                content_type.startswith('multipart/x-multi-encrypted;'):
 
+        # A proxy will have these content types but cannot do the encryption so
+        # we must also check for self._encrypt.
+        if (
+            self._encrypt and (
+                content_type.startswith('multipart/encrypted;') or
+                content_type.startswith('multipart/x-multi-encrypted;')
+            )
+        ):
             data, content_type = decrypt_wsman(data, content_type, self._context)
             temp_headers['Content-Length'] = str(len(data))
             temp_headers['Content-Type'] = content_type
@@ -299,7 +315,7 @@ class AsyncBasicAuth(AsyncAuth):
             self._complete = True
 
         return await connection.arequest(
-            method, url, headers=headers.raw, stream=stream, ext=ext
+            method, url, headers=headers.raw, stream=stream, ext=ext,
         )
 
     def reset(self):

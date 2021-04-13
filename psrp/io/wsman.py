@@ -211,7 +211,12 @@ class AsyncWSManConnection(WSManConnectionBase):
         content = await response.aread()
         await response.aclose()
 
-        if response.status_code != 200 and not content:
+        # A WSManFault has more information that the WSMan state machine can
+        # handle with better context so we ignore those.
+        if (
+                response.status_code != 200 and
+                (not content or b'wsmanfault' not in content)
+        ):
             response.raise_for_status()
 
         return content

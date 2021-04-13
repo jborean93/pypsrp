@@ -174,6 +174,14 @@ class SocketStream:
         protocol = asyncio.StreamReaderProtocol(stream_reader)
         transport = self.stream_writer.transport
 
+        # The asyncio start_tls method has a hardcoded check for this attribute
+        # failing with TypeError if this attribute isn't True. The SSL
+        # transport used is compatible with Start TLS so setting this here
+        # bypasses that problem.
+        # https://github.com/python/cpython/blob/d9151cb45371836d39b6d53afb50c5bcd353c661/Lib/asyncio/base_events.py#L1210-L1212
+        # https://github.com/encode/httpcore/issues/254
+        setattr(transport, '_start_tls_compatible', True)
+
         loop_start_tls = getattr(loop, "start_tls", backport_start_tls)
 
         exc_map = {asyncio.TimeoutError: ConnectTimeout, OSError: ConnectError}
