@@ -224,11 +224,13 @@ class SocketStream:
     @classmethod
     async def open_socket(
             cls,
-            hostname: str,
-            port: int,
-            ssl_context: typing.Optional[ssl.SSLContext],
+            hostname: typing.Optional[str] = None,
+            port: typing.Optional[int] = None,
+            ssl_context: typing.Optional[ssl.SSLContext] = None,
             connection_timeout: typing.Optional[float] = None,
             retries: int = 0,
+            sock: typing.Optional[socket.socket] = None,
+            server_hostname: typing.Optional[str] = None,
     ) -> 'SocketStream':
         delays = exponential_backoff(factor=0.5)
 
@@ -238,7 +240,8 @@ class SocketStream:
                 with map_exceptions(exc_map):
                     sr, sw = await asyncio.wait_for(
                         asyncio.open_connection(
-                            host=hostname, port=port, ssl=ssl_context),
+                            host=hostname, port=port, ssl=ssl_context,
+                            sock=sock, server_hostname=server_hostname),
                         connection_timeout,
                     )
                     return cls(

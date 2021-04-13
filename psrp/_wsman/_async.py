@@ -30,6 +30,13 @@ from ._utils import (
     URL,
 )
 
+HAS_SOCKS = True
+try:
+    from python_socks.async_.asyncio import Proxy
+except ImportError:
+    HAS_SOCKS = False
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -93,11 +100,47 @@ class AsyncWSManTransport(AsyncHTTPTransport):
         timeout = ext.get('timeout', {})
         proxy_url = self._proxy_url.raw if self._proxy_url else None
         scheme, host, port = (proxy_url or url)[:3]
-        ssl_context = self._ssl_context if scheme == b'https' else None
+        ssl_context = None if scheme == b'http' else self._ssl_context
 
-        self._socket = await SocketStream.open_socket(
-            host.decode('utf-8'), port, ssl_context, timeout.get('connect'),
-        )
+        sock_kwargs = {
+            'connection_timeout': timeout.get('connect'),
+        }
+
+        if scheme in [b'socks5', b'socks5h']:
+            if not HAS_SOCKS:
+                raise ImportError("Need pypsrp[socks] to be installed")
+
+            # python-socks doesn't natively understand socks5h, we adjust the
+            # prefix and set rdns based on whether socks5h is set or not.
+            proxy_url = str(self._proxy_url)
+            rdns = False
+            if scheme == b'socks5h':
+                rdns = True
+                proxy_url = proxy_url.replace('socks5h://', 'socks5://', 1)
+
+            target_scheme, target_host, target_port = url[:3]
+            proxy = Proxy.from_url(proxy_url, rdns=rdns)
+            proxy_url = None
+
+            sock_kwargs['sock'] = await proxy.connect(
+                dest_host=target_host.decode('utf-8'),
+                dest_port=target_port,
+                timeout=sock_kwargs['connection_timeout'])
+
+            if target_scheme == b'https':
+                sock_kwargs.update({
+                    'server_hostname': target_host.decode('utf-8'),
+                    'ssl_context': self._ssl_context,
+                })
+
+        else:
+            sock_kwargs.update({
+                'hostname': host.decode('utf-8'),
+                'port': port,
+                'ssl_context': ssl_context,
+            })
+
+        self._socket = await SocketStream.open_socket(**sock_kwargs)
         connection = AsyncHTTPConnection(self._socket)
         if not proxy_url:
             return connection

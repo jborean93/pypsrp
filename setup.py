@@ -44,6 +44,10 @@ setup(
         'kerberos:sys_platform!="win32"': [
             'gssapi>=1.5.0'
         ],
+        'socks': [
+            'async-timeout',
+            'python-socks',
+        ],
         'ssh': [
             'asyncssh',
         ]

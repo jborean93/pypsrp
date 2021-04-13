@@ -12,24 +12,29 @@ except ImportError:
     HAS_SSH = False
 
 
-class _ClientSession(asyncssh.SSHClientSession):
+if HAS_SSH:
+    class _ClientSession(asyncssh.SSHClientSession):
 
-    def __init__(self):
-        self.data = asyncio.Queue()
-        self._buffer = bytearray()
+        def __init__(self):
+            self.data = asyncio.Queue()
+            self._buffer = bytearray()
 
-    def data_received(self, data, datatype):
-        start_idx = len(self._buffer)
-        self._buffer += data
+        def data_received(self, data, datatype):
+            start_idx = len(self._buffer)
+            self._buffer += data
 
-        try:
-            idx = data.index(b'\r\n')
-        except ValueError:
-            return
+            try:
+                idx = data.index(b'\r\n')
+            except ValueError:
+                return
 
-        entry = self._buffer[:start_idx + idx]
-        self.data.put_nowait(entry)
-        self._buffer = self._buffer[start_idx + idx + 2:]
+            entry = self._buffer[:start_idx + idx]
+            self.data.put_nowait(entry)
+            self._buffer = self._buffer[start_idx + idx + 2:]
+            
+else:
+    class _ClientSession:
+        pass
 
 
 class SSH:
