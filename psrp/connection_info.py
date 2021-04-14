@@ -896,6 +896,8 @@ class AsyncSSHInfo(AsyncOutOfProcInfo):
             username: typing.Optional[str] = None,
             password: typing.Optional[str] = None,
             subsystem: str = 'powershell',
+            executable: typing.Optional[str] = None,
+            arguments: typing.Optional[typing.List[str]] = None,
     ):
         super().__init__()
         self._ssh = AsyncSSH(
@@ -904,6 +906,8 @@ class AsyncSSHInfo(AsyncOutOfProcInfo):
             username=username,
             password=password,
             subsystem=subsystem,
+            executable=executable,
+            arguments=arguments,
         )
 
     async def read(self) -> bytes:

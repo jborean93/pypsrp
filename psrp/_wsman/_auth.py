@@ -195,17 +195,18 @@ class AsyncNegotiateAuth(AsyncAuth):
         )
 
         status_code = 500
+        resp_stream = PlainByteStream(b'')
         send_headers, stream = await self._wrap_stream(headers, stream)
         out_token = await _async_wrap(self._context.step)
         while not self._context.complete or out_token is not None:
             send_headers[authz_header] = f'{auth_header} {base64.b64encode(out_token).decode()}'
-            status_code, headers, stream, ext = await connection.arequest(
+            status_code, headers, resp_stream, ext = await connection.arequest(
                 method, url, headers=send_headers.raw, stream=stream, ext=ext
             )
-            headers, stream = await self._unwrap_stream(headers, stream)
+            headers, resp_stream = await self._unwrap_stream(headers, resp_stream)
 
-            auth_header = headers.get(auths_header, '')
-            in_token = WWW_AUTH_PATTERN.search(auth_header)
+            auths = headers.get(auths_header, '')
+            in_token = WWW_AUTH_PATTERN.search(auths)
             if in_token:
                 in_token = base64.b64decode(in_token.group(2))
 
@@ -219,7 +220,7 @@ class AsyncNegotiateAuth(AsyncAuth):
 
             out_token = await _async_wrap(self._context.step, in_token)
 
-        return status_code, headers.raw, stream, ext
+        return status_code, headers.raw, resp_stream, ext
 
     def reset(self):
         self._context = None
@@ -295,7 +296,6 @@ class AsyncBasicAuth(AsyncAuth):
     ):
         credential = f'{username or ""}:{password or ""}'.encode('utf-8')
         self._token = f'Basic {base64.b64encode(credential).decode()}'
-        self._complete = False
 
     async def arequest(
             self,
@@ -309,14 +309,8 @@ class AsyncBasicAuth(AsyncAuth):
             authz_header: str = 'Authorization',
     ) -> typing.Tuple[int, Headers, AsyncByteStream, typing.Dict]:
         headers = httpx.Headers(headers)
-
-        if not self._complete:
-            headers[authz_header] = self._token
-            self._complete = True
+        headers[authz_header] = self._token
 
         return await connection.arequest(
             method, url, headers=headers.raw, stream=stream, ext=ext,
         )
-
-    def reset(self):
-        self._complete = False

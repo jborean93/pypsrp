@@ -31,7 +31,7 @@ if HAS_SSH:
             entry = self._buffer[:start_idx + idx]
             self.data.put_nowait(entry)
             self._buffer = self._buffer[start_idx + idx + 2:]
-            
+
 else:
     class _ClientSession:
         pass
@@ -78,6 +78,8 @@ class AsyncSSH(SSH):
             username: typing.Optional[str] = None,
             password: typing.Optional[str] = None,
             subsystem: str = 'powershell',
+            executable: typing.Optional[str] = None,
+            arguments: typing.Optional[typing.List[str]] = None,
     ):
         super().__init__()
         self._hostname = hostname
@@ -85,6 +87,8 @@ class AsyncSSH(SSH):
         self._username = username
         self._password = password
         self._subsystem = subsystem
+        self._executable = executable
+        self._arguments = arguments or []
 
         self._channel = None
         self._session = None
@@ -123,8 +127,19 @@ class AsyncSSH(SSH):
             port=self._port,
             options=conn_options,
         )
+
+        cmd = ()
+        if self._executable:
+            cmd = [self._executable]
+            cmd.extend(self._arguments)
+            cmd = ' '.join(cmd)
+            subsystem = None
+
+        else:
+            subsystem = self._subsystem
+
         self._channel, self._session = await self._ssh.create_session(
-            _ClientSession, subsystem=self._subsystem, encoding=None,
+            _ClientSession, command=cmd, subsystem=subsystem, encoding=None,
         )
 
     async def read(self) -> typing.Optional[bytes]:
