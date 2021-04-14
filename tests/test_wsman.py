@@ -428,6 +428,41 @@ class TestWSMan(object):
             "%systemroot%\\system32\\winrscmd.dll"
         assert exc.value.reason == "The parameter is incorrect."
 
+    def test_raise_wsman_fault_with_provider_elements(self):
+        xml_text = r'''
+        <?xml version="1.0"?>
+        <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:x="http://schemas.xmlsoap.org/ws/2004/09/transfer" xmlns:e="http://schemas.xmlsoap.org/ws/2004/08/eventing" xmlns:n="http://schemas.xmlsoap.org/ws/2004/09/enumeration" xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd" xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd" xml:lang="en-US">
+          <s:Header>
+            <a:Action>http://schemas.dmtf.org/wbem/wsman/1/wsman/fault</a:Action>
+            <a:MessageID>uuid:AA129579-D05A-4D02-81DD-5967A10EA057</a:MessageID>
+            <a:To>http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous</a:To>
+            <a:RelatesTo>uuid:DC4287A5-09CA-4348-BBC9-60FDAAFEB69A</a:RelatesTo>
+          </s:Header>
+          <s:Body>
+            <s:Fault>
+              <s:Code>
+                <s:Value>s:Receiver</s:Value>
+                <s:Subcode>
+                  <s:Value>w:InternalError</s:Value>
+                </s:Subcode>
+              </s:Code>
+              <s:Reason>
+                <s:Text xml:lang="en-US"/>
+              </s:Reason>
+              <s:Detail>
+                <f:WSManFault xmlns:f="http://schemas.microsoft.com/wbem/wsman/1/wsmanfault" Code="2152991685" Machine="server2019.domain.test">
+                  <f:Message>
+                    <f:ProviderFault provider="microsoft.powershell" path="C:\\Windows\\system32\\pwrshplugin.dll">
+                      <PSProtocolVersionError ServerProtocolVersion="2.0" ServerBuildVersion="10.0.17763.771">Powershell plugin does not support the protocol version 1.3 requested by client.</PSProtocolVersionError>
+                    </f:ProviderFault>
+                  </f:Message>
+                </f:WSManFault>
+              </s:Detail>
+            </s:Fault>
+          </s:Body>
+        </s:Envelope>'''
+        assert False  # FIXME
+
     def test_raise_wsman_fault_without_provider(self):
         xml_text = r'''
         <s:Envelope xml:lang="en-US" xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:a="http://schemas.xmlsoap.org/ws/2004/08/addressing" xmlns:x="http://schemas.xmlsoap.org/ws/2004/09/transfer" xmlns:e="http://schemas.xmlsoap.org/ws/2004/08/eventing" xmlns:n="http://schemas.xmlsoap.org/ws/2004/09/enumeration" xmlns:w="http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd" xmlns:p="http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd">

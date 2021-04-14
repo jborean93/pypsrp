@@ -1,7 +1,9 @@
 # Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
+import functools
 import pkgutil
+import warnings
 
 from six import PY3, text_type, binary_type
 
@@ -9,6 +11,28 @@ try:
     from urlparse import urlparse
 except ImportError:  # pragma: no cover
     from urllib.parse import urlparse
+
+
+def deprecated(alternative=None, version=None):
+    def decorator(func):
+        @functools.wraps(func)
+        def dep_func(*args, **kwargs):
+            func_name = func.__name__
+            if len(args):
+                func_name = '%s.%s' % (type(args[0]).__name__, func_name)
+
+            msg = "Call to deprecated function %s." % func_name
+            if alternative:
+                msg += ' %s.' % alternative
+
+            if version:
+                msg += " Will be removed in version '%s'." % version
+
+            warnings.warn(msg)
+
+            return func(*args, **kwargs)
+        return dep_func
+    return decorator
 
 
 def to_bytes(obj, encoding='utf-8'):

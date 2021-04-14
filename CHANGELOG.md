@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.0 - TBD
+
+### Breaking changes
+
+* Dropped support for Python 2.7 and Python 3.5
+* Changed http dep from `requests` to `httpx` to support `asyncio`
+* Removed the `credssp_minimum_version` kwarg for `pypsrp.wsman.WSMan` as the underlying library does not support setting this option
+* The `credssp_auth_mechanism` kwargs for `pypsrp.wsman.WSMan` doesn't force Kerberos only, it just makes sure that Kerberos is available for negotiation
+* `pypsrp.shell.WinRS.receive()` now returns a buffer with a list of byte values based on the streams rather than 1 large byte string
+  * This change was done as it preserves the original responses as they were received in case it is important to the caller. 
+
+### Features
+
+* Added an `Async*` class for WSMan, WinRS, Process, RunspacePool, PowerShell that is compatible with `asyncio`
+
 ## 0.5.0 - 2020-08-13
 
 ### Breaking changes

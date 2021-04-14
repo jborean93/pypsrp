@@ -1,11 +1,12 @@
 # Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
+import enum
 import logging
 import struct
-import sys
 import uuid
 import warnings
+import xml.etree.ElementTree as ET
 
 from six import binary_type
 
@@ -17,24 +18,16 @@ from pypsrp.complex_objects import ApartmentState, CommandType, \
 from pypsrp.exceptions import SerializationError
 from pypsrp._utils import to_string
 
-
-if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
-    # ElementTree in Python 2.6 does not support namespaces so we need to use
-    # lxml instead for this version
-    from lxml import etree as ET
-else:  # pragma: no cover
-    import xml.etree.ElementTree as ET
-
 log = logging.getLogger(__name__)
 
 
-class Destination(object):
+class Destination(enum.IntEnum):
     # The destination of a PSRP message
     CLIENT = 0x00000001
     SERVER = 0x00000002
 
 
-class MessageType(object):
+class MessageType(enum.IntEnum):
     """
     [MS-PSRP] 2.2.1 PowerShell Remoting Protocol Message - MessageType
     https://msdn.microsoft.com/en-us/library/dd303832.aspx
