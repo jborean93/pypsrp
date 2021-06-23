@@ -1,0 +1,64 @@
+[tool.poetry]
+name = "pypsrp"
+version = "1.0.0"
+description = "PowerShell Remoting Protocol and WinRM for Python"
+authors = ["Jordan Borean <jborean93@gmail.com>"]
+license = "MIT"
+keywords = ["winrm", "psrp", "winrs", "windows", "powershell"]
+readme = "README.md"
+homepage = "https://github.com/jborean93/pypsrp"
+repository = "https://github.com/jborean93/pypsrp"
+include = [
+    "CHANGELOG.md",
+]
+# recursive-include pypsrp/pwsh_scripts *.ps1
+
+[tool.poetry.dependencies]
+python = "^3.6"
+cryptography = "*"
+pyspnego = "< 1.0.0"
+requests = "^2.9.1"
+requests-credssp = {version = "^1.0.0", optional = true}
+gssapi = {version = "^1.5.0", optional = true, markers = "sys_platform!='win32'"}
+
+[tool.poetry.dev-dependencies]
+gssapi = {version = "^1.5.0", markers = "sys_platform!='win32'"}
+pycodestyle = "*"
+pytest = "*"
+pytest-cov = "*"
+pytest-mock = "*"
+PyYAML = "*"
+xmldiff = "*"
+tox = "*"
+
+[tool.poetry.extras]
+credssp = ["requests-credssp"]
+kerberos = ["gssapi"]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+junit_family = "xunit2"
+
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+envlist = lint,py36,py37,py38,py39
+skip_missing_interpreters = true
+isolated_build = True
+
+[testenv]
+whitelist_externals = poetry
+commands =
+    poetry install
+    poetry run py.test -v --cov pyspnego --cov-report term-missing
+
+passenv =
+    PSRP_*
+
+[testenv:lint]
+commands =
+    poetry run pycodestyle pypsrp --verbose --show-source --statistics --max-line-length 119
+"""

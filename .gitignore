@@ -110,9 +110,6 @@ ENV/
 .idea
 *~
 
-# Visual Studio Code Files
-.vscode/
-
 # MacOS File
 .DS_Store
 
