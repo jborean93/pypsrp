@@ -1,4 +1,4 @@
-import sys
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -12,21 +12,11 @@ from pypsrp.host import PSHost, PSHostRawUserInterface, PSHostUserInterface
 from pypsrp.serializer import Serializer
 from pypsrp._utils import to_unicode
 
-import xml.etree.ElementTree as ETInbuilt
-if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
-    # ElementTree in Python 2.6 does not support namespaces so we need to use
-    # lxml instead for this version
-    from lxml import etree as ET
-    element_type = ET._Element
-else:  # pragma: no cover
-    import xml.etree.ElementTree as ET
-    element_type = ET.Element
-
 
 def normalise_xml(xml_string):
     xml = "".join([l.lstrip() for l in to_unicode(xml_string).splitlines()])
-    xml = ETInbuilt.fromstring(xml)
-    return to_unicode(ETInbuilt.tostring(xml))
+    xml = ET.fromstring(xml)
+    return to_unicode(ET.tostring(xml))
 
 
 class TestEnum(object):

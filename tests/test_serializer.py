@@ -1,29 +1,17 @@
-import sys
 import uuid
+import xml.etree.ElementTree as ET
 
 import pytest
 
 from . import assert_xml_diff
+
+from queue import Queue, Empty
 
 from pypsrp.complex_objects import ComplexObject, GenericComplexObject, \
     ListMeta, ObjectMeta, StackMeta
 from pypsrp.exceptions import SerializationError
 from pypsrp.serializer import Serializer
 from pypsrp._utils import to_string, to_unicode
-
-try:  # pragma: no cover
-    from queue import Queue, Empty
-except ImportError:  # pragma: no cover
-    from Queue import Queue, Empty
-
-if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
-    # ElementTree in Python 2.6 does not support namespaces so we need to use
-    # lxml instead for this version
-    from lxml import etree as ET
-    element_type = ET._Element
-else:  # pragma: no cover
-    import xml.etree.ElementTree as ET
-    element_type = ET.Element
 
 
 class TestSerializer(object):
@@ -68,8 +56,6 @@ class TestSerializer(object):
         deserial_actual = serializer.deserialize(actual)
         assert deserial_actual == data
 
-    @pytest.mark.skipif(sys.version_info < (3, 4),
-                        reason="Byte string is designed to only work on py3")
     def test_serialize_byte_string_py3(self):
         serialzier = Serializer()
         expected = "<BA>YWJj</BA>"
@@ -303,8 +289,6 @@ class TestSerializer(object):
         ))
         assert actual == xml
 
-    @pytest.mark.skipif(sys.version_info < (2, 7),
-                        reason="py26 has extra space in output due to lxml")
     def test_serialize_circualr_reference(self):
         serializer = Serializer()
         obj = GenericComplexObject()

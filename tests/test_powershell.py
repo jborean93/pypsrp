@@ -8,7 +8,6 @@ import pytest
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import rsa
-from six import text_type
 
 from pypsrp.complex_objects import Command, CommandType, ErrorRecord, \
     GenericComplexObject, ObjectMeta, ParameterMetadata, PSInvocationState, \
@@ -217,7 +216,7 @@ class TestRunspacePool(object):
             assert isinstance(command.command_type, CommandType)
             assert isinstance(command.parameters, dict)
             for key, value in command.parameters.items():
-                assert isinstance(key, text_type)
+                assert isinstance(key, str)
                 assert isinstance(value, ParameterMetadata)
 
     @pytest.mark.parametrize('wsman_conn',

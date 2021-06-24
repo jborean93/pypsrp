@@ -4,11 +4,11 @@
 import base64
 import logging
 import struct
-import sys
 import time
 import types
 import uuid
 import warnings
+import xml.etree.ElementTree as ET
 
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -30,12 +30,6 @@ from pypsrp.shell import SignalCode, WinRS
 from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet
 from pypsrp._utils import version_equal_or_newer
 
-if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
-    # ElementTree in Python 2.6 does not support namespaces so we need to use
-    # lxml instead for this version
-    from lxml import etree as ET
-else:  # pragma: no cover
-    import xml.etree.ElementTree as ET
 
 log = logging.getLogger(__name__)
 

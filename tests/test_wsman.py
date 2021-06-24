@@ -1,11 +1,9 @@
 import os
 import requests
-import sys
 import uuid
+import xml.etree.ElementTree as ET
 
 import pytest
-
-import pypsrp.wsman as pypsrp_wsman
 
 from pypsrp.encryption import WinRMEncryption
 from pypsrp.exceptions import AuthenticationError, WinRMError, \
@@ -23,13 +21,6 @@ try:
     import requests_credssp
 except ImportError:
     requests_credssp = None
-
-if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
-    # ElementTree in Python 2.6 does not support namespaces so we need to use
-    # lxml instead for this version
-    from lxml import etree as ET
-else:  # pragma: no cover
-    import xml.etree.ElementTree as ET
 
 
 class _TransportTest(object):

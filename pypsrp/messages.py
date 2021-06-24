@@ -3,11 +3,9 @@
 
 import logging
 import struct
-import sys
 import uuid
 import warnings
-
-from six import binary_type
+import xml.etree.ElementTree as ET
 
 from pypsrp.complex_objects import ApartmentState, CommandType, \
     ComplexObject, DictionaryMeta, ErrorRecord, GenericComplexObject, \
@@ -17,13 +15,6 @@ from pypsrp.complex_objects import ApartmentState, CommandType, \
 from pypsrp.exceptions import SerializationError
 from pypsrp._utils import to_string
 
-
-if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
-    # ElementTree in Python 2.6 does not support namespaces so we need to use
-    # lxml instead for this version
-    from lxml import etree as ET
-else:  # pragma: no cover
-    import xml.etree.ElementTree as ET
 
 log = logging.getLogger(__name__)
 
@@ -113,7 +104,7 @@ class Message(object):
         else:
             message_data = self._serializer.serialize(self.data)
 
-        if not isinstance(message_data, binary_type):
+        if not isinstance(message_data, bytes):
             message_data = \
                 ET.tostring(message_data, encoding='utf-8', method='xml')
         log.debug("Packing PSRP message: %s" % to_string(message_data))

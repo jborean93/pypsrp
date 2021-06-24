@@ -6,7 +6,6 @@ import logging
 import re
 import spnego
 import spnego.channel_bindings
-import sys
 import warnings
 
 from cryptography import x509
@@ -201,10 +200,7 @@ class HTTPNegotiateAuth(AuthBase):
 
         if isinstance(raw_response, HTTPResponse):
             try:
-                if sys.version_info > (3, 0):
-                    socket = raw_response._fp.fp.raw._sock
-                else:
-                    socket = raw_response._fp.fp._sock
+                socket = raw_response._fp.fp.raw._sock
             except AttributeError as err:
                 warning = "Failed to get raw socket for CBT from urllib3 resp: %s" % str(err)
                 warnings.warn(warning, NoCertificateRetrievedWarning)

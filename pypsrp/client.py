@@ -8,9 +8,9 @@ import hashlib
 import logging
 import os
 import shutil
-import sys
 import tempfile
 import warnings
+import xml.etree.ElementTree as ET
 
 from pypsrp.exceptions import WinRMError
 from pypsrp.powershell import DEFAULT_CONFIGURATION_NAME, PowerShell, RunspacePool
@@ -19,12 +19,6 @@ from pypsrp.shell import Process, SignalCode, WinRS
 from pypsrp.wsman import WSMan
 from pypsrp._utils import get_pwsh_script, to_bytes, to_unicode
 
-if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
-    # ElementTree in Python 2.6 does not support namespaces so we need to use
-    # lxml instead for this version
-    from lxml import etree as ET
-else:  # pragma: no cover
-    import xml.etree.ElementTree as ET
 
 log = logging.getLogger(__name__)
 

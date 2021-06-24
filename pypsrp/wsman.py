@@ -7,9 +7,9 @@ import ipaddress
 import logging
 import re
 import requests
-import sys
 import uuid
 import warnings
+import xml.etree.ElementTree as ET
 
 from requests.packages.urllib3.util.retry import Retry
 
@@ -31,12 +31,6 @@ except ImportError as err:  # pragma: no cover
         def __init__(self, *args, **kwargs):
             raise ImportError(_requests_credssp_import_error)
 
-if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
-    # ElementTree in Python 2.6 does not support namespaces so we need to use
-    # lxml instead for this version
-    from lxml import etree as ET
-else:  # pragma: no cover
-    import xml.etree.ElementTree as ET
 
 log = logging.getLogger(__name__)
 

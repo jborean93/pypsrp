@@ -7,7 +7,6 @@ license = "MIT"
 keywords = ["winrm", "psrp", "winrs", "windows", "powershell"]
 readme = "README.md"
 homepage = "https://github.com/jborean93/pypsrp"
-repository = "https://github.com/jborean93/pypsrp"
 include = [
     "CHANGELOG.md",
 ]
