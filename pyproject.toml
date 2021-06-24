@@ -50,10 +50,14 @@ skip_missing_interpreters = true
 isolated_build = True
 
 [testenv]
-whitelist_externals = poetry
-commands =
+whitelist_externals =
+    poetry
+
+commands_pre =
     poetry install
-    poetry run py.test -v --cov pyspnego --cov-report term-missing
+
+commands =
+    poetry run py.test -v --cov pypsrp --cov-report term-missing
 
 passenv =
     PSRP_*
