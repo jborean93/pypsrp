@@ -173,12 +173,12 @@ stages:
         versionSpec: 3.8
 
     - script: |
-        python -m pip install twine wheel -c tests/constraints.txt
+        echo "Installing baseline pip packages"
+        python -m pip install --upgrade pip poetry twine
       displayName: Install build requirements
 
     - script: |
-        python setup.py bdist_wheel --universal
-        python setup.py sdist
+        python -m poetry build
       displayName: Build universal wheel and sdist
 
     - task: PublishBuildArtifacts@1
