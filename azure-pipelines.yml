@@ -58,16 +58,16 @@ stages:
         python -m pip install --upgrade pip poetry
 
         echo "Installing requirements"
-        python -m poetry install
-        python -m poetry update
+        poetry install
+        poetry update
       displayName: Install
 
     - script: |
-        python -m poetry run pycodestyle pypsrp --verbose --show-source --statistics --max-line-length 119
+        poetry run pycodestyle pypsrp --verbose --show-source --statistics --max-line-length 119
       displayName: Lint
 
     - script: |
-        python -m poetry run py.test -v --junitxml junit/test-results.xml --cov pypsrp --cov-report xml --cov-report term-missing
+        poetry run py.test -v --junitxml junit/test-results.xml --cov pypsrp --cov-report xml --cov-report term-missing
       displayName: Test
 
     - task: PublishTestResults@2
@@ -129,16 +129,16 @@ stages:
         python -m pip install --upgrade pip poetry
 
         echo "Installing requirements"
-        python -m poetry install
-        python -m poetry update
+        poetry install
+        poetry update
       displayName: Install
 
     - script: |
-        python -m poetry run python -m pycodestyle pypsrp --verbose --show-source --statistics --max-line-length 119
+        poetry run python -m pycodestyle pypsrp --verbose --show-source --statistics --max-line-length 119
       displayName: Lint
 
     - script: |
-        python -m poetry run py.test -v --junitxml junit/test-results.xml --cov pypsrp --cov-report xml --cov-report term-missing
+        poetry run pytest -v --junitxml junit/test-results.xml --cov pypsrp --cov-report xml --cov-report term-missing
       displayName: Test
 
     - task: PublishTestResults@2
