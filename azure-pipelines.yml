@@ -58,7 +58,7 @@ stages:
         python -m pip install --upgrade pip poetry
 
         echo "Installing requirements"
-        poetry install
+        poetry install -E kerberos -E credssp
         poetry update
       displayName: Install
 
@@ -129,7 +129,7 @@ stages:
         python -m pip install --upgrade pip poetry
 
         echo "Installing requirements"
-        poetry install
+        poetry install -E kerberos -E credssp
         poetry update
       displayName: Install
 
