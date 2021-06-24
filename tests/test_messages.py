@@ -1,4 +1,3 @@
-import sys
 import uuid
 
 from pypsrp.complex_objects import HostMethodIdentifier, ObjectMeta
@@ -14,10 +13,7 @@ class TestPublicKeyRequest(object):
         pub_key_req = PublicKeyRequest()
         empty_uuid = "00000000-0000-0000-0000-000000000000"
         serializer = Serializer()
-        if sys.version_info[0] == 2 and sys.version_info[1] < 7:
-            expected = b"<S/>"
-        else:
-            expected = b"<S />"
+        expected = b"<S />"
 
         msg = Message(0x2, empty_uuid, empty_uuid, pub_key_req, serializer)
         actual = msg.pack()

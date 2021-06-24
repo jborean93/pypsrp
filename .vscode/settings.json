@@ -1,0 +1,12 @@
+{
+    "editor.formatOnSave": true,
+    "files.trimTrailingWhitespace": true,
+    "editor.trimAutoWhitespace": true,
+    "python.testing.pytestArgs": [
+        "tests",
+        "-vv"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.nosetestsEnabled": false,
+    "python.testing.pytestEnabled": true,
+}

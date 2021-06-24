@@ -2,9 +2,9 @@ import base64
 import os
 import re
 import struct
-import sys
 import time
 import uuid
+import xml.etree.ElementTree as ET
 import yaml
 
 import pytest
@@ -15,14 +15,6 @@ from pypsrp.wsman import NAMESPACES, WSMan
 from pypsrp._utils import to_bytes, to_string
 
 from . import assert_xml_diff
-
-import xml.etree.ElementTree as ETNew
-if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
-    # ElementTree in Python 2.6 does not support namespaces so we need to use
-    # lxml instead for this version
-    from lxml import etree as ET
-else:  # pragma: no cover
-    import xml.etree.ElementTree as ET
 
 
 class TransportFake(object):
@@ -63,20 +55,12 @@ class TransportFake(object):
 
         if os.path.exists(meta_path):
             with open(meta_path, 'rb') as o:
-                self._test_meta = yaml.load(o)
+                self._test_meta = yaml.load(o, Loader=yaml.SafeLoader)
         else:
             raise Exception("Test metadata yml file does not exist at %s"
                             % meta_path)
 
-        # override the messages used if a particular python version is set
-        # lxml serializes messages a bit differently which is quite
-        # problemtatic for the PSRP messages embeded in the WSMAN bodies
-        current_version = "%s%s" % (sys.version_info[0], sys.version_info[1])
-        node_entries = self._test_meta.keys()
-        if "messages-py%s" % current_version in node_entries:
-            self._test_msg_key = "messages-py%s" % current_version
-        else:
-            self._test_msg_key = "messages"
+        self._test_msg_key = "messages"
 
     def close(self):
         return
@@ -218,18 +202,7 @@ class TransportFake(object):
                 command.text = self._generify_fragment(command.text,
                                                        psrp_fragment_type)
 
-        # convert the string to an XML object, for Python 2.6 (lxml) we need
-        # to change the namespace handling to mimic the ElementTree way of
-        # working so the string compare works
-        if sys.version_info[0] == 2 and sys.version_info[1] < 7:
-            namespaces = {}
-            new_xml_obj = self._simplify_namespaces(namespaces, xml_obj)
-            for key, value in namespaces.items():
-                new_xml_obj.attrib["xmlns:%s" % key] = value
-
-            xml_obj = new_xml_obj
-
-        return to_string(ETNew.tostring(xml_obj, encoding='utf-8'))
+        return to_string(ET.tostring(xml_obj, encoding='utf-8'))
 
     def _simplify_namespaces(self, namespaces, element):
         namespaces.update(element.nsmap)
@@ -246,7 +219,7 @@ class TransportFake(object):
         for key, value in element.attrib.items():
             new_attributes[key] = value
 
-        new_element = ETNew.Element(new_tag, attrib=new_attributes)
+        new_element = ET.Element(new_tag, attrib=new_attributes)
         new_element.text = element.text
 
         for child_element in element:

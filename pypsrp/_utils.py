@@ -3,12 +3,7 @@
 
 import pkgutil
 
-from six import PY3, text_type, binary_type
-
-try:
-    from urlparse import urlparse
-except ImportError:  # pragma: no cover
-    from urllib.parse import urlparse
+from urllib.parse import urlparse
 
 
 def to_bytes(obj, encoding='utf-8'):
@@ -19,7 +14,7 @@ def to_bytes(obj, encoding='utf-8'):
     :param encoding: The encoding to use
     :return: The byte string that was encoded
     """
-    if isinstance(obj, binary_type):
+    if isinstance(obj, bytes):
         return obj
 
     return obj.encode(encoding)
@@ -33,7 +28,7 @@ def to_unicode(obj, encoding='utf-8'):
     :param encoding: The encoding to use
     :return: THe unicode string the was decoded
     """
-    if isinstance(obj, text_type):
+    if isinstance(obj, str):
         return obj
 
     return obj.decode(encoding)
@@ -44,10 +39,7 @@ Python 2 and 3 handle native strings differently, 2 is like a byte string while
 3 uses unicode as the native string. The function to_string is used to easily
 convert an existing string like object to the native version that is required
 """
-if PY3:  # pragma: no cover
-    to_string = to_unicode
-else:  # pragma: no cover
-    to_string = to_bytes
+to_string = to_unicode
 
 
 def version_equal_or_newer(version, reference_version):

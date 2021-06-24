@@ -3,17 +3,11 @@
 
 import base64
 import logging
-import sys
+import xml.etree.ElementTree as ET
 
 from pypsrp.exceptions import WSManFaultError
 from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet
 
-if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
-    # ElementTree in Python 2.6 does not support namespaces so we need to use
-    # lxml instead for this version
-    from lxml import etree as ET
-else:  # pragma: no cover
-    import xml.etree.ElementTree as ET
 
 log = logging.getLogger(__name__)
 

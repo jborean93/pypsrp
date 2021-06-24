@@ -30,24 +30,14 @@ stages:
       test_realm: domain.test
     strategy:
       matrix:
-        Python27:
-          python.version: 2.7
-          credssp: "requests-credssp"
-        Python35:
-          python.version: 3.5
-          credssp: "requests-credssp"
         Python36:
           python.version: 3.6
-          credssp: "requests-credssp"
         Python37:
           python.version: 3.7
-          credssp: "requests-credssp"
         Python38:
           python.version: 3.8
-          credssp: "requests-credssp"
-        Python38-nocredssp:
-          python.version: 3.8
-          credssp: ""
+        Python39:
+          python.version: 3.9
 
     steps:
     - task: UsePythonVersion@0
@@ -65,21 +55,19 @@ stages:
 
     - script: |
         echo "Installing baseline pip packages"
-        python -m pip install --upgrade pip setuptools wheel coverage -c tests/constraints.txt
+        python -m pip install --upgrade pip poetry
 
-        echo "Installing test requirements"
-        python -m pip install $(credssp) -r requirements-test.txt -c tests/constraints.txt
-
-        echo "Installing package"
-        python -m pip install . -c tests/constraints.txt
+        echo "Installing requirements"
+        poetry install -E kerberos -E credssp
+        poetry update
       displayName: Install
 
     - script: |
-        python -m pycodestyle pypsrp --verbose --show-source --statistics
+        poetry run pycodestyle pypsrp --verbose --show-source --statistics --max-line-length 119
       displayName: Lint
 
     - script: |
-        pytest -v --junitxml junit/test-results.xml --cov pypsrp --cov-report xml --cov-report term-missing
+        poetry run py.test -v --junitxml junit/test-results.xml --cov pypsrp --cov-report xml --cov-report term-missing
       displayName: Test
 
     - task: PublishTestResults@2
@@ -105,50 +93,30 @@ stages:
       vmImage: windows-2019
     strategy:
       matrix:
-        Python27-x86:
-          python.version: 2.7
-          python.arch: x86
-          credssp: "requests-credssp"
-        Python27-x64:
-          python.version: 2.7
-          python.arch: x64
-          credssp: "requests-credssp"
-        Python35-x86:
-          python.version: 3.5
-          python.arch: x86
-          credssp: "requests-credssp"
-        Python35-x64:
-          python.version: 3.5
-          python.arch: x64
-          credssp: "requests-credssp"
         Python36-x86:
           python.version: 3.6
           python.arch: x86
-          credssp: "requests-credssp"
         Python36-x64:
           python.version: 3.6
           python.arch: x64
-          credssp: "requests-credssp"
         Python37-x86:
           python.version: 3.7
           python.arch: x86
-          credssp: "requests-credssp"
         Python37-x64:
           python.version: 3.7
           python.arch: x64
-          credssp: "requests-credssp"
         Python38-x86:
           python.version: 3.8
           python.arch: x86
-          credssp: "requests-credssp"
         Python38-x64:
           python.version: 3.8
           python.arch: x64
-          credssp: "requests-credssp"
-        Python38-x64-nocredssp:
-          python.version: 3.8
+        Python39-x86:
+          python.version: 3.9
+          python.arch: x86
+        Python39-x64:
+          python.version: 3.9
           python.arch: x64
-          credssp: ""
 
     steps:
     - task: UsePythonVersion@0
@@ -158,21 +126,19 @@ stages:
 
     - script: |
         echo "Installing baseline pip packages"
-        python -m pip install --upgrade pip setuptools wheel coverage -c tests/constraints.txt
+        python -m pip install --upgrade pip poetry
 
-        echo "Installing test requirements"
-        python -m pip install $(credssp) -r requirements-test.txt -c tests/constraints.txt
-
-        echo "Installing package"
-        python -m pip install . -c tests/constraints.txt
+        echo "Installing requirements"
+        poetry install -E kerberos -E credssp
+        poetry update
       displayName: Install
 
     - script: |
-        python -m pycodestyle pypsrp --verbose --show-source --statistics
+        poetry run python -m pycodestyle pypsrp --verbose --show-source --statistics --max-line-length 119
       displayName: Lint
 
     - script: |
-        pytest -v --junitxml junit/test-results.xml --cov pypsrp --cov-report xml --cov-report term-missing
+        poetry run python -m pytest -v --junitxml junit/test-results.xml --cov pypsrp --cov-report xml --cov-report term-missing
       displayName: Test
 
     - task: PublishTestResults@2
@@ -207,12 +173,12 @@ stages:
         versionSpec: 3.8
 
     - script: |
-        python -m pip install twine wheel -c tests/constraints.txt
+        echo "Installing baseline pip packages"
+        python -m pip install --upgrade pip poetry twine
       displayName: Install build requirements
 
     - script: |
-        python setup.py bdist_wheel --universal
-        python setup.py sdist
+        python -m poetry build
       displayName: Build universal wheel and sdist
 
     - task: PublishBuildArtifacts@1

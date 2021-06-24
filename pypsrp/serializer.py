@@ -5,12 +5,12 @@ import base64
 import binascii
 import logging
 import re
-import sys
 import uuid
+import xml.etree.ElementTree as ET
 
 from copy import copy
 from cryptography.hazmat.primitives.padding import PKCS7
-from six import string_types
+from queue import Queue, Empty
 
 from pypsrp.complex_objects import ApartmentState, Color, \
     CommandMetadataCount, CommandOrigin, Coordinates, ComplexObject, \
@@ -24,19 +24,6 @@ from pypsrp.messages import DebugRecord, ErrorRecord, InformationRecord, \
     VerboseRecord, WarningRecord
 from pypsrp._utils import to_bytes, to_string, to_unicode
 
-try:
-    from queue import Queue, Empty
-except ImportError:  # pragma: no cover
-    from Queue import Queue, Empty
-
-if sys.version_info[0] == 2 and sys.version_info[1] < 7:  # pragma: no cover
-    # ElementTree in Python 2.6 does not support namespaces so we need to use
-    # lxml instead for this version
-    from lxml import etree as ET
-    element_type = ET._Element
-else:  # pragma: no cover
-    import xml.etree.ElementTree as ET
-    element_type = ET.Element
 
 log = logging.getLogger(__name__)
 
@@ -52,17 +39,9 @@ class Serializer(object):
         self.cipher = None
         # Finds C0, C1 and surrogate pairs in a unicode string for us to
         # encode according to the PSRP rules
-        if sys.maxunicode == 65535:  # pragma: no cover
-            # using a narrow Python build or Python 2.x, the regex we need to
-            # use to find surrogate pairs is different than a wide build or on
-            # Python 3
-            self._serial_str = re.compile(u"[\u0000-\u001F]|"
-                                          u"[\u007F-\u009F]|"
-                                          u"[\uD800-\uDBFF][\uDC00-\uDFFF]")
-        else:  # pragma: no cover
-            self._serial_str = re.compile(u'[\u0000-\u001F'
-                                          u'\u007F-\u009F'
-                                          u'\U00010000-\U0010FFFF]')
+        self._serial_str = re.compile(u'[\u0000-\u001F'
+                                      u'\u007F-\u009F'
+                                      u'\U00010000-\U0010FFFF]')
 
         # to support surrogate UTF-16 pairs we need to use a UTF-16 regex
         # so we can replace the UTF-16 string representation with the actual
@@ -85,7 +64,7 @@ class Serializer(object):
         if clear:
             self._clear()
 
-        if isinstance(value, element_type):
+        if isinstance(value, ET.Element):
             if metadata is not None and metadata.name is not None:
                 value.attrib['N'] = metadata.name
 
@@ -139,7 +118,7 @@ class Serializer(object):
             element = ET.Element("Nil")
         else:
             element_value = pack_function(metadata, value)
-            if isinstance(element_value, string_types):
+            if isinstance(element_value, str):
                 element = ET.Element(metadata.tag)
                 element.text = element_value
             else:
@@ -157,7 +136,7 @@ class Serializer(object):
         if clear:
             self._clear()
 
-        if isinstance(element, string_types):
+        if isinstance(element, str):
             element_string = element
             try:
                 element = ET.fromstring(element)

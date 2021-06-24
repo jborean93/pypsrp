@@ -41,11 +41,10 @@ libraries to be isntalled.
 
 See `How to Install` for more details
 
-* CPython 2.7, 3.4-3.7
+* CPython 2.6+
 * [cryptography](https://github.com/pyca/cryptography)
 * [pyspnego](https://github.com/jborean93/pyspnego)
 * [requests](https://github.com/requests/requests)
-* [six](https://github.com/benjaminp/six)
 
 ### Optional Requirements
 
@@ -289,10 +288,10 @@ with Client("server", username="user", password="password") as client:
 
     # execute a cmd command
     stdout, stderr, rc = client.execute_cmd("dir")
-    
+
     stdout, stderr, rc = client.execute_cmd("powershell.exe gci $pwd")
     sanitised_stderr = client.sanitise_clixml(stderr)
-    
+
     # execute a PowerShell script
     output, streams, had_errors = client.execute_ps('''$path = "%s"
 if (Test-Path -Path $path) {
@@ -300,10 +299,10 @@ if (Test-Path -Path $path) {
 }
 New-Item -Path $path -ItemType Directory''' % path)
     output, streams, had_errors = client.execute_ps("New-Item -Path C:\\temp\\folder -ItemType Directory")
-    
+
     # copy a file from the local host to the remote host
     client.copy("~/file.txt", "C:\\temp\\file.txt")
-    
+
     # fetch a file from the remote host to the local host
     client.fetch("C:\\temp\\file.txt", "~/file.txt")
 ```

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0 - TBD
+
+### Breaking changes
+
+* Dropped support for Python 2.7 and Python 3.5
+* Use `poetry` as the packaging and dependency management tool
+
+
 ## 0.5.0 - 2020-08-13
 
 ### Breaking changes
