@@ -292,7 +292,7 @@ class Client(object):
             for error in element.findall("{%s}S[@S='Error']" % namespace):
                 errors.append(error.text)
 
-            output = Serializer()._deserialize_string("".join(errors))
+            output = Serializer()._deserialize_string(u"".join(errors))
 
         return output
 

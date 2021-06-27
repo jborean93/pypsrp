@@ -697,7 +697,7 @@ class Serializer(object):
 
     def _deserialize_string(self, value):
         if value is None:
-            return ""
+            return u""
 
         def rplcr(matchobj):
             # The matched object is the UTF-16 byte representation of the UTF-8
