@@ -475,7 +475,7 @@ class RunspacePool(object):
             runspace host. These can then be accessed in a PowerShell instance
             of the runspace with $PSSenderInfo.ApplicationArguments
         """
-        log.info("Openning a new Runspace Pool on remote host")
+        log.info("Opening a new Runspace Pool on remote host")
         if self.state == RunspacePoolState.OPENED:
             return
         if self.state != RunspacePoolState.BEFORE_OPEN:
