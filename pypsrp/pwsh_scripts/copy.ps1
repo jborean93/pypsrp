@@ -119,10 +119,11 @@ begin {
             throw "Transport failure, hash mismatch`r`nActual: $actual_hash`r`nExpected: $expected_hash"
         }
 
-        # Copy the temp file to the actual dest location and return the absolute path back to the client.
-        [System.IO.File]::Copy($path, $output_path, $true)
+        # Move the temp file to the actual dest location and return the absolute path back to the client.
+        [System.IO.File]::Move($path, $output_path, $true)
         $dest.FullName
     } finally {
+        # Note: If the file to be deleted does not exist, no exception is thrown.
         [System.IO.File]::Delete($path)
     }
 }
