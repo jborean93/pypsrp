@@ -120,7 +120,10 @@ begin {
         }
 
         # Move the temp file to the actual dest location and return the absolute path back to the client.
-        [System.IO.File]::Move($path, $output_path, $true)
+        # Note that we always attempt a delete first since the move operation can fail if the target is
+        # located on a different volume and already exists.
+        [System.IO.File]::Delete($output_path)
+        [System.IO.File]::Move($path, $output_path)
         $dest.FullName
     } finally {
         # Note: If the file to be deleted does not exist, no exception is thrown.
