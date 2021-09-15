@@ -7,6 +7,10 @@
 * Dropped support for Python 2.7 and Python 3.5
 * Use `poetry` as the packaging and dependency management tool
 
+### Features
+
+* Use [File.Move](https://docs.microsoft.com/en-us/dotnet/api/system.io.file.move?view=net-5.0) when calling `Client.copy()` to optimistically speed up server side operations
+
 
 ## 0.5.0 - 2020-08-13
 
