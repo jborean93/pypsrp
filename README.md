@@ -1,6 +1,6 @@
 # pypsrp - Python PowerShell Remoting Protocol Client library
 
-[![Build Status](https://dev.azure.com/jborean93/jborean93/_apis/build/status/jborean93.pypsrp?branchName=master)](https://dev.azure.com/jborean93/jborean93/_build/latest?definitionId=3&branchName=master)
+[![Test workflow](https://github.com/jborean93/pypsrp/actions/workflows/ci.yml/badge.svg)](https://github.com/jborean93/pypsrp/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/jborean93/pypsrp/branch/master/graph/badge.svg)](https://codecov.io/gh/jborean93/pypsrp)
 [![PyPI version](https://badge.fury.io/py/pypsrp.svg)](https://badge.fury.io/py/pypsrp)
 
@@ -41,7 +41,7 @@ libraries to be isntalled.
 
 See `How to Install` for more details
 
-* CPython 2.6+
+* CPython 3.6+
 * [cryptography](https://github.com/pyca/cryptography)
 * [pyspnego](https://github.com/jborean93/pyspnego)
 * [requests](https://github.com/requests/requests)
@@ -52,6 +52,7 @@ The following Python libraries can be installed to add extra features that do
 not come with the base package
 
 * [python-gssapi](https://github.com/pythongssapi/python-gssapi) for Kerberos authentication on Linux
+* [pykrb5](https://github.com/jborean93/pykrb5) for Kerberos authentication on Linux
 * [requests-credssp](https://github.com/jborean93/requests-credssp) for CredSSP authentication
 
 
