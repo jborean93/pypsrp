@@ -1,10 +1,11 @@
 # Changelog
 
-## 1.0.0 - TBD
+## 0.6.0 - TBD
 
 ### Breaking changes
 
 * Dropped support for Python 2.7 and Python 3.5
+* Added support for Python 3.10
 * Use `poetry` as the packaging and dependency management tool
 
 ### Features
