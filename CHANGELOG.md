@@ -1,12 +1,13 @@
 # Changelog
 
-## 0.6.0 - TBD
+## 0.6.0 - 2021-10-21
 
 ### Breaking changes
 
 * Dropped support for Python 2.7 and Python 3.5
 * Added support for Python 3.10
 * Use `poetry` as the packaging and dependency management tool
+* Added [pykrb5](https://github.com/jborean93/pykrb5) as extra dependency for Kerberos auth on non-Windows due to a dependecy change on `pyspnego`
 
 ### Features
 
