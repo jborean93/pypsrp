@@ -353,3 +353,6 @@ New-JEAConfiguration -Name JEARole -JEAConfigPath $PSScriptRoot
 Register-PSSessionConfiguration -Path "$PSScriptRoot\JEARoleSettings.pssc" -Name JEARole -Force
 
 Restart-Service -Name winrm
+
+Write-Information -MessageData "Testing WinRM connection"
+Invoke-Command -ComputerName localhost -ScriptBlock { whoami.exe /all } -Credential $userCredential

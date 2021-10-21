@@ -106,6 +106,13 @@ lib::tests::run() {
         echo "::group::Running Tests"
     fi
 
+    # Weirdly WinRM errors with the following randomly on the first connection.
+    # This will flush out this error so the tests run without complications.
+    # Illegal operation attempted on a registry key that has been marked for deletion.
+    if [ -n "${PYPSRP_SERVER+set}" ]; then
+        poetry run python ./build_helpers/check-winrm.py
+    fi
+
     poetry run python -m pytest \
         --verbose \
         --junitxml junit/test-results.xml \
