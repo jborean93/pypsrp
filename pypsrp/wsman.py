@@ -815,6 +815,10 @@ class _TransportHTTP(object):
                 proxy_key: self.proxy
             }
         elif self.no_proxy:
+            session.proxies = {
+                'https': False
+            }
+        else:
             session.proxies = orig_proxy
 
         # Retry on connection errors, with a backoff factor
