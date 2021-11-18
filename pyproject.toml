@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pypsrp"
-version = "0.6.0"
+version = "0.6.1"
 description = "PowerShell Remoting Protocol and WinRM for Python"
 authors = ["Jordan Borean <jborean93@gmail.com>"]
 license = "MIT"

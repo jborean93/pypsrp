@@ -1004,8 +1004,7 @@ class TestTransportHTTP(object):
             session = transport._build_session()
         finally:
             del os.environ['https_proxy']
-        assert 'http' not in session.proxies
-        assert 'https' not in session.proxies
+        assert session.proxies == {'https': False}
 
     def test_build_session_proxies_kwarg_ignore_no_proxy(self):
         transport = _TransportHTTP("server", proxy="https://kwargproxy",

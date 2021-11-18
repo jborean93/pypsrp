@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1 - TBD
+
+* Fix `no_proxy` to actually ignore environment proxy settings
+
+
 ## 0.6.0 - 2021-10-21
 
 ### Breaking changes

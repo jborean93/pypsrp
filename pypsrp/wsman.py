@@ -807,15 +807,16 @@ class _TransportHTTP(object):
                                                       cert=None)
 
         # set the proxy config
-        orig_proxy = session.proxies
         session.proxies = settings['proxies']
+        proxy_key = 'https' if self.ssl else 'http'
         if self.proxy is not None:
-            proxy_key = 'https' if self.ssl else 'http'
             session.proxies = {
-                proxy_key: self.proxy
+                proxy_key: self.proxy,
             }
         elif self.no_proxy:
-            session.proxies = orig_proxy
+            session.proxies = {
+                proxy_key: False,
+                }
 
         # Retry on connection errors, with a backoff factor
         retry_kwargs = {
