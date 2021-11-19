@@ -69,7 +69,7 @@ lib::setup::python_requirements() {
     PY_VER="$( python -c "import sys; ver = sys.version_info; print(f'cp{ver.major}{ver.minor}')" )"
     if [ "$(expr substr $(uname -s) 1 5)" == "MINGW" ] && [ "${PY_VER}" == "cp310" ]; then
         PY_ARCH="$( python -c "import sys; print('win_amd64' if sys.maxsize > 2**32 else 'win32')" )"
-        WHL_URL="https://download.lfd.uci.edu/pythonlibs/y2rycu7g/lxml-4.6.3-${PY_VER}-${PY_VER}-${PY_ARCH}.whl"
+        WHL_URL="https://github.com/jborean93/lxml-win-whl/blob/main/lxml-4.6.4-cp310-cp310-${PY_ARCH}.whl?raw=true"
 
         poetry run python -m pip \
             install \
