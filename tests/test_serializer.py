@@ -10,7 +10,7 @@ from queue import Queue, Empty
 from pypsrp.complex_objects import ComplexObject, GenericComplexObject, \
     ListMeta, ObjectMeta, StackMeta
 from pypsrp.exceptions import SerializationError
-from pypsrp.serializer import Serializer
+from pypsrp.serializer import Serializer, TaggedValue
 from pypsrp._utils import to_string, to_unicode
 
 
@@ -43,7 +43,8 @@ class TestSerializer(object):
         [False, "<B>false</B>"],
         [10.0323, "<Sg>10.0323</Sg>"],
         [uuid.UUID(bytes=b"\x00" * 16),
-         "<G>00000000-0000-0000-0000-000000000000</G>"]
+         "<G>00000000-0000-0000-0000-000000000000</G>"],
+        [TaggedValue("U32", 1), "<U32>1</U32>"]
     ])
     def test_serialize_primitives(self, data, expected):
         serializer = Serializer()

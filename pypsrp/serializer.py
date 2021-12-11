@@ -75,7 +75,11 @@ class Serializer(object):
 
         metadata = metadata or ObjectMeta()
         if metadata.tag == "*":
-            metadata.tag = self._get_tag_from_value(value)
+            if isinstance(value, TaggedValue):
+                metadata.tag = value.tag
+                value = value.value
+            else:
+                metadata.tag = self._get_tag_from_value(value)
 
         pack_function = {
             # primitive types
@@ -786,3 +790,9 @@ class Serializer(object):
         if meta is None:
             meta = ObjectMeta(name=key)
         self.serialize(obj, metadata=meta, parent=parent, clear=False)
+
+
+class TaggedValue(object):
+    def __init__(self, tag, value):
+        self.tag = tag
+        self.value = value

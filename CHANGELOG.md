@@ -1,5 +1,7 @@
 # Changelog
 
+* Add `TaggedValue` which allows the marking of a value with a tag that controls which serialization routine to apply.
+
 ## 0.6.1 - 2021-11-19
 
 * Fix `no_proxy` to actually ignore environment proxy settings
