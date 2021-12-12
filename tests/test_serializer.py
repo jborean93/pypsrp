@@ -55,6 +55,8 @@ class TestSerializer(object):
         assert actual_xml == expected_xml
 
         deserial_actual = serializer.deserialize(actual)
+        if isinstance(data, TaggedValue):
+            data = data.value
         assert deserial_actual == data
 
     def test_serialize_byte_string_py3(self):
