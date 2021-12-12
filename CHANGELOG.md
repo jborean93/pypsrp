@@ -1,6 +1,13 @@
 # Changelog
 
-* Add `TaggedValue` which allows the marking of a value with a tag that controls which serialization routine to apply.
+## 0.7.0 - 2021-12-13
+
+### Features
+
+* Add `pypsrp.serializer.TaggedValue` which allows the marking of a value with a tag that controls which serialization routine to apply.
+  * This only applys to primitive objects, like `U32` as `System.UInt32`, `SS` as `System.Security.SecureString`, etc
+  * For a full list of primitive tags see https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-psrp/c8c85974-ffd7-4455-84a8-e49016c20683
+
 
 ## 0.6.1 - 2021-11-19
 
