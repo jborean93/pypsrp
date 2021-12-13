@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 
 from copy import copy
 from cryptography.hazmat.primitives.padding import PKCS7
-from datetime import datetime
+from datetime import datetime, timedelta
 from queue import Queue, Empty
 
 from pypsrp.complex_objects import ApartmentState, Color, \
@@ -167,7 +167,7 @@ class Serializer(object):
             'ToString': lambda d: self._deserialize_string(d.text),
             'C': lambda d: chr(int(d.text)),
             'B': lambda d: d.text.lower() == "true",
-            'DT': lambda d: datetime.fromisoformat(d.text),
+            'DT': lambda d: self._deserialize_datetime(d.text),
             'TS': lambda d: d.text,
             'By': lambda d: int(d.text),
             'SB': lambda d: int(d.text),
@@ -579,6 +579,15 @@ class Serializer(object):
         ss_string = to_string(base64.b64encode(ss_value))
 
         return ss_string
+
+    def _deserialize_datetime(self, text):
+        m = re.search(r"\.\d+", text)
+        if m is None:
+            raise ValueError("Unable to parse datetime: %s" % text)
+        text = text[:m.start()] + text[m.end():]
+        dt = datetime.fromisoformat(text)
+        td = timedelta(microseconds=m.group(1)[1:])
+        return dt + td
 
     def _deserialize_obj(self, element, metadata):
         obj = metadata.object()
