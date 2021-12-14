@@ -20,7 +20,7 @@ from pypsrp.complex_objects import ApartmentState, Color, \
     PSThreadOptions, QueueMeta, RemoteStreamOptions, \
     SessionStateEntryVisibility, Size, StackMeta
 from pypsrp.exceptions import SerializationError
-from pypsrp.messages import DebugRecord, ErrorRecord, InformationRecord, \
+from pypsrp.messages import DebugRecord, ErrorRecordMessage, InformationRecord, \
     VerboseRecord, WarningRecord
 from pypsrp._utils import to_bytes, to_string, to_unicode
 
@@ -212,7 +212,7 @@ class Serializer(object):
                 "System.Management.Automation.DebugRecord":
                     ObjectMeta("Obj", object=DebugRecord),
                 "System.Management.Automation.ErrorRecord":
-                    ObjectMeta("Obj", object=ErrorRecord),
+                    ObjectMeta("Obj", object=ErrorRecordMessage),
                 "System.Management.Automation.Host.Coordinates":
                     ObjectMeta("Obj", object=Coordinates),
                 "System.Management.Automation.Host.KeyInfo":
