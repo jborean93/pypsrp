@@ -110,7 +110,9 @@ class GenericComplexObject(ComplexObject):
         self.types = []
 
     def __str__(self):
-        return to_string(self.to_string)
+        return to_string(
+            self.to_string if self.to_string is not None else 'None'
+        )
 
 
 class Enum(ComplexObject):
