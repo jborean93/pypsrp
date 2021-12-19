@@ -1,5 +1,10 @@
 # Changelog
 
+## FUTURE - TBD
+
+* Ensure each `ps.streams.error` entry contains a `MESSAGE_TYPE` value just like the other stream objects
+
+
 ## 0.7.0 - 2021-12-13
 
 ### Features
