@@ -5,6 +5,7 @@ import pytest
 
 from . import assert_xml_diff
 
+from datetime import datetime, timezone
 from queue import Queue, Empty
 
 from pypsrp.complex_objects import ComplexObject, GenericComplexObject, \
@@ -44,7 +45,9 @@ class TestSerializer(object):
         [10.0323, "<Sg>10.0323</Sg>"],
         [uuid.UUID(bytes=b"\x00" * 16),
          "<G>00000000-0000-0000-0000-000000000000</G>"],
-        [TaggedValue("U32", 1), "<U32>1</U32>"]
+        [TaggedValue("U32", 1), "<U32>1</U32>"],
+        [datetime(2008, 4, 11, 10, 42, 32, 999, tzinfo=timezone.utc),
+         "<DT>2008-04-11T10:42:32.999-00:00</DT>"]
     ])
     def test_serialize_primitives(self, data, expected):
         serializer = Serializer()
