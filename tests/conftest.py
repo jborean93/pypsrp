@@ -40,6 +40,7 @@ class TransportFake(object):
         self.endpoint = "%s://%s:%d/%s" \
                         % ("https" if ssl else "http", server, port, path)
         self.session = None
+        self._enable_test_messages = False
 
         # used in the test only
         for key, value in NAMESPACES.items():
@@ -297,10 +298,10 @@ def wsman_conn(request, monkeypatch):
     with wsman:
         yield wsman
 
-    # used as an easy way to be results for a test, requires the _test_messages
-    # to be uncommented in pypsrp/wsman.py
-    test_messages = getattr(wsman.transport, '_test_messages', None)
-    if test_messages is not None:
+    # used as an easy way to be results for a test, requires `enable_test_messages=True` to be
+    # passed to wsman constructor
+    if wsman.transport._enable_test_messages:
+        test_messages = wsman.transport._test_messages
         yaml_text = yaml.dump({"messages": test_messages},
                               default_flow_style=False,
                               width=9999)
