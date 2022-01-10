@@ -49,7 +49,7 @@ See `How to Install` for more details
 ### Optional Requirements
 
 The following Python libraries can be installed to add extra features that do
-not come with the base package
+not come with the base package:
 
 * [python-gssapi](https://github.com/pythongssapi/python-gssapi) for Kerberos authentication on Linux
 * [pykrb5](https://github.com/jborean93/pykrb5) for Kerberos authentication on Linux
@@ -58,7 +58,7 @@ not come with the base package
 
 ## How to Install
 
-To install pypsrp with all basic features, run
+To install pypsrp with all the basic features, run:
 
 ```bash
 pip install pypsrp
@@ -69,7 +69,7 @@ pip install pypsrp
 While pypsrp supports Kerberos authentication, it isn't included by default for
 Linux hosts due to it's reliance on system packages to be present.
 
-To install these packages, run the below
+To install these packages, depending on your distribution, run one of the following script blocks.
 
 For Debian/Ubuntu
 
