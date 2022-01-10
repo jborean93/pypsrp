@@ -34,7 +34,7 @@ supports the following authentication methods with WSMan;
 * NTLM
 
 It also supports `Negotiate/Kerberos`, and `CredSSP` but require extra
-libraries to be isntalled.
+libraries to be installed.
 
 
 ## Requirements
