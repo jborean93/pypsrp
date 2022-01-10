@@ -34,7 +34,7 @@ supports the following authentication methods with WSMan;
 * NTLM
 
 It also supports `Negotiate/Kerberos`, and `CredSSP` but require extra
-libraries to be isntalled.
+libraries to be installed.
 
 
 ## Requirements
@@ -49,7 +49,7 @@ See `How to Install` for more details
 ### Optional Requirements
 
 The following Python libraries can be installed to add extra features that do
-not come with the base package
+not come with the base package:
 
 * [python-gssapi](https://github.com/pythongssapi/python-gssapi) for Kerberos authentication on Linux
 * [pykrb5](https://github.com/jborean93/pykrb5) for Kerberos authentication on Linux
@@ -58,9 +58,9 @@ not come with the base package
 
 ## How to Install
 
-To install pypsrp with all basic features, run
+To install pypsrp with all the basic features, run:
 
-```
+```bash
 pip install pypsrp
 ```
 
@@ -69,11 +69,11 @@ pip install pypsrp
 While pypsrp supports Kerberos authentication, it isn't included by default for
 Linux hosts due to it's reliance on system packages to be present.
 
-To install these packages, run the below
+To install these packages, depending on your distribution, run one of the following script blocks.
 
 For Debian/Ubuntu
 
-```
+```bash
 # For Python 2
 apt-get install gcc python-dev libkrb5-dev
 
@@ -86,7 +86,7 @@ apt-get install gss-ntlmssp
 
 For RHEL/Centos
 
-```
+```bash
 yum install gcc python-devel krb5-devel
 
 # To add NTLM to the GSSAPI SPNEGO auth run
@@ -95,7 +95,7 @@ yum install gssntlmssp
 
 For Fedora
 
-```
+```bash
 dnf install gcc python-devel krb5-devel
 
 # To add NTLM to the GSSAPI SPNEGO auth run
@@ -104,13 +104,13 @@ dnf install gssntlmssp
 
 For Arch Linux
 
-```
+```bash
 pacman -S gcc krb5
 ```
 
 Once installed you can install the Python packages with
 
-```
+```bash
 pip install pypsrp[kerberos]
 ```
 
@@ -122,7 +122,7 @@ the scope of this page.
 Like Kerberos auth, CredSSP is supported but isn't included by default. To add
 support for CredSSP auth try to run the following
 
-```
+```bash
 pip install pypsrp[credssp]
 ```
 
@@ -130,7 +130,7 @@ If that fails you may need to update pip and setuptools to a newer version
 `pip install -U pip setuptools`, otherwise the following system package may be
 required;
 
-```
+```bash
 # For Debian/Ubuntu
 apt-get install gcc python-dev
 
@@ -429,7 +429,7 @@ information and should only be used for debugging purposes._
 Any changes are more than welcome in pull request form, you can run the current
 test suite with tox like so;
 
-```
+```bash
 # make sure tox is installed
 pip install tox
 
@@ -454,7 +454,7 @@ There are further integration tests that require a specific host setup to run
 correctly. You can use `Vagrant` to set this host up. This is done by running
 the following commands;
 
-```
+```bash
 # download the Vagrant box and start it up based on the Vagrantfile
 vagrant up
 
