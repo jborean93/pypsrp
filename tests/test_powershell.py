@@ -936,11 +936,18 @@ end {
         ps.add_parameters({"Path": "path", "ItemType": "Leaf"})
         assert len(ps.commands) == 1
         assert ps.commands[0].cmd == "Test-Path"
-
-        # we can't guarantee the dict order so this is the next best thing
         args = ps.commands[0].args
-        assert args[0].name == 'Path' or args[0].name == 'ItemType'
-        assert args[1].name == 'Path' or args[1].name == 'ItemType'
+        assert args[0].name == 'Path'
+        assert args[1].name == 'ItemType'
+
+    def test_add_cmdlet_with_parameters(self):
+        ps = PowerShell(RSPoolTest())
+        ps.add_cmdlet("Test-Path", parameters={"Path": "path", "ItemType": "Leaf"})
+        assert len(ps.commands) == 1
+        assert ps.commands[0].cmd == "Test-Path"
+        args = ps.commands[0].args
+        assert args[0].name == 'Path'
+        assert args[1].name == 'ItemType'
 
     def test_connect_async_invalid_state(self):
         ps = PowerShell(RSPoolTest())

@@ -2,6 +2,8 @@
 
 ## FUTURE - TBD
 
+* Add optional keyword argument to `parameters` to `add_cmdlet`
+* Add option `end_of_statement` to `add_cmdlet` and `add_script`
 * Ensure each `ps.streams.error` entry contains a `MESSAGE_TYPE` value just like the other stream objects
 * Use a default of `None` if a complex custom object has no `ToString` property defined.
 

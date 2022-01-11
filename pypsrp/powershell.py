@@ -840,7 +840,13 @@ class PowerShell(object):
         self._current_command = command
         return self
 
-    def add_cmdlet(self, cmdlet, use_local_scope=None):
+    def add_cmdlet(
+        self,
+        cmdlet,
+        use_local_scope=None,
+        parameters=None,
+        end_of_statement=False,
+    ):
         """
         Add a cmdlet/command to the current command pipeline. This is similar
         to add_command but it takes in a string and constructs the Command
@@ -850,6 +856,8 @@ class PowerShell(object):
 
         :param cmdlet: A string representing the cmdlet to add
         :param use_local_scope: Run the cmdlet under the local scope
+        :param parameters: Add parameters to this command.
+        :param end_of_statement: Immediately end this command pipeline
         :return: The current PowerShell object with the cmdlet added
         """
         command = Command(protocol_version=self.runspace_pool.protocol_version,
@@ -857,6 +865,10 @@ class PowerShell(object):
                           use_local_scope=use_local_scope)
         self.commands.append(command)
         self._current_command = command
+        if parameters:
+            self.add_parameters(parameters)
+        if end_of_statement:
+            self.add_statement()
         return self
 
     def add_parameter(self, parameter_name, value=None):
@@ -890,12 +902,13 @@ class PowerShell(object):
             self.add_parameter(parameter_name, value)
         return self
 
-    def add_script(self, script, use_local_scope=None):
+    def add_script(self, script, use_local_scope=None, end_of_statement=False):
         """
         Add a piece of script to construct a command pipeline.
 
         :param script: A string representing a script
         :param use_local_scope: Run the script under the local scope
+        :param end_of_statement: Immediately end this command pipeline
         :return: the current PowerShell instance with the command added
         """
         command = Command(protocol_version=self.runspace_pool.protocol_version,
@@ -903,6 +916,8 @@ class PowerShell(object):
                           use_local_scope=use_local_scope)
         self.commands.append(command)
         self._current_command = command
+        if end_of_statement:
+            self.add_statement()
         return self
 
     def add_statement(self):
