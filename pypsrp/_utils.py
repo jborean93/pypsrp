@@ -28,6 +28,9 @@ def to_unicode(obj, encoding='utf-8'):
     :param encoding: The encoding to use
     :return: THe unicode string the was decoded
     """
+    if obj is None:
+        obj = str(None)
+
     if isinstance(obj, str):
         return obj
 
