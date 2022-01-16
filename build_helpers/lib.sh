@@ -64,18 +64,6 @@ lib::setup::python_requirements() {
 
     python -m pip install --upgrade pip poetry
 
-    # xmldiff has a dep on lxml which does not have a wheel for Windows Python 3.10. The build deps are complex and
-    # they recommend using this unofficial source. This should be removed once lxml adds a cp310 wheel for Windows
-    PY_VER="$( python -c "import sys; ver = sys.version_info; print(f'cp{ver.major}{ver.minor}')" )"
-    if [ "$(expr substr $(uname -s) 1 5)" == "MINGW" ] && [ "${PY_VER}" == "cp310" ]; then
-        PY_ARCH="$( python -c "import sys; print('win_amd64' if sys.maxsize > 2**32 else 'win32')" )"
-        WHL_URL="https://github.com/jborean93/lxml-win-whl/blob/main/lxml-4.6.4-cp310-cp310-${PY_ARCH}.whl?raw=true"
-
-        poetry run python -m pip \
-            install \
-            "${WHL_URL}"
-    fi
-
     echo "Installing pypsrp"
     poetry install -E kerberos -E credssp
 
