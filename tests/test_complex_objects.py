@@ -575,6 +575,7 @@ class TestPipeline(object):
             CommandParameter(name="Name", value="var"),
             CommandParameter(name="Value", value="abc")
         ]
+        assert str(command) == 'None'
 
         pipeline = Pipeline()
         pipeline.is_nested = False
@@ -599,6 +600,7 @@ class TestPipeline(object):
             CommandParameter(name="Name", value="var"),
             CommandParameter(name="Value", value="abc")
         ]
+        assert str(command1) == 'None'
 
         command2 = Command(protocol_version="2.2")
         command2.cmd = "Get-Variable"
@@ -607,10 +609,13 @@ class TestPipeline(object):
         command2.args = [
             CommandParameter(name="Name", value="var"),
         ]
+        assert str(command2) == 'None'
+
         command3 = Command(protocol_version="2.2")
         command3.cmd = "Write-Output"
         command3.is_script = False
         command3.use_local_scope = False
+        assert str(command3) == 'None'
 
         pipeline = Pipeline()
         pipeline.is_nested = False
