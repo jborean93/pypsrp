@@ -852,8 +852,9 @@ class PowerShell(object):
         :param use_local_scope: Run the cmdlet under the local scope
         :return: The current PowerShell object with the cmdlet added
         """
-        command = Command(protocol_version=self.runspace_pool.protocol_version,
-                          cmd=cmdlet, is_script=False,
+        command = Command(cmdlet,
+                          protocol_version=self.runspace_pool.protocol_version,
+                          is_script=False,
                           use_local_scope=use_local_scope)
         self.commands.append(command)
         self._current_command = command
@@ -898,8 +899,8 @@ class PowerShell(object):
         :param use_local_scope: Run the script under the local scope
         :return: the current PowerShell instance with the command added
         """
-        command = Command(protocol_version=self.runspace_pool.protocol_version,
-                          cmd=script, is_script=True,
+        command = Command(script, protocol_version=self.runspace_pool.protocol_version,
+                          is_script=True,
                           use_local_scope=use_local_scope)
         self.commands.append(command)
         self._current_command = command

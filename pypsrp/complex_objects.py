@@ -526,15 +526,15 @@ class Pipeline(ComplexObject):
 
 class Command(ComplexObject):
 
-    def __init__(self, protocol_version="2.3", **kwargs):
+    def __init__(self, cmd=None, protocol_version="2.3", **kwargs):
         """
         [MS-PSRP] 2.2.3.12 Command
         https://msdn.microsoft.com/en-us/library/dd339976.aspx
 
+        :param cmd: The cmdlet or script to run
         :param protocol_version: The negotiated protocol version of the remote
             host. This determines what merge_* objects are added to the
             serialized xml.
-        :param cmd: The cmdlet or script to run
         :param is_script: Whether cmd is a script or not
         :param use_local_scope: Use local or global scope to invoke commands
         :param merge_my_result: Controls the behaviour of what stream to merge
@@ -606,8 +606,8 @@ class Command(ComplexObject):
             ])
         self._extended_properties = extended_properties
 
+        self.cmd = cmd
         self.protocol_version = protocol_version
-        self.cmd = kwargs.get("cmd")
         self.is_script = kwargs.get("is_script")
         self.use_local_scope = kwargs.get("use_local_scope")
 
@@ -637,7 +637,7 @@ class Command(ComplexObject):
 
 class CommandParameter(ComplexObject):
 
-    def __init__(self, **kwargs):
+    def __init__(self, name=None, value=None):
         """
         [MS-PSRP] 2.2.3.13 Command Parameter
         https://msdn.microsoft.com/en-us/library/dd359709.aspx
@@ -651,8 +651,8 @@ class CommandParameter(ComplexObject):
             ('name', ObjectMeta("S", name="N")),
             ('value', ObjectMeta(name="V")),
         )
-        self.name = kwargs.get('name')
-        self.value = kwargs.get('value')
+        self.name = name
+        self.value = value
 
 
 # The host default data is serialized quite differently from the normal rules
