@@ -1,0 +1,5 @@
+[paths]
+source =
+    src/pypsrp
+    **/dist-packages/pypsrp
+    **/site-packages/pypsrp

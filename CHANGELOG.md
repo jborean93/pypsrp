@@ -6,6 +6,7 @@
 * The `cmd` parameter for `Command` class is now a positional argument
 * Ensure each `ps.streams.error` entry contains a `MESSAGE_TYPE` value just like the other stream objects
 * Use a default of `None` if a complex custom object has no `ToString` property defined.
+* Moved back to using `setuptools` instead of `poetry` as the build system
 
 
 ## 0.7.0 - 2021-12-13
