@@ -1,14 +1,20 @@
 # Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
+import typing
 from copy import deepcopy
 
 from pypsrp._utils import to_string, version_equal_or_newer
 
 
 class ObjectMeta(object):
-
-    def __init__(self, tag="*", name=None, optional=False, object=None):
+    def __init__(
+        self,
+        tag: str = "*",
+        name: typing.Optional[str] = None,
+        optional: bool = False,
+        object: typing.Any = None,
+    ) -> None:
         self.tag = tag
         self.name = name
         self.optional = optional
@@ -16,9 +22,14 @@ class ObjectMeta(object):
 
 
 class ListMeta(ObjectMeta):
-
-    def __init__(self, obj_type="LST", name=None, optional=False,
-                 list_value_meta=None, list_types=None):
+    def __init__(
+        self,
+        obj_type: str = "LST",
+        name: typing.Optional[str] = None,
+        optional: bool = False,
+        list_value_meta: typing.Optional[ObjectMeta] = None,
+        list_types: typing.Optional[typing.List[str]] = None,
+    ) -> None:
         super(ListMeta, self).__init__(obj_type, name, optional)
 
         if list_value_meta is None:
@@ -27,44 +38,46 @@ class ListMeta(ObjectMeta):
             self.list_value_meta = list_value_meta
 
         if list_types is None:
-            self.list_types = [
-                "System.Object[]",
-                "System.Array",
-                "System.Object"
-            ]
+            self.list_types = ["System.Object[]", "System.Array", "System.Object"]
         else:
             self.list_types = list_types
 
 
 class StackMeta(ListMeta):
-
-    def __init__(self, name=None, optional=False, list_value_meta=None,
-                 list_types=None):
+    def __init__(
+        self,
+        name: typing.Optional[str] = None,
+        optional: bool = False,
+        list_value_meta: typing.Optional[ObjectMeta] = None,
+        list_types: typing.Optional[typing.List[str]] = None,
+    ) -> None:
         if list_types is None:
-            list_types = [
-                "System.Collections.Stack",
-                "System.Object"
-            ]
-        super(StackMeta, self).__init__("STK", name, optional, list_value_meta,
-                                        list_types)
+            list_types = ["System.Collections.Stack", "System.Object"]
+        super(StackMeta, self).__init__("STK", name, optional, list_value_meta, list_types)
 
 
 class QueueMeta(ListMeta):
-    def __init__(self, name=None, optional=False, list_value_meta=None,
-                 list_types=None):
+    def __init__(
+        self,
+        name: typing.Optional[str] = None,
+        optional: bool = False,
+        list_value_meta: typing.Optional[ObjectMeta] = None,
+        list_types: typing.Optional[typing.List[str]] = None,
+    ) -> None:
         if list_types is None:
-            list_types = [
-                "System.Collections.Queue",
-                "System.Object"
-            ]
-        super(QueueMeta, self).__init__("QUE", name, optional, list_value_meta,
-                                        list_types)
+            list_types = ["System.Collections.Queue", "System.Object"]
+        super(QueueMeta, self).__init__("QUE", name, optional, list_value_meta, list_types)
 
 
 class DictionaryMeta(ObjectMeta):
-
-    def __init__(self, name=None, optional=False, dict_key_meta=None,
-                 dict_value_meta=None, dict_types=None):
+    def __init__(
+        self,
+        name: typing.Optional[str] = None,
+        optional: bool = False,
+        dict_key_meta: typing.Optional[ObjectMeta] = None,
+        dict_value_meta: typing.Optional[ObjectMeta] = None,
+        dict_types: typing.Optional[typing.List[str]] = None,
+    ) -> None:
         super(DictionaryMeta, self).__init__("DCT", name, optional)
         if dict_key_meta is None:
             self.dict_key_meta = ObjectMeta(name="Key")
@@ -77,78 +90,74 @@ class DictionaryMeta(ObjectMeta):
             self.dict_value_meta = dict_value_meta
 
         if dict_types is None:
-            self.dict_types = [
-                "System.Collections.Hashtable",
-                "System.Object"
-            ]
+            self.dict_types = ["System.Collections.Hashtable", "System.Object"]
         else:
             self.dict_types = dict_types
 
 
 class ComplexObject(object):
-
-    def __init__(self):
-        self._adapted_properties = ()
-        self._extended_properties = ()
-        self._property_sets = ()
-        self._types = []
+    def __init__(self) -> None:
+        self._adapted_properties: typing.Tuple[typing.Tuple[str, ObjectMeta], ...] = ()
+        self._extended_properties: typing.Tuple[typing.Tuple[str, ObjectMeta], ...] = ()
+        self._property_sets: typing.Tuple[typing.Tuple[str, ObjectMeta], ...] = ()
+        self._types: typing.List[str] = []
         self._to_string = None
-        self._xml = None  # only populated on deserialization
+        self._xml: typing.Optional[str] = None  # only populated on deserialization
 
-    def __str__(self):
+    def __str__(self) -> str:
         return to_string(self._to_string)
 
 
 class GenericComplexObject(ComplexObject):
-
-    def __init__(self):
+    def __init__(self) -> None:
         super(GenericComplexObject, self).__init__()
-        self.property_sets = []
-        self.extended_properties = {}
-        self.adapted_properties = {}
-        self.to_string = None
-        self.types = []
+        self.property_sets: typing.List[typing.Any] = []
+        self.extended_properties: typing.Dict[str, typing.Any] = {}
+        self.adapted_properties: typing.Dict[str, typing.Any] = {}
+        self.to_string: typing.Optional[str] = None
+        self.types: typing.List[str] = []
 
-    def __str__(self):
+    def __str__(self) -> str:
         return to_string(self.to_string)
 
 
 class Enum(ComplexObject):
-
-    def __init__(self, enum_type, string_map, **kwargs):
+    def __init__(
+        self,
+        enum_type: typing.Optional[str],
+        string_map: typing.Dict[int, str],
+        **kwargs: typing.Any,
+    ) -> None:
         super(Enum, self).__init__()
-        self._types = [
-            "System.Enum",
-            "System.ValueType",
-            "System.Object"
-        ]
+        self._types = ["System.Enum", "System.ValueType", "System.Object"]
         if enum_type is not None:
             self._types.insert(0, enum_type)
 
-        self._property_sets = (
-            ('value', ObjectMeta("I32")),
-        )
+        self._property_sets = (("value", ObjectMeta("I32")),)
         self._string_map = string_map
 
-        self.value = kwargs.get('value')
+        self.value = kwargs.get("value")
 
-    @property
-    def _to_string(self):
+    @property  # type: ignore[override]
+    def _to_string(self) -> str:  # type: ignore[override]
         try:
-            return self._string_map[self.value]
+            return self._string_map[self.value or 0]
         except KeyError as err:
-            raise KeyError("%s is not a valid enum value for %s, valid values "
-                           "are %s" % (err, self._types[0], self._string_map))
+            raise KeyError(
+                "%s is not a valid enum value for %s, valid values are %s" % (err, self._types[0], self._string_map)
+            )
 
     @_to_string.setter
-    def _to_string(self, value):
+    def _to_string(self, value: str) -> None:
         pass
 
 
 # PSRP Complex Objects - https://msdn.microsoft.com/en-us/library/dd302883.aspx
 class Coordinates(ComplexObject):
-
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        **kwargs: typing.Any,
+    ) -> None:
         """
         [MS-PSRP] 2.2.3.1 Coordinates
         https://msdn.microsoft.com/en-us/library/dd302883.aspx
@@ -158,21 +167,16 @@ class Coordinates(ComplexObject):
         """
         super(Coordinates, self).__init__()
         self._adapted_properties = (
-            ('x', ObjectMeta("I32", name="X")),
-            ('y', ObjectMeta("I32", name="Y")),
+            ("x", ObjectMeta("I32", name="X")),
+            ("y", ObjectMeta("I32", name="Y")),
         )
-        self._types = [
-            "System.Management.Automation.Host.Coordinates",
-            "System.ValueType",
-            "System.Object"
-        ]
-        self.x = kwargs.get('x')
-        self.y = kwargs.get('y')
+        self._types = ["System.Management.Automation.Host.Coordinates", "System.ValueType", "System.Object"]
+        self.x = kwargs.get("x")
+        self.y = kwargs.get("y")
 
 
 class Size(ComplexObject):
-
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: typing.Any) -> None:
         """
         [MS-PSRP] 2.2.3.2 Size
         https://msdn.microsoft.com/en-us/library/dd305083.aspx
@@ -182,16 +186,12 @@ class Size(ComplexObject):
         """
         super(Size, self).__init__()
         self._adapted_properties = (
-            ('width', ObjectMeta("I32", name="Width")),
-            ('height', ObjectMeta("I32", name="Height")),
+            ("width", ObjectMeta("I32", name="Width")),
+            ("height", ObjectMeta("I32", name="Height")),
         )
-        self._types = [
-            "System.Management.Automation.Host.Size",
-            "System.ValueType",
-            "System.Object"
-        ]
-        self.width = kwargs.get('width')
-        self.height = kwargs.get('height')
+        self._types = ["System.Management.Automation.Host.Size", "System.ValueType", "System.Object"]
+        self.width = kwargs.get("width")
+        self.height = kwargs.get("height")
 
 
 class Color(Enum):
@@ -212,7 +212,10 @@ class Color(Enum):
     YELLOW = 14
     WHITE = 15
 
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        **kwargs: typing.Any,
+    ) -> None:
         """
         [MS-PSRP] 2.2.3.3 Color
         https://msdn.microsoft.com/en-us/library/dd360026.aspx
@@ -237,8 +240,7 @@ class Color(Enum):
             14: "Yellow",
             15: "White",
         }
-        super(Color, self).__init__("System.ConsoleColor", string_map,
-                                    **kwargs)
+        super(Color, self).__init__("System.ConsoleColor", string_map, **kwargs)
 
 
 class RunspacePoolState(object):
@@ -275,7 +277,7 @@ class RunspacePoolState(object):
             6: "NegotiationSent",
             7: "NegotiationSucceeded",
             8: "Connecting",
-            9: "Disconnected"
+            9: "Disconnected",
         }[self.state]
 
 
@@ -307,7 +309,7 @@ class PSInvocationState(object):
             3: "Stopped",
             4: "Completed",
             5: "Failed",
-            6: "Disconnected"
+            6: "Disconnected",
         }[self.state]
 
 
@@ -317,22 +319,19 @@ class PSThreadOptions(Enum):
     REUSE_THREAD = 2
     USE_CURRENT_THREAD = 3
 
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        **kwargs: typing.Any,
+    ) -> None:
         """
         [MS-PSRP] 2.2.3.6 PSThreadOptions
         https://msdn.microsoft.com/en-us/library/dd305678.aspx
 
         :param value: The enum value for PS Thread Options
         """
-        string_map = {
-            0: "Default",
-            1: "UseNewThread",
-            2: "ReuseThread",
-            3: "UseCurrentThread"
-        }
+        string_map = {0: "Default", 1: "UseNewThread", 2: "ReuseThread", 3: "UseCurrentThread"}
         super(PSThreadOptions, self).__init__(
-            "System.Management.Automation.Runspaces.PSThreadOptions",
-            string_map, **kwargs
+            "System.Management.Automation.Runspaces.PSThreadOptions", string_map, **kwargs
         )
 
 
@@ -341,21 +340,19 @@ class ApartmentState(Enum):
     MTA = 1
     UNKNOWN = 2
 
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        **kwargs: typing.Any,
+    ) -> None:
         """
         [MS-PSRP] 2.2.3.7 ApartmentState
         https://msdn.microsoft.com/en-us/library/dd304257.aspx
 
         :param value: The enum value for Apartment State
         """
-        string_map = {
-            0: 'STA',
-            1: 'MTA',
-            2: 'UNKNOWN'
-        }
+        string_map = {0: "STA", 1: "MTA", 2: "UNKNOWN"}
         super(ApartmentState, self).__init__(
-            "System.Management.Automation.Runspaces.ApartmentState",
-            string_map, **kwargs
+            "System.Management.Automation.Runspaces.ApartmentState", string_map, **kwargs
         )
 
 
@@ -366,7 +363,10 @@ class RemoteStreamOptions(Enum):
     ADD_INVOCATION_INFO_TO_VERBOSE_RECORD = 8
     ADD_INVOCATION_INFO = 15
 
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        **kwargs: typing.Any,
+    ) -> None:
         """
         [MS-PSRP] 2.2.3.8 RemoteStreamOptions
         https://msdn.microsoft.com/en-us/library/dd303829.aspx
@@ -374,12 +374,11 @@ class RemoteStreamOptions(Enum):
         :param value: The initial RemoteStreamOption to set
         """
         super(RemoteStreamOptions, self).__init__(
-            "System.Management.Automation.Runspaces.RemoteStreamOptions",
-            {}, **kwargs
+            "System.Management.Automation.Runspaces.RemoteStreamOptions", {}, **kwargs
         )
 
-    @property
-    def _to_string(self):
+    @property  # type: ignore[override]
+    def _to_string(self) -> str:  # type: ignore[override]
         if self.value == 15:
             return "AddInvocationInfo"
 
@@ -391,7 +390,7 @@ class RemoteStreamOptions(Enum):
         )
         values = []
         for name, flag in string_map:
-            if self.value & flag == flag:
+            if (self.value or 0) & flag == flag:
                 values.append(name)
         return ", ".join(values)
 
@@ -401,27 +400,32 @@ class RemoteStreamOptions(Enum):
 
 
 class Pipeline(ComplexObject):
-
     class _ExtraCmds(ComplexObject):
         def __init__(self, **kwargs):
             # Used to encapsulate ExtraCmds in the structure required
             super(Pipeline._ExtraCmds, self).__init__()
             self._extended_properties = (
-                ('cmds', ListMeta(
-                    name="Cmds",
-                    list_value_meta=ObjectMeta("Obj", object=Command),
-                    list_types=[
-                        "System.Collections.Generic.List`1[["
-                        "System.Management.Automation.PSObject, "
-                        "System.Management.Automation, Version=1.0.0.0, "
-                        "Culture=neutral, PublicKeyToken=31bf3856ad364e35]]",
-                        "System.Object",
-                    ]
-                )),
+                (
+                    "cmds",
+                    ListMeta(
+                        name="Cmds",
+                        list_value_meta=ObjectMeta("Obj", object=Command),
+                        list_types=[
+                            "System.Collections.Generic.List`1[["
+                            "System.Management.Automation.PSObject, "
+                            "System.Management.Automation, Version=1.0.0.0, "
+                            "Culture=neutral, PublicKeyToken=31bf3856ad364e35]]",
+                            "System.Object",
+                        ],
+                    ),
+                ),
             )
-            self.cmds = kwargs.get('cmds')
+            self.cmds = kwargs.get("cmds")
 
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        **kwargs: typing.Any,
+    ) -> None:
         """
         [MS-PSRP] 2.2.3.11 Pipeline
         https://msdn.microsoft.com/en-us/library/dd358182.aspx
@@ -443,26 +447,23 @@ class Pipeline(ComplexObject):
         ]
 
         self._extended_properties = (
-            ('is_nested', ObjectMeta("B", name="IsNested")),
+            ("is_nested", ObjectMeta("B", name="IsNested")),
             # ExtraCmds isn't in spec but is value and used to send multiple
             # statements
-            ('_extra_cmds', ListMeta(
-                name="ExtraCmds",
-                list_value_meta=ObjectMeta("Obj", object=self._ExtraCmds),
-                list_types=cmd_types
-            )),
-            ('_cmds', ListMeta(
-                name="Cmds", list_value_meta=ObjectMeta("Obj", object=Command),
-                list_types=cmd_types
-            )),
-            ('history', ObjectMeta("S", name="History")),
-            ('redirect_err_to_out',
-             ObjectMeta("B", name="RedirectShellErrorOutputPipe")),
+            (
+                "_extra_cmds",
+                ListMeta(
+                    name="ExtraCmds", list_value_meta=ObjectMeta("Obj", object=self._ExtraCmds), list_types=cmd_types
+                ),
+            ),
+            ("_cmds", ListMeta(name="Cmds", list_value_meta=ObjectMeta("Obj", object=Command), list_types=cmd_types)),
+            ("history", ObjectMeta("S", name="History")),
+            ("redirect_err_to_out", ObjectMeta("B", name="RedirectShellErrorOutputPipe")),
         )
-        self.is_nested = kwargs.get('is_nested')
-        self.commands = kwargs.get('cmds')
-        self.history = kwargs.get('history')
-        self.redirect_err_to_out = kwargs.get('redirect_err_to_out')
+        self.is_nested = kwargs.get("is_nested")
+        self.commands = kwargs.get("cmds")
+        self.history = kwargs.get("history")
+        self.redirect_err_to_out = kwargs.get("redirect_err_to_out")
 
     @property
     def _cmds(self):
@@ -523,8 +524,12 @@ class Pipeline(ComplexObject):
 
 
 class Command(ComplexObject):
-
-    def __init__(self, cmd=None, protocol_version="2.3", **kwargs):
+    def __init__(
+        self,
+        cmd: typing.Optional[str] = None,
+        protocol_version: str = "2.3",
+        **kwargs: typing.Any,
+    ) -> None:
         """
         [MS-PSRP] 2.2.3.12 Command
         https://msdn.microsoft.com/en-us/library/dd339976.aspx
@@ -562,47 +567,41 @@ class Command(ComplexObject):
             "System.Object",
         ]
         extended_properties = [
-            ('cmd', ObjectMeta("S", name="Cmd")),
-            ('is_script', ObjectMeta("B", name="IsScript")),
-            ('use_local_scope', ObjectMeta("B", name="UseLocalScope")),
-            ('merge_my_result', ObjectMeta("Obj", name="MergeMyResult",
-                                           object=PipelineResultTypes)),
-            ('merge_to_result', ObjectMeta("Obj", name="MergeToResult",
-                                           object=PipelineResultTypes)),
-            ('merge_previous', ObjectMeta("Obj", name="MergePreviousResults",
-                                          object=PipelineResultTypes)),
-            ('args', ListMeta(
-                name="Args",
-                list_value_meta=ObjectMeta(object=CommandParameter),
-                list_types=arg_types)
-             ),
+            ("cmd", ObjectMeta("S", name="Cmd")),
+            ("is_script", ObjectMeta("B", name="IsScript")),
+            ("use_local_scope", ObjectMeta("B", name="UseLocalScope")),
+            ("merge_my_result", ObjectMeta("Obj", name="MergeMyResult", object=PipelineResultTypes)),
+            ("merge_to_result", ObjectMeta("Obj", name="MergeToResult", object=PipelineResultTypes)),
+            ("merge_previous", ObjectMeta("Obj", name="MergePreviousResults", object=PipelineResultTypes)),
+            ("args", ListMeta(name="Args", list_value_meta=ObjectMeta(object=CommandParameter), list_types=arg_types)),
         ]
 
         if version_equal_or_newer(protocol_version, "2.2"):
-            extended_properties.extend([
-                ('merge_error', ObjectMeta("Obj", name="MergeError",
-                                           object=PipelineResultTypes,
-                                           optional=True)),
-                ('merge_warning', ObjectMeta("Obj", name="MergeWarning",
-                                             object=PipelineResultTypes,
-                                             optional=True)),
-                ('merge_verbose', ObjectMeta("Obj", name="MergeVerbose",
-                                             object=PipelineResultTypes,
-                                             optional=True)),
-                ('merge_debug', ObjectMeta("Obj", name="MergeDebug",
-                                           object=PipelineResultTypes,
-                                           optional=True)),
-            ])
+            extended_properties.extend(
+                [
+                    ("merge_error", ObjectMeta("Obj", name="MergeError", object=PipelineResultTypes, optional=True)),
+                    (
+                        "merge_warning",
+                        ObjectMeta("Obj", name="MergeWarning", object=PipelineResultTypes, optional=True),
+                    ),
+                    (
+                        "merge_verbose",
+                        ObjectMeta("Obj", name="MergeVerbose", object=PipelineResultTypes, optional=True),
+                    ),
+                    ("merge_debug", ObjectMeta("Obj", name="MergeDebug", object=PipelineResultTypes, optional=True)),
+                ]
+            )
 
         if version_equal_or_newer(protocol_version, "2.3"):
-            extended_properties.extend([
-                ('merge_information', ObjectMeta(
-                    "Obj", name="MergeInformation",
-                    object=PipelineResultTypes,
-                    optional=True
-                )),
-            ])
-        self._extended_properties = extended_properties
+            extended_properties.extend(
+                [
+                    (
+                        "merge_information",
+                        ObjectMeta("Obj", name="MergeInformation", object=PipelineResultTypes, optional=True),
+                    ),
+                ]
+            )
+        self._extended_properties = tuple(extended_properties)
 
         self.cmd = cmd
         self.protocol_version = protocol_version
@@ -634,8 +633,11 @@ class Command(ComplexObject):
 
 
 class CommandParameter(ComplexObject):
-
-    def __init__(self, name=None, value=None):
+    def __init__(
+        self,
+        name: typing.Optional[str] = None,
+        value: typing.Any = None,
+    ) -> None:
         """
         [MS-PSRP] 2.2.3.13 Command Parameter
         https://msdn.microsoft.com/en-us/library/dd359709.aspx
@@ -646,8 +648,8 @@ class CommandParameter(ComplexObject):
         """
         super(CommandParameter, self).__init__()
         self._extended_properties = (
-            ('name', ObjectMeta("S", name="N")),
-            ('value', ObjectMeta(name="V")),
+            ("name", ObjectMeta("S", name="N")),
+            ("value", ObjectMeta(name="V")),
         )
         self.name = name
         self.value = value
@@ -656,67 +658,57 @@ class CommandParameter(ComplexObject):
 # The host default data is serialized quite differently from the normal rules
 # this contains some sub classes that are specific to the serialized form
 class _HostDefaultData(ComplexObject):
-
     class _DictValue(ComplexObject):
-
         def __init__(self, **kwargs):
             super(_HostDefaultData._DictValue, self).__init__()
             self._extended_properties = (
-                ('value_type', ObjectMeta("S", name="T")),
-                ('value', ObjectMeta(name="V")),
+                ("value_type", ObjectMeta("S", name="T")),
+                ("value", ObjectMeta(name="V")),
             )
-            self.value_type = kwargs.get('value_type')
-            self.value = kwargs.get('value')
+            self.value_type = kwargs.get("value_type")
+            self.value = kwargs.get("value")
 
     class _Color(ComplexObject):
-
         def __init__(self, color):
             super(_HostDefaultData._Color, self).__init__()
             self._extended_properties = (
-                ('type', ObjectMeta("S", name="T")),
-                ('color', ObjectMeta("I32", name="V")),
+                ("type", ObjectMeta("S", name="T")),
+                ("color", ObjectMeta("I32", name="V")),
             )
             self.type = "System.ConsoleColor"
             self.color = color.value
 
     class _Coordinates(ComplexObject):
-
         def __init__(self, coordinates):
             super(_HostDefaultData._Coordinates, self).__init__()
             self._extended_properties = (
-                ('type', ObjectMeta("S", name="T")),
-                ('value', ObjectMeta("ObjDynamic", name="V",
-                                     object=GenericComplexObject)),
+                ("type", ObjectMeta("S", name="T")),
+                ("value", ObjectMeta("ObjDynamic", name="V", object=GenericComplexObject)),
             )
             self.type = "System.Management.Automation.Host.Coordinates"
             self.value = GenericComplexObject()
-            self.value.extended_properties['x'] = coordinates.x
-            self.value.extended_properties['y'] = coordinates.y
+            self.value.extended_properties["x"] = coordinates.x
+            self.value.extended_properties["y"] = coordinates.y
 
     class _Size(ComplexObject):
-
         def __init__(self, size):
             super(_HostDefaultData._Size, self).__init__()
             self._extended_properties = (
-                ('type', ObjectMeta("S", name="T")),
-                ('value', ObjectMeta("ObjDynamic", name="V",
-                                     object=GenericComplexObject)),
+                ("type", ObjectMeta("S", name="T")),
+                ("value", ObjectMeta("ObjDynamic", name="V", object=GenericComplexObject)),
             )
             self.type = "System.Management.Automation.Host.Size"
             self.value = GenericComplexObject()
-            self.value.extended_properties['width'] = size.width
-            self.value.extended_properties['height'] = size.height
+            self.value.extended_properties["width"] = size.width
+            self.value.extended_properties["height"] = size.height
 
     def __init__(self, **kwargs):
         # Used by HostInfo to encapsulate the host info values inside a
         # special object required by PSRP
         super(_HostDefaultData, self).__init__()
         key_meta = ObjectMeta("I32", name="Key")
-        self._extended_properties = (
-            ('_host_dict', DictionaryMeta(name="data",
-                                          dict_key_meta=key_meta)),
-        )
-        self.raw_ui = kwargs.get('raw_ui')
+        self._extended_properties = (("_host_dict", DictionaryMeta(name="data", dict_key_meta=key_meta)),)
+        self.raw_ui = kwargs.get("raw_ui")
 
     @property
     def _host_dict(self):
@@ -725,20 +717,20 @@ class _HostDefaultData(ComplexObject):
             (1, self._Color(self.raw_ui.background_color)),
             (2, self._Coordinates(self.raw_ui.cursor_position)),
             (3, self._Coordinates(self.raw_ui.window_position)),
-            (4, self._DictValue(value_type="System.Int32",
-                                value=self.raw_ui.cursor_size)),
+            (4, self._DictValue(value_type="System.Int32", value=self.raw_ui.cursor_size)),
             (5, self._Size(self.raw_ui.buffer_size)),
             (6, self._Size(self.raw_ui.window_size)),
             (7, self._Size(self.raw_ui.max_window_size)),
             (8, self._Size(self.raw_ui.max_physical_window_size)),
-            (9, self._DictValue(value_type="System.String",
-                                value=self.raw_ui.window_title)),
+            (9, self._DictValue(value_type="System.String", value=self.raw_ui.window_title)),
         )
 
 
 class HostInfo(ComplexObject):
-
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        **kwargs: typing.Any,
+    ) -> None:
         """
         [MS-PSRP] 2.2.3.14 HostInfo
         https://msdn.microsoft.com/en-us/library/dd340936.aspx
@@ -748,14 +740,13 @@ class HostInfo(ComplexObject):
         """
         super(HostInfo, self).__init__()
         self._extended_properties = (
-            ('_host_data', ObjectMeta("Obj", name="_hostDefaultData",
-                                      optional=True, object=_HostDefaultData)),
-            ('_is_host_null', ObjectMeta("B", name="_isHostNull")),
-            ('_is_host_ui_null', ObjectMeta("B", name="_isHostUINull")),
-            ('_is_host_raw_ui_null', ObjectMeta("B", name="_isHostRawUINull")),
-            ('_use_runspace_host', ObjectMeta("B", name="_useRunspaceHost")),
+            ("_host_data", ObjectMeta("Obj", name="_hostDefaultData", optional=True, object=_HostDefaultData)),
+            ("_is_host_null", ObjectMeta("B", name="_isHostNull")),
+            ("_is_host_ui_null", ObjectMeta("B", name="_isHostUINull")),
+            ("_is_host_raw_ui_null", ObjectMeta("B", name="_isHostRawUINull")),
+            ("_use_runspace_host", ObjectMeta("B", name="_useRunspaceHost")),
         )
-        self.host = kwargs.get('host', None)
+        self.host = kwargs.get("host", None)
 
     @property
     def _is_host_null(self):
@@ -789,383 +780,281 @@ class HostInfo(ComplexObject):
 
 
 class ErrorRecord(ComplexObject):
-
     def __init__(self, **kwargs):
         """
         [MS-PSRP] 2.2.3.15 ErrorRecord
         https://msdn.microsoft.com/en-us/library/dd340106.aspx
         """
         super(ErrorRecord, self).__init__()
-        self._types = [
-            "System.Management.Automation.ErrorRecord",
-            "System.Object"
-        ]
+        self._types = ["System.Management.Automation.ErrorRecord", "System.Object"]
         self._extended_properties = (
-            ('exception', ObjectMeta(name="Exception", optional=True)),
-            ('target_object', ObjectMeta(name="TargetObject", optional=True)),
-            ('invocation', ObjectMeta("B", name="SerializeExtendedInfo")),
-            ('invocation_info', ObjectMeta("ObjDynamic", name="InvocationInfo",
-                                           object=GenericComplexObject,
-                                           optional=True)),
-            ('fq_error', ObjectMeta("S", name="FullyQualifiedErrorId")),
-            ('category', ObjectMeta("I32", name="ErrorCategory_Category")),
-            ('activity', ObjectMeta("S", name="ErrorCategory_Activity",
-                                    optional=True)),
-            ('reason', ObjectMeta("S", name="ErrorCategory_Reason",
-                                  optional=True)),
-            ('target_name', ObjectMeta("S", name="ErrorCategory_TargetName",
-                                       optional=True)),
-            ('target_type', ObjectMeta("S", name="ErrorCategory_TargetType",
-                                       optional=True)),
-            ('message', ObjectMeta("S", name="ErrorCategory_Message",
-                                   optional=True)),
-            ('details_message', ObjectMeta("S", name="ErrorDetails_Message",
-                                           optional=True)),
-            ('action', ObjectMeta("S", name="ErrorDetails_RecommendedAction",
-                                  optional=True)),
-            ('script_stacktrace', ObjectMeta(
-                "S",
-                name="ErrorDetails_ScriptStackTrace",
-                optional=True
-            )),
-            ('extended_info_present', ObjectMeta(
-                "B", name="SerializeExtendedInfo"
-            )),
-            ('invocation_name', ObjectMeta(
-                "S",
-                optional=True,
-                name="InvocationInfo_InvocationName"
-            )),
-            ('invocation_bound_parameters', DictionaryMeta(
-                name="InvocationInfo_BoundParameters",
-                optional=True,
-                dict_key_meta=ObjectMeta("S"),
-                dict_types=[
-                    "System.Management.Automation.PSBoundParametersDictionary",
-                    "System.Collections.Generic.Dictionary`2[[System.String, "
-                    "mscorlib, Version=4.0.0.0, Culture=neutral, "
-                    "PublicKeyToken=b77a5c561934e089],"
-                    "[System.Object, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ]
-            )),
-            ('invocation_unbound_arguments', ListMeta(
-                name="InvocationInfo_UnboundArguments",
-                optional=True,
-                list_types=[
-                    "System.Collections.Generic.List`1[["
-                    "System.Object, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ]
-            )),
-            ('invocation_command_origin', ObjectMeta(
-                "Obj",
-                name="InvocationInfo_CommandOrigin",
-                optional=True,
-                object=CommandOrigin
-            )),
-            ('invocation_expecting_input', ObjectMeta(
-                "B",
-                name="InvocationInfo_ExpectingInput",
-                optional=True
-            )),
-            ('invocation_line', ObjectMeta(
-                "S",
-                name="InvocationInfo_Line",
-                optional=True
-            )),
-            ('invocation_offset_in_line', ObjectMeta(
-                "I32",
-                name="InvocationInfo_OffsetInLine",
-                optional=True
-            )),
-            ('invocation_position_message', ObjectMeta(
-                "S",
-                name="InvocationInfo_PositionMessage",
-                optional=True
-            )),
-            ('invocation_script_name', ObjectMeta(
-                "S",
-                name="InvocationInfo_ScriptName",
-                optional=True
-            )),
-            ('invocation_script_line_number', ObjectMeta(
-                "I32",
-                name="InvocationInfo_ScriptLineNumber",
-                optional=True
-            )),
-            ('invocation_history_id', ObjectMeta(
-                "I64",
-                name="InvocationInfo_HistoryId",
-                optional=True
-            )),
-            ('invocation_pipeline_length', ObjectMeta(
-                "I32",
-                name="InvocationInfo_PipelineLength",
-                optional=True
-            )),
-            ('invocation_pipeline_position', ObjectMeta(
-                "I32",
-                name="InvocationInfo_PipelinePosition",
-                optional=True
-            )),
-            ('invocation_pipeline_iteration_info', ListMeta(
-                name="InvocationInfo_PipelineIterationInfo",
-                optional=True,
-                list_value_meta=ObjectMeta("I32"),
-                list_types=["System.In32[]", "System.Array", "System.Object"]
-            )),
-            ('command_type', ObjectMeta(
-                "Obj",
-                name="CommandInfo_CommandType",
-                object=CommandType,
-                optional=True,
-            )),
-            ('command_definition', ObjectMeta(
-                "S",
-                name="CommandInfo_Definition",
-                optional=True,
-            )),
-            ('command_name', ObjectMeta(
-                "S",
-                name="CommandInfo_Name",
-                optional=True
-            )),
-            ('command_visibility', ObjectMeta(
-                "Obj",
-                name="CommandInfo_Visibility",
-                object=SessionStateEntryVisibility,
-                optional=True
-            )),
-            ('pipeline_iteration_info', ListMeta(
-                name="PipelineIterationInfo", optional=True,
-                list_value_meta=ObjectMeta("I32"),
-                list_types=[
-                    "System.Collections.ObjectModel.ReadOnlyCollection`1[["
-                    "System.Int32, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ]
-            )),
+            ("exception", ObjectMeta(name="Exception", optional=True)),
+            ("target_object", ObjectMeta(name="TargetObject", optional=True)),
+            ("invocation", ObjectMeta("B", name="SerializeExtendedInfo")),
+            (
+                "invocation_info",
+                ObjectMeta("ObjDynamic", name="InvocationInfo", object=GenericComplexObject, optional=True),
+            ),
+            ("fq_error", ObjectMeta("S", name="FullyQualifiedErrorId")),
+            ("category", ObjectMeta("I32", name="ErrorCategory_Category")),
+            ("activity", ObjectMeta("S", name="ErrorCategory_Activity", optional=True)),
+            ("reason", ObjectMeta("S", name="ErrorCategory_Reason", optional=True)),
+            ("target_name", ObjectMeta("S", name="ErrorCategory_TargetName", optional=True)),
+            ("target_type", ObjectMeta("S", name="ErrorCategory_TargetType", optional=True)),
+            ("message", ObjectMeta("S", name="ErrorCategory_Message", optional=True)),
+            ("details_message", ObjectMeta("S", name="ErrorDetails_Message", optional=True)),
+            ("action", ObjectMeta("S", name="ErrorDetails_RecommendedAction", optional=True)),
+            ("script_stacktrace", ObjectMeta("S", name="ErrorDetails_ScriptStackTrace", optional=True)),
+            ("extended_info_present", ObjectMeta("B", name="SerializeExtendedInfo")),
+            ("invocation_name", ObjectMeta("S", optional=True, name="InvocationInfo_InvocationName")),
+            (
+                "invocation_bound_parameters",
+                DictionaryMeta(
+                    name="InvocationInfo_BoundParameters",
+                    optional=True,
+                    dict_key_meta=ObjectMeta("S"),
+                    dict_types=[
+                        "System.Management.Automation.PSBoundParametersDictionary",
+                        "System.Collections.Generic.Dictionary`2[[System.String, "
+                        "mscorlib, Version=4.0.0.0, Culture=neutral, "
+                        "PublicKeyToken=b77a5c561934e089],"
+                        "[System.Object, mscorlib, Version=4.0.0.0, "
+                        "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                        "System.Object",
+                    ],
+                ),
+            ),
+            (
+                "invocation_unbound_arguments",
+                ListMeta(
+                    name="InvocationInfo_UnboundArguments",
+                    optional=True,
+                    list_types=[
+                        "System.Collections.Generic.List`1[["
+                        "System.Object, mscorlib, Version=4.0.0.0, "
+                        "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                        "System.Object",
+                    ],
+                ),
+            ),
+            (
+                "invocation_command_origin",
+                ObjectMeta("Obj", name="InvocationInfo_CommandOrigin", optional=True, object=CommandOrigin),
+            ),
+            ("invocation_expecting_input", ObjectMeta("B", name="InvocationInfo_ExpectingInput", optional=True)),
+            ("invocation_line", ObjectMeta("S", name="InvocationInfo_Line", optional=True)),
+            ("invocation_offset_in_line", ObjectMeta("I32", name="InvocationInfo_OffsetInLine", optional=True)),
+            ("invocation_position_message", ObjectMeta("S", name="InvocationInfo_PositionMessage", optional=True)),
+            ("invocation_script_name", ObjectMeta("S", name="InvocationInfo_ScriptName", optional=True)),
+            ("invocation_script_line_number", ObjectMeta("I32", name="InvocationInfo_ScriptLineNumber", optional=True)),
+            ("invocation_history_id", ObjectMeta("I64", name="InvocationInfo_HistoryId", optional=True)),
+            ("invocation_pipeline_length", ObjectMeta("I32", name="InvocationInfo_PipelineLength", optional=True)),
+            ("invocation_pipeline_position", ObjectMeta("I32", name="InvocationInfo_PipelinePosition", optional=True)),
+            (
+                "invocation_pipeline_iteration_info",
+                ListMeta(
+                    name="InvocationInfo_PipelineIterationInfo",
+                    optional=True,
+                    list_value_meta=ObjectMeta("I32"),
+                    list_types=["System.In32[]", "System.Array", "System.Object"],
+                ),
+            ),
+            (
+                "command_type",
+                ObjectMeta(
+                    "Obj",
+                    name="CommandInfo_CommandType",
+                    object=CommandType,
+                    optional=True,
+                ),
+            ),
+            (
+                "command_definition",
+                ObjectMeta(
+                    "S",
+                    name="CommandInfo_Definition",
+                    optional=True,
+                ),
+            ),
+            ("command_name", ObjectMeta("S", name="CommandInfo_Name", optional=True)),
+            (
+                "command_visibility",
+                ObjectMeta("Obj", name="CommandInfo_Visibility", object=SessionStateEntryVisibility, optional=True),
+            ),
+            (
+                "pipeline_iteration_info",
+                ListMeta(
+                    name="PipelineIterationInfo",
+                    optional=True,
+                    list_value_meta=ObjectMeta("I32"),
+                    list_types=[
+                        "System.Collections.ObjectModel.ReadOnlyCollection`1[["
+                        "System.Int32, mscorlib, Version=4.0.0.0, "
+                        "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                        "System.Object",
+                    ],
+                ),
+            ),
         )
-        self.exception = kwargs.get('exception')
-        self.target_info = kwargs.get('target_info')
-        self.invocation = kwargs.get('invocation')
-        self.fq_error = kwargs.get('fq_error')
-        self.category = kwargs.get('category')
-        self.activity = kwargs.get('activity')
-        self.reason = kwargs.get('reason')
-        self.target_name = kwargs.get('target_name')
-        self.target_type = kwargs.get('target_type')
-        self.message = kwargs.get('message')
-        self.details_message = kwargs.get('details_message')
-        self.action = kwargs.get('action')
-        self.pipeline_iteration_info = kwargs.get('pipeline_iteration_info')
-        self.invocation_name = kwargs.get('invocation_name')
-        self.invocation_bound_parameters = \
-            kwargs.get('invocation_bound_parameters')
-        self.invocation_unbound_arguments = \
-            kwargs.get('invocation_unbound_arguments')
-        self.invocation_command_origin = \
-            kwargs.get('invocation_command_origin')
-        self.invocation_expecting_input = \
-            kwargs.get('invocation_expecting_input')
-        self.invocation_line = kwargs.get('invocation_line')
-        self.invocation_offset_in_line = \
-            kwargs.get('invocation_offset_in_line')
-        self.invocation_position_message = \
-            kwargs.get('invocation_position_message')
-        self.invocation_script_name = kwargs.get('invocation_script_name')
-        self.invocation_script_line_number = \
-            kwargs.get('invocation_script_line_number')
-        self.invocation_history_id = kwargs.get('invocation_history_id')
-        self.invocation_pipeline_length = \
-            kwargs.get('invocation_pipeline_length')
-        self.invocation_pipeline_position = \
-            kwargs.get('invocation_pipeline_position')
-        self.invocation_pipeline_iteration_info = \
-            kwargs.get('invocation_pipeline_iteration_info')
-        self.command_type = kwargs.get('command_type')
-        self.command_definition = kwargs.get('command_definition')
-        self.command_name = kwargs.get('command_name')
-        self.command_visibility = kwargs.get('command_visibility')
+        self.exception = kwargs.get("exception")
+        self.target_info = kwargs.get("target_info")
+        self.invocation = kwargs.get("invocation")
+        self.fq_error = kwargs.get("fq_error")
+        self.category = kwargs.get("category")
+        self.activity = kwargs.get("activity")
+        self.reason = kwargs.get("reason")
+        self.target_name = kwargs.get("target_name")
+        self.target_type = kwargs.get("target_type")
+        self.message = kwargs.get("message")
+        self.details_message = kwargs.get("details_message")
+        self.action = kwargs.get("action")
+        self.pipeline_iteration_info = kwargs.get("pipeline_iteration_info")
+        self.invocation_name = kwargs.get("invocation_name")
+        self.invocation_bound_parameters = kwargs.get("invocation_bound_parameters")
+        self.invocation_unbound_arguments = kwargs.get("invocation_unbound_arguments")
+        self.invocation_command_origin = kwargs.get("invocation_command_origin")
+        self.invocation_expecting_input = kwargs.get("invocation_expecting_input")
+        self.invocation_line = kwargs.get("invocation_line")
+        self.invocation_offset_in_line = kwargs.get("invocation_offset_in_line")
+        self.invocation_position_message = kwargs.get("invocation_position_message")
+        self.invocation_script_name = kwargs.get("invocation_script_name")
+        self.invocation_script_line_number = kwargs.get("invocation_script_line_number")
+        self.invocation_history_id = kwargs.get("invocation_history_id")
+        self.invocation_pipeline_length = kwargs.get("invocation_pipeline_length")
+        self.invocation_pipeline_position = kwargs.get("invocation_pipeline_position")
+        self.invocation_pipeline_iteration_info = kwargs.get("invocation_pipeline_iteration_info")
+        self.command_type = kwargs.get("command_type")
+        self.command_definition = kwargs.get("command_definition")
+        self.command_name = kwargs.get("command_name")
+        self.command_visibility = kwargs.get("command_visibility")
         self.extended_info_present = self.invocation is not None
 
 
 class InformationalRecord(ComplexObject):
-
     def __init__(self, **kwargs):
         """
         [MS-PSRP] 2.2.3.16 InformationalRecord (Debug/Warning/Verbose)
         https://msdn.microsoft.com/en-us/library/dd305072.aspx
         """
         super(InformationalRecord, self).__init__()
-        self._types = [
-            "System.Management.Automation.InformationRecord",
-            "System.Object"
-        ]
+        self._types = ["System.Management.Automation.InformationRecord", "System.Object"]
         self._extended_properties = (
-            ('message', ObjectMeta("S", name="InformationalRecord_Message")),
-            ('invocation', ObjectMeta(
-                "B", name="InformationalRecord_SerializeInvocationInfo"
-            )),
-            ('invocation_name', ObjectMeta(
-                "S",
-                optional=True,
-                name="InvocationInfo_InvocationName"
-            )),
-            ('invocation_bound_parameters', DictionaryMeta(
-                name="InvocationInfo_BoundParameters",
-                optional=True,
-                dict_key_meta=ObjectMeta("S"),
-                dict_types=[
-                    "System.Management.Automation.PSBoundParametersDictionary",
-                    "System.Collections.Generic.Dictionary`2[[System.String, "
-                    "mscorlib, Version=4.0.0.0, Culture=neutral, "
-                    "PublicKeyToken=b77a5c561934e089],"
-                    "[System.Object, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ]
-            )),
-            ('invocation_unbound_arguments', ListMeta(
-                name="InvocationInfo_UnboundArguments",
-                optional=True,
-                list_types=[
-                    "System.Collections.Generic.List`1[["
-                    "System.Object, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ]
-            )),
-            ('invocation_command_origin', ObjectMeta(
-                "Obj",
-                name="InvocationInfo_CommandOrigin",
-                optional=True,
-                object=CommandOrigin
-            )),
-            ('invocation_expecting_input', ObjectMeta(
-                "B",
-                name="InvocationInfo_ExpectingInput",
-                optional=True
-            )),
-            ('invocation_line', ObjectMeta(
-                "S",
-                name="InvocationInfo_Line",
-                optional=True
-            )),
-            ('invocation_offset_in_line', ObjectMeta(
-                "I32",
-                name="InvocationInfo_OffsetInLine",
-                optional=True
-            )),
-            ('invocation_position_message', ObjectMeta(
-                "S",
-                name="InvocationInfo_PositionMessage",
-                optional=True
-            )),
-            ('invocation_script_name', ObjectMeta(
-                "S",
-                name="InvocationInfo_ScriptName",
-                optional=True
-            )),
-            ('invocation_script_line_number', ObjectMeta(
-                "I32",
-                name="InvocationInfo_ScriptLineNumber",
-                optional=True
-            )),
-            ('invocation_history_id', ObjectMeta(
-                "I64",
-                name="InvocationInfo_HistoryId",
-                optional=True
-            )),
-            ('invocation_pipeline_length', ObjectMeta(
-                "I32",
-                name="InvocationInfo_PipelineLength",
-                optional=True
-            )),
-            ('invocation_pipeline_position', ObjectMeta(
-                "I32",
-                name="InvocationInfo_PipelinePosition",
-                optional=True
-            )),
-            ('invocation_pipeline_iteration_info', ListMeta(
-                name="InvocationInfo_PipelineIterationInfo",
-                optional=True,
-                list_value_meta=ObjectMeta("I32"),
-                list_types=["System.In32[]", "System.Array", "System.Object"]
-            )),
-            ('command_type', ObjectMeta(
-                "Obj",
-                name="CommandInfo_CommandType",
-                object=CommandType,
-                optional=True,
-            )),
-            ('command_definition', ObjectMeta(
-                "S",
-                name="CommandInfo_Definition",
-                optional=True,
-            )),
-            ('command_name', ObjectMeta(
-                "S",
-                name="CommandInfo_Name",
-                optional=True
-            )),
-            ('command_visibility', ObjectMeta(
-                "Obj",
-                name="CommandInfo_Visibility",
-                object=SessionStateEntryVisibility,
-                optional=True
-            )),
-            ('pipeline_iteration_info', ListMeta(
-                name="InformationalRecord_PipelineIterationInfo",
-                optional=True,
-                list_value_meta=ObjectMeta("I32"),
-                list_types=[
-                    "System.Collections.ObjectModel.ReadOnlyCollection`1[["
-                    "System.Int32, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ]
-            ))
+            ("message", ObjectMeta("S", name="InformationalRecord_Message")),
+            ("invocation", ObjectMeta("B", name="InformationalRecord_SerializeInvocationInfo")),
+            ("invocation_name", ObjectMeta("S", optional=True, name="InvocationInfo_InvocationName")),
+            (
+                "invocation_bound_parameters",
+                DictionaryMeta(
+                    name="InvocationInfo_BoundParameters",
+                    optional=True,
+                    dict_key_meta=ObjectMeta("S"),
+                    dict_types=[
+                        "System.Management.Automation.PSBoundParametersDictionary",
+                        "System.Collections.Generic.Dictionary`2[[System.String, "
+                        "mscorlib, Version=4.0.0.0, Culture=neutral, "
+                        "PublicKeyToken=b77a5c561934e089],"
+                        "[System.Object, mscorlib, Version=4.0.0.0, "
+                        "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                        "System.Object",
+                    ],
+                ),
+            ),
+            (
+                "invocation_unbound_arguments",
+                ListMeta(
+                    name="InvocationInfo_UnboundArguments",
+                    optional=True,
+                    list_types=[
+                        "System.Collections.Generic.List`1[["
+                        "System.Object, mscorlib, Version=4.0.0.0, "
+                        "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                        "System.Object",
+                    ],
+                ),
+            ),
+            (
+                "invocation_command_origin",
+                ObjectMeta("Obj", name="InvocationInfo_CommandOrigin", optional=True, object=CommandOrigin),
+            ),
+            ("invocation_expecting_input", ObjectMeta("B", name="InvocationInfo_ExpectingInput", optional=True)),
+            ("invocation_line", ObjectMeta("S", name="InvocationInfo_Line", optional=True)),
+            ("invocation_offset_in_line", ObjectMeta("I32", name="InvocationInfo_OffsetInLine", optional=True)),
+            ("invocation_position_message", ObjectMeta("S", name="InvocationInfo_PositionMessage", optional=True)),
+            ("invocation_script_name", ObjectMeta("S", name="InvocationInfo_ScriptName", optional=True)),
+            ("invocation_script_line_number", ObjectMeta("I32", name="InvocationInfo_ScriptLineNumber", optional=True)),
+            ("invocation_history_id", ObjectMeta("I64", name="InvocationInfo_HistoryId", optional=True)),
+            ("invocation_pipeline_length", ObjectMeta("I32", name="InvocationInfo_PipelineLength", optional=True)),
+            ("invocation_pipeline_position", ObjectMeta("I32", name="InvocationInfo_PipelinePosition", optional=True)),
+            (
+                "invocation_pipeline_iteration_info",
+                ListMeta(
+                    name="InvocationInfo_PipelineIterationInfo",
+                    optional=True,
+                    list_value_meta=ObjectMeta("I32"),
+                    list_types=["System.In32[]", "System.Array", "System.Object"],
+                ),
+            ),
+            (
+                "command_type",
+                ObjectMeta(
+                    "Obj",
+                    name="CommandInfo_CommandType",
+                    object=CommandType,
+                    optional=True,
+                ),
+            ),
+            (
+                "command_definition",
+                ObjectMeta(
+                    "S",
+                    name="CommandInfo_Definition",
+                    optional=True,
+                ),
+            ),
+            ("command_name", ObjectMeta("S", name="CommandInfo_Name", optional=True)),
+            (
+                "command_visibility",
+                ObjectMeta("Obj", name="CommandInfo_Visibility", object=SessionStateEntryVisibility, optional=True),
+            ),
+            (
+                "pipeline_iteration_info",
+                ListMeta(
+                    name="InformationalRecord_PipelineIterationInfo",
+                    optional=True,
+                    list_value_meta=ObjectMeta("I32"),
+                    list_types=[
+                        "System.Collections.ObjectModel.ReadOnlyCollection`1[["
+                        "System.Int32, mscorlib, Version=4.0.0.0, "
+                        "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                        "System.Object",
+                    ],
+                ),
+            ),
         )
-        self.message = kwargs.get('message')
-        self.pipeline_iteration_info = kwargs.get('pipeline_iteration_info')
-        self.invocation_name = kwargs.get('invocation_name')
-        self.invocation_bound_parameters = \
-            kwargs.get('invocation_bound_parameters')
-        self.invocation_unbound_arguments = \
-            kwargs.get('invocation_unbound_arguments')
-        self.invocation_command_origin = \
-            kwargs.get('invocation_command_origin')
-        self.invocation_expecting_input = \
-            kwargs.get('invocation_expecting_input')
-        self.invocation_line = kwargs.get('invocation_line')
-        self.invocation_offset_in_line = \
-            kwargs.get('invocation_offset_in_line')
-        self.invocation_position_message = \
-            kwargs.get('invocation_position_message')
-        self.invocation_script_name = kwargs.get('invocation_script_name')
-        self.invocation_script_line_number = \
-            kwargs.get('invocation_script_line_number')
-        self.invocation_history_id = kwargs.get('invocation_history_id')
-        self.invocation_pipeline_length = \
-            kwargs.get('invocation_pipeline_length')
-        self.invocation_pipeline_position = \
-            kwargs.get('invocation_pipeline_position')
-        self.invocation_pipeline_iteration_info = \
-            kwargs.get('invocation_pipeline_iteration_info')
-        self.command_type = kwargs.get('command_type')
-        self.command_definition = kwargs.get('command_definition')
-        self.command_name = kwargs.get('command_name')
-        self.command_visibility = kwargs.get('command_visibility')
+        self.message = kwargs.get("message")
+        self.pipeline_iteration_info = kwargs.get("pipeline_iteration_info")
+        self.invocation_name = kwargs.get("invocation_name")
+        self.invocation_bound_parameters = kwargs.get("invocation_bound_parameters")
+        self.invocation_unbound_arguments = kwargs.get("invocation_unbound_arguments")
+        self.invocation_command_origin = kwargs.get("invocation_command_origin")
+        self.invocation_expecting_input = kwargs.get("invocation_expecting_input")
+        self.invocation_line = kwargs.get("invocation_line")
+        self.invocation_offset_in_line = kwargs.get("invocation_offset_in_line")
+        self.invocation_position_message = kwargs.get("invocation_position_message")
+        self.invocation_script_name = kwargs.get("invocation_script_name")
+        self.invocation_script_line_number = kwargs.get("invocation_script_line_number")
+        self.invocation_history_id = kwargs.get("invocation_history_id")
+        self.invocation_pipeline_length = kwargs.get("invocation_pipeline_length")
+        self.invocation_pipeline_position = kwargs.get("invocation_pipeline_position")
+        self.invocation_pipeline_iteration_info = kwargs.get("invocation_pipeline_iteration_info")
+        self.command_type = kwargs.get("command_type")
+        self.command_definition = kwargs.get("command_definition")
+        self.command_name = kwargs.get("command_name")
+        self.command_visibility = kwargs.get("command_visibility")
         self.invocation = False
 
 
 class HostMethodIdentifier(Enum):
-
     def __init__(self, **kwargs):
         """
         [MS-PSRP] 2.2.3.17 Host Method Identifier
@@ -1231,11 +1120,10 @@ class HostMethodIdentifier(Enum):
             53: "PopRunspace",
             54: "GetIsRunspacePushed",
             55: "GetRunspce",
-            56: "PromptForChoiceMultipleSelection"
+            56: "PromptForChoiceMultipleSelection",
         }
         super(HostMethodIdentifier, self).__init__(
-            "System.Management.Automation.Remoting.RemoteHostMethodId",
-            string_map, **kwargs
+            "System.Management.Automation.Remoting.RemoteHostMethodId", string_map, **kwargs
         )
 
 
@@ -1258,12 +1146,10 @@ class CommandType(Enum):
 
         :param value: The initial flag value for CommandType
         """
-        super(CommandType, self).__init__(
-            "System.Management.Automation.CommandTypes", {}, **kwargs
-        )
+        super(CommandType, self).__init__("System.Management.Automation.CommandTypes", {}, **kwargs)
 
-    @property
-    def _to_string(self):
+    @property  # type: ignore[override]
+    def _to_string(self) -> str:  # type: ignore[override]
         if self.value == 0x01FF:
             return "All"
 
@@ -1280,7 +1166,7 @@ class CommandType(Enum):
         )
         values = []
         for name, flag in string_map:
-            if self.value & flag == flag:
+            if (self.value or 0) & flag == flag:
                 values.append(name)
         return ", ".join(values)
 
@@ -1290,7 +1176,6 @@ class CommandType(Enum):
 
 
 class CommandMetadataCount(ComplexObject):
-
     def __init__(self, **kwargs):
         """
         [MS-PSRP] 2.2.3.21 CommandMetadataCount
@@ -1303,16 +1188,13 @@ class CommandMetadataCount(ComplexObject):
         self.types = [
             "Selected.Microsoft.PowerShell.Commands.GenericMeasureInfo",
             "System.Management.Automation.PSCustomObject",
-            "System.Object"
+            "System.Object",
         ]
-        self._extended_properties = (
-            ('count', ObjectMeta("I32", name="Count")),
-        )
-        self.count = kwargs.get('count')
+        self._extended_properties = (("count", ObjectMeta("I32", name="Count")),)
+        self.count = kwargs.get("count")
 
 
 class CommandMetadata(ComplexObject):
-
     def __init__(self, **kwargs):
         """
         [MS-PSRP] 2.2.3.22 CommandMetadata
@@ -1328,42 +1210,43 @@ class CommandMetadata(ComplexObject):
             as Command Parameters
         """
         super(CommandMetadata, self).__init__()
-        self.types = [
-            "System.Management.Automation.PSCustomObject",
-            "System.Object"
-        ]
+        self.types = ["System.Management.Automation.PSCustomObject", "System.Object"]
         self._extended_properties = (
-            ('name', ObjectMeta("S", name="Name")),
-            ('namespace', ObjectMeta("S", name="Namespace")),
-            ('help_uri', ObjectMeta("S", name="HelpUri")),
-            ('command_type', ObjectMeta("Obj", name="CommandType",
-                                        object=CommandType)),
-            ('output_type', ListMeta(
-                name="OutputType",
-                list_value_meta=ObjectMeta("S"),
-                list_types=[
-                    "System.Collections.ObjectModel.ReadOnlyCollection`1[["
-                    "System.Management.Automation.PSTypeName, "
-                    "System.Management.Automation, Version=3.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=31bf3856ad364e35]]",
-                ]
-            )),
-            ('parameters', DictionaryMeta(
-                name="Parameters",
-                dict_key_meta=ObjectMeta("S"),
-                dict_value_meta=ObjectMeta("Obj", object=ParameterMetadata))
-             ),
+            ("name", ObjectMeta("S", name="Name")),
+            ("namespace", ObjectMeta("S", name="Namespace")),
+            ("help_uri", ObjectMeta("S", name="HelpUri")),
+            ("command_type", ObjectMeta("Obj", name="CommandType", object=CommandType)),
+            (
+                "output_type",
+                ListMeta(
+                    name="OutputType",
+                    list_value_meta=ObjectMeta("S"),
+                    list_types=[
+                        "System.Collections.ObjectModel.ReadOnlyCollection`1[["
+                        "System.Management.Automation.PSTypeName, "
+                        "System.Management.Automation, Version=3.0.0.0, "
+                        "Culture=neutral, PublicKeyToken=31bf3856ad364e35]]",
+                    ],
+                ),
+            ),
+            (
+                "parameters",
+                DictionaryMeta(
+                    name="Parameters",
+                    dict_key_meta=ObjectMeta("S"),
+                    dict_value_meta=ObjectMeta("Obj", object=ParameterMetadata),
+                ),
+            ),
         )
-        self.name = kwargs.get('name')
-        self.namespace = kwargs.get('namespace')
-        self.help_uri = kwargs.get('help_uri')
-        self.command_type = kwargs.get('command_type')
-        self.output_type = kwargs.get('output_type')
-        self.parameters = kwargs.get('parameters')
+        self.name = kwargs.get("name")
+        self.namespace = kwargs.get("namespace")
+        self.help_uri = kwargs.get("help_uri")
+        self.command_type = kwargs.get("command_type")
+        self.output_type = kwargs.get("output_type")
+        self.parameters = kwargs.get("parameters")
 
 
 class ParameterMetadata(ComplexObject):
-
     def __init__(self, **kwargs):
         """
         [MS-PSRP] 2.2.3.23 ParameterMetadata
@@ -1377,35 +1260,34 @@ class ParameterMetadata(ComplexObject):
             specified in the ArgumentList property
         """
         super(ParameterMetadata, self).__init__()
-        self.types = [
-            "System.Management.Automation.ParameterMetadata",
-            "System.Object"
-        ]
+        self.types = ["System.Management.Automation.ParameterMetadata", "System.Object"]
         self._adapted_properties = (
-            ('name', ObjectMeta("S", name="Name")),
-            ('parameter_type', ObjectMeta("S", name="ParameterType")),
-            ('aliases', ListMeta(
-                name="Aliases",
-                list_value_meta=ObjectMeta("S"),
-                list_types=[
-                    "System.Collections.ObjectModel.Collection`1"
-                    "[[System.String, mscorlib, Version=4.0.0.0, "
-                    "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
-                    "System.Object"
-                ])
-             ),
-            ('switch_parameter', ObjectMeta("B", name="SwitchParameter")),
-            ('dynamic', ObjectMeta("B", name="IsDynamic")),
+            ("name", ObjectMeta("S", name="Name")),
+            ("parameter_type", ObjectMeta("S", name="ParameterType")),
+            (
+                "aliases",
+                ListMeta(
+                    name="Aliases",
+                    list_value_meta=ObjectMeta("S"),
+                    list_types=[
+                        "System.Collections.ObjectModel.Collection`1"
+                        "[[System.String, mscorlib, Version=4.0.0.0, "
+                        "Culture=neutral, PublicKeyToken=b77a5c561934e089]]",
+                        "System.Object",
+                    ],
+                ),
+            ),
+            ("switch_parameter", ObjectMeta("B", name="SwitchParameter")),
+            ("dynamic", ObjectMeta("B", name="IsDynamic")),
         )
-        self.name = kwargs.get('name')
-        self.parameter_type = kwargs.get('parameter_type')
-        self.aliases = kwargs.get('aliases')
-        self.switch_parameter = kwargs.get('switch_parameter')
-        self.dynamic = kwargs.get('dynamic')
+        self.name = kwargs.get("name")
+        self.parameter_type = kwargs.get("parameter_type")
+        self.aliases = kwargs.get("aliases")
+        self.switch_parameter = kwargs.get("switch_parameter")
+        self.dynamic = kwargs.get("dynamic")
 
 
 class PSCredential(ComplexObject):
-
     def __init__(self, **kwargs):
         """
         [MS-PSRP] 2.2.3.25 PSCredential
@@ -1420,22 +1302,18 @@ class PSCredential(ComplexObject):
             string in order to make sure the encoding is correct
         """
         super(PSCredential, self).__init__()
-        self._types = [
-            "System.Management.Automation.PSCredential",
-            "System.Object"
-        ]
+        self._types = ["System.Management.Automation.PSCredential", "System.Object"]
         self._adapted_properties = (
-            ('username', ObjectMeta("S", name="UserName")),
-            ('password', ObjectMeta("SS", name="Password")),
+            ("username", ObjectMeta("S", name="UserName")),
+            ("password", ObjectMeta("SS", name="Password")),
         )
         self._to_string = "System.Management.Automation.PSCredential"
 
-        self.username = kwargs.get('username')
-        self.password = kwargs.get('password')
+        self.username = kwargs.get("username")
+        self.password = kwargs.get("password")
 
 
 class KeyInfo(ComplexObject):
-
     def __init__(self, **kwargs):
         """
         [MS-PSRP] 2.2.3.26 KeyInfo
@@ -1452,19 +1330,18 @@ class KeyInfo(ComplexObject):
         """
         super(KeyInfo, self).__init__()
         self._extended_properties = (
-            ('code', ObjectMeta("I32", name="virtualKeyCode", optional=True)),
-            ('character', ObjectMeta("C", name="character")),
-            ('state', ObjectMeta("I32", name="controlKeyState")),
-            ('key_down', ObjectMeta("B", name="keyDown")),
+            ("code", ObjectMeta("I32", name="virtualKeyCode", optional=True)),
+            ("character", ObjectMeta("C", name="character")),
+            ("state", ObjectMeta("I32", name="controlKeyState")),
+            ("key_down", ObjectMeta("B", name="keyDown")),
         )
-        self.code = kwargs.get('code')
-        self.character = kwargs.get('character')
-        self.state = kwargs.get('state')
-        self.key_down = kwargs.get('key_down')
+        self.code = kwargs.get("code")
+        self.character = kwargs.get("character")
+        self.state = kwargs.get("state")
+        self.key_down = kwargs.get("key_down")
 
 
 class KeyInfoDotNet(ComplexObject):
-
     def __init__(self, **kwargs):
         """
         System.Management.Automation.Host.KeyInfo
@@ -1479,21 +1356,17 @@ class KeyInfoDotNet(ComplexObject):
         :param key_down: Whether the key is pressed or released
         """
         super(KeyInfoDotNet, self).__init__()
-        self._types = [
-            "System.Management.Automation.Host.KeyInfo",
-            "System.ValueType",
-            "System.Object"
-        ]
+        self._types = ["System.Management.Automation.Host.KeyInfo", "System.ValueType", "System.Object"]
         self._adapted_properties = (
-            ('code', ObjectMeta("I32", name="VirtualKeyCode")),
-            ('character', ObjectMeta("C", name="Character")),
-            ('state', ObjectMeta("S", name="ControlKeyState")),
-            ('key_down', ObjectMeta("B", name="KeyDown")),
+            ("code", ObjectMeta("I32", name="VirtualKeyCode")),
+            ("character", ObjectMeta("C", name="Character")),
+            ("state", ObjectMeta("S", name="ControlKeyState")),
+            ("key_down", ObjectMeta("B", name="KeyDown")),
         )
-        self.code = kwargs.get('code')
-        self.character = kwargs.get('character')
-        self.state = kwargs.get('state')
-        self.key_down = kwargs.get('key_down')
+        self.code = kwargs.get("code")
+        self.character = kwargs.get("character")
+        self.state = kwargs.get("state")
+        self.key_down = kwargs.get("key_down")
 
 
 class ControlKeyState(object):
@@ -1504,6 +1377,7 @@ class ControlKeyState(object):
 
     A set of zero or more control keys that are help down.
     """
+
     RightAltPressed = 0x0001
     LeftAltPressed = 0x0002
     RightCtrlPressed = 0x0004
@@ -1516,7 +1390,6 @@ class ControlKeyState(object):
 
 
 class BufferCell(ComplexObject):
-
     def __init__(self, **kwargs):
         """
         [MS-PSRP] 2.2.3.28 BufferCell
@@ -1531,17 +1404,15 @@ class BufferCell(ComplexObject):
         """
         super(BufferCell, self).__init__()
         self._adapted_properties = (
-            ('character', ObjectMeta("C", name="character")),
-            ('foreground_color', ObjectMeta("Obj", name="foregroundColor",
-                                            object=Color)),
-            ('background_color', ObjectMeta("Obj", name="backgroundColor",
-                                            object=Color)),
-            ('cell_type', ObjectMeta("I32", name="bufferCellType")),
+            ("character", ObjectMeta("C", name="character")),
+            ("foreground_color", ObjectMeta("Obj", name="foregroundColor", object=Color)),
+            ("background_color", ObjectMeta("Obj", name="backgroundColor", object=Color)),
+            ("cell_type", ObjectMeta("I32", name="bufferCellType")),
         )
-        self.character = kwargs.get('character')
-        self.foreground_color = kwargs.get('foreground_color')
-        self.background_color = kwargs.get('background_color')
-        self.cell_type = kwargs.get('cell_type')
+        self.character = kwargs.get("character")
+        self.foreground_color = kwargs.get("foreground_color")
+        self.background_color = kwargs.get("background_color")
+        self.cell_type = kwargs.get("cell_type")
 
 
 class BufferCellType(object):
@@ -1551,13 +1422,13 @@ class BufferCellType(object):
 
     The type of a cell of a screen buffer.
     """
+
     COMPLETE = 0
     LEADING = 1
     TRAILING = 2
 
 
 class Array(ComplexObject):
-
     def __init__(self, **kwargs):
         """
         [MS-PSRP] 2.2.6.1.4 Array
@@ -1570,13 +1441,13 @@ class Array(ComplexObject):
         """
         super(Array, self).__init__()
         self._extended_properties = (
-            ('mae', ListMeta(name="mae")),
-            ('mal', ListMeta(name="mal", list_value_meta=ObjectMeta("I32"))),
+            ("mae", ListMeta(name="mae")),
+            ("mal", ListMeta(name="mal", list_value_meta=ObjectMeta("I32"))),
         )
         self._array = None
         self._mae = None
         self._mal = None
-        self._array = kwargs.get('array')
+        self._array = kwargs.get("array")
 
     @property
     def array(self):
@@ -1664,13 +1535,10 @@ class CommandOrigin(Enum):
         :param value: The command origin flag to set
         """
         string_map = {
-            0: 'Runspace',
-            1: 'Internal',
+            0: "Runspace",
+            1: "Internal",
         }
-        super(CommandOrigin, self).__init__(
-            "System.Management.Automation.CommandOrigin",
-            string_map, **kwargs
-        )
+        super(CommandOrigin, self).__init__("System.Management.Automation.CommandOrigin", string_map, **kwargs)
 
 
 class PipelineResultTypes(Enum):
@@ -1690,7 +1558,11 @@ class PipelineResultTypes(Enum):
     ALL = 7  # Error, Warning, Verbose, Debug, Information streams
     NULL = 8  # redirect to nothing - pretty much the same as null
 
-    def __init__(self, protocol_version_2=False, **kwargs):
+    def __init__(
+        self,
+        protocol_version_2: bool = False,
+        **kwargs: typing.Any,
+    ) -> None:
         """
         [MS-PSRP] 2.2.3.31 PipelineResultTypes
         https://msdn.microsoft.com/en-us/library/ee938207.aspx
@@ -1704,58 +1576,48 @@ class PipelineResultTypes(Enum):
         """
         if protocol_version_2 is True:
             string_map = {
-                0: 'None',
-                1: 'Output',
-                2: 'Error',
-                3: 'Output, Error',
+                0: "None",
+                1: "Output",
+                2: "Error",
+                3: "Output, Error",
             }
         else:
             string_map = {
-                0: 'None',
-                1: 'Output',
-                2: 'Error',
-                3: 'Warning',
-                4: 'Verbose',
-                5: 'Debug',
-                6: 'Information',
-                7: 'All',
-                8: 'Null',
+                0: "None",
+                1: "Output",
+                2: "Error",
+                3: "Warning",
+                4: "Verbose",
+                5: "Debug",
+                6: "Information",
+                7: "All",
+                8: "Null",
             }
         super(PipelineResultTypes, self).__init__(
-            "System.Management.Automation.Runspaces.PipelineResultTypes",
-            string_map, **kwargs
+            "System.Management.Automation.Runspaces.PipelineResultTypes", string_map, **kwargs
         )
 
 
 class CultureInfo(ComplexObject):
-
     def __init__(self, **kwargs):
         super(CultureInfo, self).__init__()
 
         self._adapted_properties = (
-            ('lcid', ObjectMeta("I32", name="LCID")),
-            ('name', ObjectMeta("S", name="Name")),
-            ('display_name', ObjectMeta("S", name="DisplayName")),
-            ('ietf_language_tag', ObjectMeta("S", name="IetfLanguageTag")),
-            ('three_letter_iso_name', ObjectMeta(
-                "S", name="ThreeLetterISOLanguageName"
-            )),
-            ('three_letter_windows_name', ObjectMeta(
-                "S", name="ThreeLetterWindowsLanguageName"
-            )),
-            ('two_letter_iso_language_name', ObjectMeta(
-                "S", name="TwoLetterISOLanguageName"
-            )),
+            ("lcid", ObjectMeta("I32", name="LCID")),
+            ("name", ObjectMeta("S", name="Name")),
+            ("display_name", ObjectMeta("S", name="DisplayName")),
+            ("ietf_language_tag", ObjectMeta("S", name="IetfLanguageTag")),
+            ("three_letter_iso_name", ObjectMeta("S", name="ThreeLetterISOLanguageName")),
+            ("three_letter_windows_name", ObjectMeta("S", name="ThreeLetterWindowsLanguageName")),
+            ("two_letter_iso_language_name", ObjectMeta("S", name="TwoLetterISOLanguageName")),
         )
-        self.lcid = kwargs.get('lcid')
-        self.name = kwargs.get('name')
-        self.display_name = kwargs.get('display_name')
-        self.ieft_language_tag = kwargs.get('ietf_language_tag')
-        self.three_letter_iso_name = kwargs.get('three_letter_iso_name')
-        self.three_letter_windows_name = \
-            kwargs.get('three_letter_windows_name')
-        self.two_letter_iso_language_name = \
-            kwargs.get('two_letter_iso_language_name')
+        self.lcid = kwargs.get("lcid")
+        self.name = kwargs.get("name")
+        self.display_name = kwargs.get("display_name")
+        self.ieft_language_tag = kwargs.get("ietf_language_tag")
+        self.three_letter_iso_name = kwargs.get("three_letter_iso_name")
+        self.three_letter_windows_name = kwargs.get("three_letter_windows_name")
+        self.two_letter_iso_language_name = kwargs.get("two_letter_iso_language_name")
 
 
 class ProgressRecordType(Enum):
@@ -1771,12 +1633,11 @@ class ProgressRecordType(Enum):
         :param value: The initial ProgressRecordType value to set
         """
         string_map = {
-            0: 'Processing',
-            1: 'Completed',
+            0: "Processing",
+            1: "Completed",
         }
         super(ProgressRecordType, self).__init__(
-            "System.Management.Automation.ProgressRecordType",
-            string_map, **kwargs
+            "System.Management.Automation.ProgressRecordType", string_map, **kwargs
         )
 
 
@@ -1792,11 +1653,7 @@ class SessionStateEntryVisibility(Enum):
 
         :param value: The initial SessionStateEntryVisibility value to set
         """
-        string_map = {
-            0: 'Public',
-            1: 'Private'
-        }
+        string_map = {0: "Public", 1: "Private"}
         super(SessionStateEntryVisibility, self).__init__(
-            "System.Management.Automation.SessionStateEntryVisibility",
-            string_map, **kwargs
+            "System.Management.Automation.SessionStateEntryVisibility", string_map, **kwargs
         )

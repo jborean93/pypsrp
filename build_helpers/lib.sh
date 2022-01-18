@@ -92,12 +92,9 @@ lib::sanity::run() {
         echo "::group::Running Sanity Checks"
     fi
 
-    python -m pycodestyle \
-        src/pypsrp \
-        --verbose \
-        --show-source \
-        --statistics \
-        --max-line-length 119
+    python -m black . --check
+    python -m isort . --check-only
+    python -m mypy .
 
     if [ x"${GITHUB_ACTIONS}" = "xtrue" ]; then
         echo "::endgroup::"

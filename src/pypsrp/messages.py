@@ -3,18 +3,33 @@
 
 import logging
 import struct
+import typing
 import uuid
 import warnings
 import xml.etree.ElementTree as ET
 
-from pypsrp.complex_objects import ApartmentState, CommandType, \
-    ComplexObject, DictionaryMeta, ErrorRecord, GenericComplexObject, \
-    HostInfo, HostMethodIdentifier, InformationalRecord, ListMeta, \
-    ObjectMeta, Pipeline, ProgressRecordType, PSThreadOptions, \
-    RemoteStreamOptions
-from pypsrp.exceptions import SerializationError
 from pypsrp._utils import to_string
+from pypsrp.complex_objects import (
+    ApartmentState,
+    CommandType,
+    ComplexObject,
+    DictionaryMeta,
+    ErrorRecord,
+    GenericComplexObject,
+    HostInfo,
+    HostMethodIdentifier,
+    InformationalRecord,
+    ListMeta,
+    ObjectMeta,
+    Pipeline,
+    ProgressRecordType,
+    PSThreadOptions,
+    RemoteStreamOptions,
+)
+from pypsrp.exceptions import SerializationError
 
+if typing.TYPE_CHECKING:
+    from pypsrp.serializer import Serializer
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +47,7 @@ class MessageType(object):
 
     Identifier of the message contained within a PSRP message
     """
+
     SESSION_CAPABILITY = 0x00010002
     INIT_RUNSPACEPOOL = 0x00010004
     PUBLIC_KEY = 0x00010005
@@ -66,8 +82,14 @@ class MessageType(object):
 
 
 class Message(object):
-
-    def __init__(self, destination, rpid, pid, data, serializer):
+    def __init__(
+        self,
+        destination: int,
+        rpid: typing.Optional[str],
+        pid: typing.Optional[str],
+        data: typing.Union[ComplexObject, "PipelineOutput", "PublicKeyRequest"],
+        serializer: "Serializer",
+    ):
         """
         [MS-PSRP] 2.2.1 PowerShell Remoting Protocol Message
         https://msdn.microsoft.com/en-us/library/dd303832.aspx
@@ -82,7 +104,7 @@ class Message(object):
             when packing
         """
         self.destination = destination
-        self.message_type = data.MESSAGE_TYPE
+        self.message_type = data.MESSAGE_TYPE  # type: ignore[union-attr]  # There's no special type right now
 
         empty_uuid = uuid.UUID(bytes=b"\x00" * 16)
         self.rpid = uuid.UUID(rpid) if rpid is not None else empty_uuid
@@ -90,23 +112,27 @@ class Message(object):
         self.data = data
         self._serializer = serializer
 
-    def pack(self):
+    def pack(self) -> bytes:
+        msg: typing.Union[ET.Element, bytes]
         if self.message_type == MessageType.PUBLIC_KEY_REQUEST:
-            message_data = ET.Element("S")
+            msg = ET.Element("S")
         elif self.message_type == MessageType.END_OF_PIPELINE_INPUT:
-            message_data = b""
+            msg = b""
         elif self.message_type == MessageType.PIPELINE_INPUT:
-            message_data = self._serializer.serialize(self.data.data)
-        elif self.message_type == MessageType.CONNECT_RUNSPACEPOOL and \
-                (self.data.min_runspaces is None and
-                 self.data.max_runspaces is None):
-            message_data = ET.Element("S")
+            pipeline_input = typing.cast(PipelineInput, self.data)
+            serialized_input = self._serializer.serialize(pipeline_input.data)
+            msg = serialized_input if serialized_input is not None else b""
+        elif self.message_type == MessageType.CONNECT_RUNSPACEPOOL and (
+            self.data.min_runspaces is None and self.data.max_runspaces is None  # type: ignore[union-attr] # Checked with message_type
+        ):
+            msg = ET.Element("S")
         else:
-            message_data = self._serializer.serialize(self.data)
+            msg = self._serializer.serialize(self.data) or b""
 
-        if not isinstance(message_data, bytes):
-            message_data = \
-                ET.tostring(message_data, encoding='utf-8', method='xml')
+        if not isinstance(msg, bytes):
+            message_data = ET.tostring(msg, encoding="utf-8", method="xml")
+        else:
+            message_data = msg
         log.debug("Packing PSRP message: %s" % to_string(message_data))
 
         data = struct.pack("<I", self.destination)
@@ -120,7 +146,10 @@ class Message(object):
         return data
 
     @staticmethod
-    def unpack(data, serializer):
+    def unpack(
+        data: bytes,
+        serializer: "Serializer",
+    ) -> "Message":
         destination = struct.unpack("<I", data[0:4])[0]
         message_type = struct.unpack("<I", data[4:8])[0]
         rpid = str(uuid.UUID(bytes_le=data[8:24]))
@@ -132,8 +161,7 @@ class Message(object):
         else:
             message_data = to_string(data[40:])
 
-        log.debug("Unpacking PSRP message of type %d: %s"
-                  % (message_type, message_data))
+        log.debug("Unpacking PSRP message of type %d: %s" % (message_type, message_data))
 
         message_obj = {
             MessageType.SESSION_CAPABILITY: SessionCapability,
@@ -166,21 +194,22 @@ class Message(object):
             MessageType.PIPELINE_HOST_RESPONSE: PipelineHostResponse,
             MessageType.CONNECT_RUNSPACEPOOL: ConnectRunspacePool,
             MessageType.RUNSPACEPOOL_INIT_DATA: RunspacePoolInitData,
-            MessageType.RESET_RUNSPACE_STATE: ResetRunspaceState
+            MessageType.RESET_RUNSPACE_STATE: ResetRunspaceState,
         }[message_type]
 
         # PIPELINE_OUTPUT is a weird one, it contains the actual output objects
         # not encapsulated so we set it to a dynamic object and the serializer
         # will work out what is best
+        message: typing.Union[ComplexObject, "PipelineOutput", "PublicKeyRequest"]
         if message_type == MessageType.PIPELINE_OUTPUT:
             # try to deserialize using our known objects, if that fails then
             # we want to get a generic object at least but raise a warning
             try:
                 message_data = serializer.deserialize(message_data)
             except SerializationError as err:
-                warnings.warn("Failed to deserialize msg, trying to "
-                              "deserialize as generic complex object: %s"
-                              % str(err))
+                warnings.warn(
+                    "Failed to deserialize msg, trying to deserialize as generic complex object: %s" % str(err)
+                )
                 meta = ObjectMeta("ObjDynamic", object=GenericComplexObject)
                 message_data = serializer.deserialize(message_data, meta)
             message = PipelineOutput()
@@ -201,8 +230,13 @@ class Message(object):
 class SessionCapability(ComplexObject):
     MESSAGE_TYPE = MessageType.SESSION_CAPABILITY
 
-    def __init__(self, protocol_version=None, ps_version=None,
-                 serialization_version=None, time_zone=None):
+    def __init__(
+        self,
+        protocol_version: typing.Optional[str] = None,
+        ps_version: typing.Optional[str] = None,
+        serialization_version: typing.Optional[str] = None,
+        time_zone: typing.Optional[bytes] = None,
+    ) -> None:
         """
         [MS-PSRP] 2.2.2.1 SESSION_CAPABILITY Message
         https://msdn.microsoft.com/en-us/library/dd340636.aspx
@@ -215,12 +249,10 @@ class SessionCapability(ComplexObject):
         """
         super(SessionCapability, self).__init__()
         self._extended_properties = (
-            ('protocol_version', ObjectMeta("Version",
-                                            name="protocolversion")),
-            ('ps_version', ObjectMeta("Version", name="PSVersion")),
-            ('serialization_version', ObjectMeta("Version",
-                                                 name="SerializationVersion")),
-            ('time_zone', ObjectMeta("BA", name="TimeZone", optional=True)),
+            ("protocol_version", ObjectMeta("Version", name="protocolversion")),
+            ("ps_version", ObjectMeta("Version", name="PSVersion")),
+            ("serialization_version", ObjectMeta("Version", name="SerializationVersion")),
+            ("time_zone", ObjectMeta("BA", name="TimeZone", optional=True)),
         )
         self.protocol_version = protocol_version
         self.ps_version = ps_version
@@ -231,9 +263,15 @@ class SessionCapability(ComplexObject):
 class InitRunspacePool(ComplexObject):
     MESSAGE_TYPE = MessageType.INIT_RUNSPACEPOOL
 
-    def __init__(self, min_runspaces=None, max_runspaces=None,
-                 thread_options=None, apartment_state=None, host_info=None,
-                 application_arguments=None):
+    def __init__(
+        self,
+        min_runspaces: typing.Optional[int] = None,
+        max_runspaces: typing.Optional[int] = None,
+        thread_options: typing.Optional[PSThreadOptions] = None,
+        apartment_state: typing.Optional[ApartmentState] = None,
+        host_info: typing.Optional[HostInfo] = None,
+        application_arguments: typing.Optional[typing.Dict] = None,
+    ) -> None:
         """
         [MS-PSRP] 2.2.2.2 INIT_RUNSPACEPOOL Message
         https://msdn.microsoft.com/en-us/library/dd359645.aspx
@@ -248,22 +286,22 @@ class InitRunspacePool(ComplexObject):
         """
         super(InitRunspacePool, self).__init__()
         self._extended_properties = (
-            ('min_runspaces', ObjectMeta("I32", name="MinRunspaces")),
-            ('max_runspaces', ObjectMeta("I32", name="MaxRunspaces")),
-            ('thread_options', ObjectMeta("Obj", name="PSThreadOptions",
-                                          object=PSThreadOptions)),
-            ('apartment_state', ObjectMeta("Obj", name="ApartmentState",
-                                           object=ApartmentState)),
-            ('host_info', ObjectMeta("Obj", name="HostInfo",
-                                     object=HostInfo)),
-            ('application_arguments', DictionaryMeta(
-                name="ApplicationArguments",
-                dict_types=[
-                    "System.Management.Automation.PSPrimitiveDictionary",
-                    "System.Collections.Hashtable",
-                    "System.Object"
-                ]
-            ))
+            ("min_runspaces", ObjectMeta("I32", name="MinRunspaces")),
+            ("max_runspaces", ObjectMeta("I32", name="MaxRunspaces")),
+            ("thread_options", ObjectMeta("Obj", name="PSThreadOptions", object=PSThreadOptions)),
+            ("apartment_state", ObjectMeta("Obj", name="ApartmentState", object=ApartmentState)),
+            ("host_info", ObjectMeta("Obj", name="HostInfo", object=HostInfo)),
+            (
+                "application_arguments",
+                DictionaryMeta(
+                    name="ApplicationArguments",
+                    dict_types=[
+                        "System.Management.Automation.PSPrimitiveDictionary",
+                        "System.Collections.Hashtable",
+                        "System.Object",
+                    ],
+                ),
+            ),
         )
         self.min_runspaces = min_runspaces
         self.max_runspaces = max_runspaces
@@ -276,7 +314,10 @@ class InitRunspacePool(ComplexObject):
 class PublicKey(ComplexObject):
     MESSAGE_TYPE = MessageType.PUBLIC_KEY
 
-    def __init__(self, public_key=None):
+    def __init__(
+        self,
+        public_key: typing.Optional[str] = None,
+    ) -> None:
         """
         [MS-PSRP] 2.2.2.3 PUBLIC_KEY Message
         https://msdn.microsoft.com/en-us/library/dd644859.aspx
@@ -285,9 +326,7 @@ class PublicKey(ComplexObject):
             format.
         """
         super(PublicKey, self).__init__()
-        self._extended_properties = (
-            ('public_key', ObjectMeta("S", name="PublicKey")),
-        )
+        self._extended_properties = (("public_key", ObjectMeta("S", name="PublicKey")),)
         self.public_key = public_key
 
 
@@ -304,16 +343,14 @@ class EncryptedSessionKey(ComplexObject):
             the RSAES-PKCS-v1_5 encryption scheme and then Base64 formatted.
         """
         super(EncryptedSessionKey, self).__init__()
-        self._extended_properties = (
-            ('session_key', ObjectMeta("S", name="EncryptedSessionKey")),
-        )
+        self._extended_properties = (("session_key", ObjectMeta("S", name="EncryptedSessionKey")),)
         self.session_key = session_key
 
 
 class PublicKeyRequest(object):
     MESSAGE_TYPE = MessageType.PUBLIC_KEY_REQUEST
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         [MS-PSRP] 2.2.2.5 PUBLIC_KEY_REQUEST Message
         https://msdn.microsoft.com/en-us/library/dd644906.aspx
@@ -324,7 +361,11 @@ class PublicKeyRequest(object):
 class SetMaxRunspaces(ComplexObject):
     MESSAGE_TYPE = MessageType.SET_MAX_RUNSPACES
 
-    def __init__(self, max_runspaces=None, ci=None):
+    def __init__(
+        self,
+        max_runspaces: typing.Optional[int] = None,
+        ci: typing.Optional[int] = None,
+    ) -> None:
         """
         [MS-PSRP] 2.2.2.6 SET_MAX_RUNSPACES Message
         https://msdn.microsoft.com/en-us/library/dd304870.aspx
@@ -334,8 +375,8 @@ class SetMaxRunspaces(ComplexObject):
         """
         super(SetMaxRunspaces, self).__init__()
         self._extended_properties = (
-            ('max_runspaces', ObjectMeta("I32", name="MaxRunspaces")),
-            ('ci', ObjectMeta("I64", name="CI")),
+            ("max_runspaces", ObjectMeta("I32", name="MaxRunspaces")),
+            ("ci", ObjectMeta("I64", name="CI")),
         )
         self.max_runspaces = max_runspaces
         self.ci = ci
@@ -344,7 +385,11 @@ class SetMaxRunspaces(ComplexObject):
 class SetMinRunspaces(ComplexObject):
     MESSAGE_TYPE = MessageType.SET_MIN_RUNSPACES
 
-    def __init__(self, min_runspaces=None, ci=None):
+    def __init__(
+        self,
+        min_runspaces: typing.Optional[int] = None,
+        ci: typing.Optional[int] = None,
+    ) -> None:
         """
         [MS-PSRP] 2.2.2.7 SET_MIN_RUNSPACES Message
         https://msdn.microsoft.com/en-us/library/dd340570.aspx
@@ -354,8 +399,8 @@ class SetMinRunspaces(ComplexObject):
         """
         super(SetMinRunspaces, self).__init__()
         self._extended_properties = (
-            ('min_runspaces', ObjectMeta("I32", name="MinRunspaces")),
-            ('ci', ObjectMeta("I64", name="CI")),
+            ("min_runspaces", ObjectMeta("I32", name="MinRunspaces")),
+            ("ci", ObjectMeta("I64", name="CI")),
         )
         self.min_runspaces = min_runspaces
         self.ci = ci
@@ -374,8 +419,8 @@ class RunspaceAvailability(ComplexObject):
         """
         super(RunspaceAvailability, self).__init__()
         self._extended_properties = (
-            ('response', ObjectMeta(name="SetMinMaxRunspacesResponse")),
-            ('ci', ObjectMeta("I64", name="ci")),
+            ("response", ObjectMeta(name="SetMinMaxRunspacesResponse")),
+            ("ci", ObjectMeta("I64", name="ci")),
         )
         self.response = response
         self.ci = ci
@@ -394,9 +439,8 @@ class RunspacePoolStateMessage(ComplexObject):
         """
         super(RunspacePoolStateMessage, self).__init__()
         self._extended_properties = (
-            ('state', ObjectMeta("I32", name="RunspaceState")),
-            ('error_record', ObjectMeta("Obj", optional=True,
-                                        object=ErrorRecord)),
+            ("state", ObjectMeta("I32", name="RunspaceState")),
+            ("error_record", ObjectMeta("Obj", optional=True, object=ErrorRecord)),
         )
         self.state = state
         self.error_record = error_record
@@ -405,9 +449,16 @@ class RunspacePoolStateMessage(ComplexObject):
 class CreatePipeline(ComplexObject):
     MESSAGE_TYPE = MessageType.CREATE_PIPELINE
 
-    def __init__(self, no_input=None, apartment_state=None,
-                 remote_stream_options=None, add_to_history=None,
-                 host_info=None, pipeline=None, is_nested=None):
+    def __init__(
+        self,
+        no_input: typing.Optional[bool] = None,
+        apartment_state: typing.Optional[ApartmentState] = None,
+        remote_stream_options: typing.Optional[RemoteStreamOptions] = None,
+        add_to_history: typing.Optional[bool] = None,
+        host_info: typing.Optional[HostInfo] = None,
+        pipeline: typing.Optional[Pipeline] = None,
+        is_nested: typing.Optional[bool] = None,
+    ) -> None:
         """
         [MS-PSRP] 2.2.2.10 CREATE_PIPELINE Message
         https://msdn.microsoft.com/en-us/library/dd340567.aspx
@@ -424,18 +475,13 @@ class CreatePipeline(ComplexObject):
         """
         super(CreatePipeline, self).__init__()
         self._extended_properties = (
-            ('no_input', ObjectMeta("B", name="NoInput")),
-            ('apartment_state', ObjectMeta("Obj", name="ApartmentState",
-                                           object=ApartmentState)),
-            ('remote_stream_options', ObjectMeta("Obj",
-                                                 name="RemoteStreamOptions",
-                                                 object=RemoteStreamOptions)),
-            ('add_to_history', ObjectMeta("B", name="AddToHistory")),
-            ('host_info', ObjectMeta("Obj", name="HostInfo",
-                                     object=HostInfo)),
-            ('pipeline', ObjectMeta("Obj", name="PowerShell",
-                                    object=Pipeline)),
-            ('is_nested', ObjectMeta("B", name="IsNested")),
+            ("no_input", ObjectMeta("B", name="NoInput")),
+            ("apartment_state", ObjectMeta("Obj", name="ApartmentState", object=ApartmentState)),
+            ("remote_stream_options", ObjectMeta("Obj", name="RemoteStreamOptions", object=RemoteStreamOptions)),
+            ("add_to_history", ObjectMeta("B", name="AddToHistory")),
+            ("host_info", ObjectMeta("Obj", name="HostInfo", object=HostInfo)),
+            ("pipeline", ObjectMeta("Obj", name="PowerShell", object=Pipeline)),
+            ("is_nested", ObjectMeta("B", name="IsNested")),
         )
 
         self.no_input = no_input
@@ -450,7 +496,10 @@ class CreatePipeline(ComplexObject):
 class GetAvailableRunspaces(ComplexObject):
     MESSAGE_TYPE = MessageType.GET_AVAILABLE_RUNSPACES
 
-    def __init__(self, ci=None):
+    def __init__(
+        self,
+        ci: typing.Optional[int] = None,
+    ) -> None:
         """
         [MS-PSRP] 2.2.2.11 GET_AVAILABLE_RUNSPACES Message
         https://msdn.microsoft.com/en-us/library/dd357512.aspx
@@ -458,17 +507,24 @@ class GetAvailableRunspaces(ComplexObject):
         :param ci: The ci identifier for the CI table
         """
         super(GetAvailableRunspaces, self).__init__()
-        self._extended_properties = (
-            ('ci', ObjectMeta("I64", name="ci")),
-        )
+        self._extended_properties = (("ci", ObjectMeta("I64", name="ci")),)
         self.ci = ci
 
 
 class UserEvent(ComplexObject):
     MESSAGE_TYPE = MessageType.USER_EVENT
 
-    def __init__(self, event_id=None, source_id=None, time=None, sender=None,
-                 args=None, data=None, computer=None, runspace_id=None):
+    def __init__(
+        self,
+        event_id=None,
+        source_id=None,
+        time=None,
+        sender=None,
+        args=None,
+        data=None,
+        computer=None,
+        runspace_id=None,
+    ):
         """
         [MS-PSRP] 2.2.2.12 USER_EVENT Message
         https://msdn.microsoft.com/en-us/library/dd359395.aspx
@@ -484,16 +540,14 @@ class UserEvent(ComplexObject):
         """
         super(UserEvent, self).__init__()
         self._extended_properties = (
-            ('event_id', ObjectMeta(
-                "I32", name="PSEventArgs.EventIdentifier")),
-            ('source_id', ObjectMeta(
-                "S", name="PSEventArgs.SourceIdentifier")),
-            ('time', ObjectMeta("DT", name="PSEventArgs.TimeGenerated")),
-            ('sender', ObjectMeta(name="PSEventArgs.Sender")),
-            ('args', ObjectMeta(name="PSEventArgs.SourceArgs")),
-            ('data', ObjectMeta(name="PSEventArgs.MessageData")),
-            ('computer', ObjectMeta("S", name="PSEventArgs.ComputerName")),
-            ('runspace_id', ObjectMeta("G", name="PSEventArgs.RunspaceId")),
+            ("event_id", ObjectMeta("I32", name="PSEventArgs.EventIdentifier")),
+            ("source_id", ObjectMeta("S", name="PSEventArgs.SourceIdentifier")),
+            ("time", ObjectMeta("DT", name="PSEventArgs.TimeGenerated")),
+            ("sender", ObjectMeta(name="PSEventArgs.Sender")),
+            ("args", ObjectMeta(name="PSEventArgs.SourceArgs")),
+            ("data", ObjectMeta(name="PSEventArgs.MessageData")),
+            ("computer", ObjectMeta("S", name="PSEventArgs.ComputerName")),
+            ("runspace_id", ObjectMeta("G", name="PSEventArgs.RunspaceId")),
         )
         self.event_id = event_id
         self.source_id = source_id
@@ -516,17 +570,20 @@ class ApplicationPrivateData(ComplexObject):
         :param data: A dict that contains data to sent to the PowerShell layer
         """
         super(ApplicationPrivateData, self).__init__()
-        self._extended_properties = (
-            ('data', DictionaryMeta(name="ApplicationPrivateData")),
-        )
+        self._extended_properties = (("data", DictionaryMeta(name="ApplicationPrivateData")),)
         self.data = data
 
 
 class GetCommandMetadata(ComplexObject):
     MESSAGE_TYPE = MessageType.GET_COMMAND_METADATA
 
-    def __init__(self, names=None, command_type=None, namespace=None,
-                 argument_list=None):
+    def __init__(
+        self,
+        names: typing.Optional[typing.List[str]] = None,
+        command_type: typing.Optional[int] = None,
+        namespace: typing.Optional[typing.List[str]] = None,
+        argument_list: typing.Optional[typing.List] = None,
+    ) -> None:
         """
         [MS-PSRP] 2.2.2.14 GET_COMMAND_METADATA Message
         https://msdn.microsoft.com/en-us/library/ee175985.aspx
@@ -538,18 +595,17 @@ class GetCommandMetadata(ComplexObject):
         """
         super(GetCommandMetadata, self).__init__()
         self._extended_properties = (
-            ('names', ListMeta(
-                name="Name", list_value_meta=ObjectMeta("S"),
-                list_types=[
-                    "System.String[]",
-                    "System.Array",
-                    "System.Object"
-                ])
-             ),
-            ('command_type', ObjectMeta(name="CommandType",
-                                        object=CommandType)),
-            ('namespace', ObjectMeta(name="Namespace")),
-            ('argument_list', ListMeta(name="ArgumentList"))
+            (
+                "names",
+                ListMeta(
+                    name="Name",
+                    list_value_meta=ObjectMeta("S"),
+                    list_types=["System.String[]", "System.Array", "System.Object"],
+                ),
+            ),
+            ("command_type", ObjectMeta(name="CommandType", object=CommandType)),
+            ("namespace", ObjectMeta(name="Namespace")),
+            ("argument_list", ListMeta(name="ArgumentList")),
         )
         self.names = names
         self.command_type = command_type
@@ -571,9 +627,9 @@ class RunspacePoolHostCall(ComplexObject):
         """
         super(RunspacePoolHostCall, self).__init__()
         self._extended_properties = (
-            ('ci', ObjectMeta("I64", name="ci")),
-            ('mi', ObjectMeta("Obj", name="mi", object=HostMethodIdentifier)),
-            ('mp', ListMeta(name="mp"))
+            ("ci", ObjectMeta("I64", name="ci")),
+            ("mi", ObjectMeta("Obj", name="mi", object=HostMethodIdentifier)),
+            ("mp", ListMeta(name="mp")),
         )
         self.ci = ci
         self.mi = mi
@@ -595,11 +651,10 @@ class RunspacePoolHostResponse(ComplexObject):
         """
         super(RunspacePoolHostResponse, self).__init__()
         self._extended_properties = (
-            ('ci', ObjectMeta("I64", name="ci")),
-            ('mi', ObjectMeta("Obj", name="mi", object=HostMethodIdentifier)),
-            ('mr', ObjectMeta(name="mr")),
-            ('me', ObjectMeta("Obj", name="me", object=ErrorRecord,
-                              optional=True)),
+            ("ci", ObjectMeta("I64", name="ci")),
+            ("mi", ObjectMeta("Obj", name="mi", object=HostMethodIdentifier)),
+            ("mr", ObjectMeta(name="mr")),
+            ("me", ObjectMeta("Obj", name="me", object=ErrorRecord, optional=True)),
         )
         self.ci = ci
         self.mi = mi
@@ -610,7 +665,10 @@ class RunspacePoolHostResponse(ComplexObject):
 class PipelineInput(ComplexObject):
     MESSAGE_TYPE = MessageType.PIPELINE_INPUT
 
-    def __init__(self, data=None):
+    def __init__(
+        self,
+        data: typing.Any = None,
+    ) -> None:
         """
         [MS-PSRP] 2.2.2.17 PIPELINE_INPUT Message
         https://msdn.microsoft.com/en-us/library/dd340525.aspx
@@ -624,7 +682,7 @@ class PipelineInput(ComplexObject):
 class EndOfPipelineInput(ComplexObject):
     MESSAGE_TYPE = MessageType.END_OF_PIPELINE_INPUT
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         [MS-PSRP] 2.2.2.18 END_OF_PIPELINE_INPUT Message
         https://msdn.microsoft.com/en-us/library/dd342785.aspx
@@ -635,7 +693,10 @@ class EndOfPipelineInput(ComplexObject):
 class PipelineOutput(object):
     MESSAGE_TYPE = MessageType.PIPELINE_OUTPUT
 
-    def __init__(self, data=None):
+    def __init__(
+        self,
+        data: typing.Any = None,
+    ) -> None:
         """
         [MS-PSRP] 2.2.2.19 PIPELINE_OUTPUT Message
         https://msdn.microsoft.com/en-us/library/dd357371.aspx
@@ -670,9 +731,8 @@ class PipelineState(ComplexObject):
         """
         super(PipelineState, self).__init__()
         self._extended_properties = (
-            ('state', ObjectMeta("I32", name="PipelineState")),
-            ('error_record', ObjectMeta("Obj", name="ExceptionAsErrorRecord",
-                                        optional=True)),
+            ("state", ObjectMeta("I32", name="PipelineState")),
+            ("error_record", ObjectMeta("Obj", name="ExceptionAsErrorRecord", optional=True)),
         )
         self.state = state
         self.error_record = error_record
@@ -717,10 +777,17 @@ class WarningRecord(InformationalRecord):
 class ProgressRecord(ComplexObject):
     MESSAGE_TYPE = MessageType.PROGRESS_RECORD
 
-    def __init__(self, activity=None, activity_id=None, description=None,
-                 current_operation=None, parent_activity_id=None,
-                 percent_complete=None, progress_type=None,
-                 seconds_remaining=None):
+    def __init__(
+        self,
+        activity=None,
+        activity_id=None,
+        description=None,
+        current_operation=None,
+        parent_activity_id=None,
+        percent_complete=None,
+        progress_type=None,
+        seconds_remaining=None,
+    ):
         """
         [MS-PSRP] 2.2.2.25 PROGRESS_RECORD Message
         https://msdn.microsoft.com/en-us/library/dd340751.aspx
@@ -729,15 +796,14 @@ class ProgressRecord(ComplexObject):
         """
         super(ProgressRecord, self).__init__()
         self._extended_properties = (
-            ('activity', ObjectMeta("S", name="Activity")),
-            ('activity_id', ObjectMeta("I32", name="ActivityId")),
-            ('description', ObjectMeta("S", name="StatusDescription")),
-            ('current_operation', ObjectMeta("S", name="CurrentOperation")),
-            ('parent_activity_id', ObjectMeta("I32", name="ParentActivityId")),
-            ('percent_complete', ObjectMeta("I32", name="PercentComplete")),
-            ('progress_type', ObjectMeta("Obj", name="Type",
-                                         object=ProgressRecordType)),
-            ('seconds_remaining', ObjectMeta("I32", name="SecondsRemaining")),
+            ("activity", ObjectMeta("S", name="Activity")),
+            ("activity_id", ObjectMeta("I32", name="ActivityId")),
+            ("description", ObjectMeta("S", name="StatusDescription")),
+            ("current_operation", ObjectMeta("S", name="CurrentOperation")),
+            ("parent_activity_id", ObjectMeta("I32", name="ParentActivityId")),
+            ("percent_complete", ObjectMeta("I32", name="PercentComplete")),
+            ("progress_type", ObjectMeta("Obj", name="Type", object=ProgressRecordType)),
+            ("seconds_remaining", ObjectMeta("I32", name="SecondsRemaining")),
         )
         self.activity = activity
         self.activity_id = activity_id
@@ -752,10 +818,19 @@ class ProgressRecord(ComplexObject):
 class InformationRecord(ComplexObject):
     MESSAGE_TYPE = MessageType.INFORMATION_RECORD
 
-    def __init__(self, message_data=None, source=None, time_generated=None,
-                 tags=None, user=None, computer=None, pid=None,
-                 native_thread_id=None, managed_thread_id=None,
-                 write_information_stream=None):
+    def __init__(
+        self,
+        message_data=None,
+        source=None,
+        time_generated=None,
+        tags=None,
+        user=None,
+        computer=None,
+        pid=None,
+        native_thread_id=None,
+        managed_thread_id=None,
+        write_information_stream=None,
+    ):
         """
         [MS-PSRP] 2.2.2.26 INFORMATION_RECORD Message
         https://msdn.microsoft.com/en-us/library/mt224023.aspx
@@ -765,23 +840,18 @@ class InformationRecord(ComplexObject):
         :param kwargs:
         """
         super(InformationRecord, self).__init__()
-        self._types = [
-            "System.Management.Automation.InformationRecord",
-            "System.Object"
-        ]
+        self._types = ["System.Management.Automation.InformationRecord", "System.Object"]
         self._extended_properties = (
-            ('message_data', ObjectMeta(name="MessageData")),
-            ('source', ObjectMeta("S", name="Source")),
-            ('time_generated', ObjectMeta("DT", name="TimeGenerated")),
-            ('tags', ListMeta(name="Tags", list_value_meta=ObjectMeta("S"))),
-            ('user', ObjectMeta("S", name="User")),
-            ('computer', ObjectMeta("S", name="Computer")),
-            ('pid', ObjectMeta("U32", name="ProcessId")),
-            ('native_thread_id', ObjectMeta("U32", name="NativeThreadId")),
-            ('managed_thread_id', ObjectMeta("U32", name="ManagedThreadId")),
-            ('write_information_stream', ObjectMeta(
-                "B", name="WriteInformationStream", optional=True
-            )),
+            ("message_data", ObjectMeta(name="MessageData")),
+            ("source", ObjectMeta("S", name="Source")),
+            ("time_generated", ObjectMeta("DT", name="TimeGenerated")),
+            ("tags", ListMeta(name="Tags", list_value_meta=ObjectMeta("S"))),
+            ("user", ObjectMeta("S", name="User")),
+            ("computer", ObjectMeta("S", name="Computer")),
+            ("pid", ObjectMeta("U32", name="ProcessId")),
+            ("native_thread_id", ObjectMeta("U32", name="NativeThreadId")),
+            ("managed_thread_id", ObjectMeta("U32", name="ManagedThreadId")),
+            ("write_information_stream", ObjectMeta("B", name="WriteInformationStream", optional=True)),
         )
         self.message_data = message_data
         self.source = source
@@ -814,7 +884,11 @@ class PipelineHostResponse(RunspacePoolHostResponse):
 class ConnectRunspacePool(ComplexObject):
     MESSAGE_TYPE = MessageType.CONNECT_RUNSPACEPOOL
 
-    def __init__(self, min_runspaces=None, max_runspaces=None):
+    def __init__(
+        self,
+        min_runspaces: typing.Optional[int] = None,
+        max_runspaces: typing.Optional[int] = None,
+    ) -> None:
         """
         [MS-PSRP] 2.2.2.29 CONNECT_RUNSPACEPOOL Message
         https://msdn.microsoft.com/en-us/library/hh537460.aspx
@@ -824,10 +898,8 @@ class ConnectRunspacePool(ComplexObject):
         """
         super(ConnectRunspacePool, self).__init__()
         self._extended_properties = (
-            ('min_runspaces', ObjectMeta("I32", name="MinRunspaces",
-                                         optional=True)),
-            ('max_runspaces', ObjectMeta("I32", name="MaxRunspaces",
-                                         optional=True)),
+            ("min_runspaces", ObjectMeta("I32", name="MinRunspaces", optional=True)),
+            ("max_runspaces", ObjectMeta("I32", name="MaxRunspaces", optional=True)),
         )
         self.min_runspaces = min_runspaces
         self.max_runspaces = max_runspaces
@@ -846,8 +918,8 @@ class RunspacePoolInitData(ComplexObject):
         """
         super(RunspacePoolInitData, self).__init__()
         self._extended_properties = (
-            ('min_runspaces', ObjectMeta("I32", name="MinRunspaces")),
-            ('max_runspaces', ObjectMeta("I32", name="MaxRunspaces")),
+            ("min_runspaces", ObjectMeta("I32", name="MinRunspaces")),
+            ("max_runspaces", ObjectMeta("I32", name="MaxRunspaces")),
         )
         self.min_runspaces = min_runspaces
         self.max_runspaces = max_runspaces
@@ -856,7 +928,10 @@ class RunspacePoolInitData(ComplexObject):
 class ResetRunspaceState(ComplexObject):
     MESSAGE_TYPE = MessageType.RESET_RUNSPACE_STATE
 
-    def __init__(self, ci=None):
+    def __init__(
+        self,
+        ci: typing.Optional[int] = None,
+    ) -> None:
         """
         [MS-PSRP] 2.2.2.31 RESET_RUNSPACE_STATE Message
         https://msdn.microsoft.com/en-us/library/mt224027.aspx
@@ -864,7 +939,5 @@ class ResetRunspaceState(ComplexObject):
         :param ci: The call identifier
         """
         super(ResetRunspaceState, self).__init__()
-        self._extended_properties = (
-            ('ci', ObjectMeta("I64", name="ci")),
-        )
+        self._extended_properties = (("ci", ObjectMeta("I64", name="ci")),)
         self.ci = ci

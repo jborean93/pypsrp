@@ -3,22 +3,20 @@
 
 import base64
 import logging
+import types
+import typing
 import xml.etree.ElementTree as ET
 
 from pypsrp.exceptions import WSManFaultError
-from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet
-
+from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet, WSMan
 
 log = logging.getLogger(__name__)
 
 
 class CommandState(object):
-    DONE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/" \
-           "CommandState/Done"
-    PENDING = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/" \
-              "CommandState/Pending"
-    RUNNING = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/" \
-              "CommandState/Running"
+    DONE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandState/Done"
+    PENDING = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandState/Pending"
+    RUNNING = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandState/Running"
 
 
 class SignalCode(object):
@@ -28,23 +26,29 @@ class SignalCode(object):
 
     The control code to send in a Signal message to the server
     """
-    CTRL_C = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/" \
-             "signal/ctrl_c"
-    CTRL_BREAK = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/" \
-                 "signal/ctrl_break"
-    TERMINATE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/" \
-                "signal/Terminate"
+
+    CTRL_C = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/signal/ctrl_c"
+    CTRL_BREAK = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/signal/ctrl_break"
+    TERMINATE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/signal/Terminate"
     PS_CTRL_C = "powershell/signal/ctrl_c"
 
 
 class WinRS(object):
-
-    def __init__(self, wsman, resource_uri="http://schemas.microsoft.com/wbem/"
-                                           "wsman/1/windows/shell/cmd",
-                 id=None, input_streams='stdin',
-                 output_streams='stdout stderr', codepage=None,
-                 environment=None, idle_time_out=None, lifetime=None,
-                 name=None, no_profile=None, working_directory=None):
+    def __init__(
+        self,
+        wsman: WSMan,
+        resource_uri: str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/cmd",
+        id: typing.Optional[str] = None,
+        input_streams: str = "stdin",
+        output_streams: str = "stdout stderr",
+        codepage: typing.Optional[int] = None,
+        environment: typing.Optional[typing.Dict[str, str]] = None,
+        idle_time_out: typing.Optional[int] = None,
+        lifetime: typing.Optional[int] = None,
+        name: typing.Optional[str] = None,
+        no_profile: typing.Optional[bool] = None,
+        working_directory: typing.Optional[str] = None,
+    ) -> None:
         """
         A WinRS shell instance. This is used by Process to spawn a new command/
         process on the raw WinRS shell.
@@ -85,17 +89,22 @@ class WinRS(object):
         self.shell_run_time = None
         self.shell_inactivity = None
 
-        self._selector_set = None
+        self._selector_set: typing.Optional[SelectorSet] = None
         # TODO: should I store a process table like a RunspacePool
 
-    def __enter__(self):
+    def __enter__(self) -> "WinRS":
         self.open()
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(
+        self,
+        exc_type: typing.Optional[typing.Type[BaseException]],
+        value: typing.Optional[BaseException],
+        traceback: typing.Optional[types.TracebackType],
+    ) -> None:
         self.close()
 
-    def close(self):
+    def close(self) -> None:
         """
         Closes the shell
         """
@@ -105,7 +114,13 @@ class WinRS(object):
         self.id = None
         self.opened = False
 
-    def command(self, executable, arguments, no_shell=False, command_id=None):
+    def command(
+        self,
+        executable: str,
+        arguments: typing.Optional[typing.List[str]],
+        no_shell: bool = False,
+        command_id: typing.Optional[str] = None,
+    ) -> ET.Element:
         """
         Send a command message to the Shell. Process should really be used
         instead if a normal WinRS process is desired.
@@ -118,25 +133,28 @@ class WinRS(object):
         :param command_id: The command ID to specify when creating the command
         :return: The raw WSMan body response
         """
-        rsp = NAMESPACES['rsp']
+        rsp = NAMESPACES["rsp"]
 
         options = OptionSet()
-        options.add_option('WINRS_SKIP_CMD_SHELL', no_shell)
+        options.add_option("WINRS_SKIP_CMD_SHELL", str(no_shell))
 
         arguments = arguments if arguments is not None else []
 
         cmd = ET.Element("{%s}CommandLine" % rsp)
         if command_id is not None:
-            cmd.attrib['CommandId'] = command_id
+            cmd.attrib["CommandId"] = command_id
 
         ET.SubElement(cmd, "{%s}Command" % rsp).text = executable
         for argument in arguments:
             ET.SubElement(cmd, "{%s}Arguments" % rsp).text = argument
 
-        return self.wsman.command(self.resource_uri, cmd, option_set=options,
-                                  selector_set=self._selector_set)
+        return self.wsman.command(self.resource_uri, cmd, option_set=options, selector_set=self._selector_set)
 
-    def open(self, base_options=None, open_content=None):
+    def open(
+        self,
+        base_options: typing.Optional[OptionSet] = None,
+        open_content: typing.Optional[ET.Element] = None,
+    ) -> typing.Optional[ET.Element]:
         """
         Send an open message to the WSMan host
 
@@ -146,38 +164,32 @@ class WinRS(object):
         :return: The raw WSMan body response
         """
         if self.opened:
-            return
+            return None
 
-        rsp = NAMESPACES['rsp']
+        rsp = NAMESPACES["rsp"]
 
         shell = ET.Element("{%s}Shell" % rsp)
         if self.id is not None:
-            shell.attrib['ShellId'] = self.id
+            shell.attrib["ShellId"] = self.id
 
-        ET.SubElement(shell, "{%s}InputStreams" % rsp).text = \
-            self.input_streams
-        ET.SubElement(shell, "{%s}OutputStreams" % rsp).text = \
-            self.output_streams
+        ET.SubElement(shell, "{%s}InputStreams" % rsp).text = self.input_streams
+        ET.SubElement(shell, "{%s}OutputStreams" % rsp).text = self.output_streams
         if self.environment is not None:
             env = ET.SubElement(shell, "{%s}Environment" % rsp)
             for key, value in self.environment.items():
-                ET.SubElement(env, "{%s}Variable" % rsp,
-                              Name=str(key)).text = str(value)
+                ET.SubElement(env, "{%s}Variable" % rsp, Name=str(key)).text = str(value)
 
         if self.idle_time_out is not None:
-            ET.SubElement(shell, "{%s}IdleTimeOut" % rsp).text = \
-                "PT%sS" % str(self.idle_time_out)
+            ET.SubElement(shell, "{%s}IdleTimeOut" % rsp).text = "PT%sS" % str(self.idle_time_out)
 
         if self.lifetime is not None:
-            ET.SubElement(shell, "{%s}Lifetime" % rsp).text = \
-                "PT%sS" % self.lifetime
+            ET.SubElement(shell, "{%s}Lifetime" % rsp).text = "PT%sS" % self.lifetime
 
         if self.name is not None:
             ET.SubElement(shell, "{%s}Name" % rsp).text = self.name
 
         if self.working_directory is not None:
-            ET.SubElement(shell, "{%s}WorkingDirectory" % rsp).text = \
-                self.working_directory
+            ET.SubElement(shell, "{%s}WorkingDirectory" % rsp).text = self.working_directory
 
         if open_content is not None:
             shell.append(open_content)
@@ -186,22 +198,22 @@ class WinRS(object):
         # option set
         options = OptionSet() if base_options is None else base_options
         if self.no_profile is not None:
-            options.add_option('WINRS_NOPROFILE', self.no_profile)
+            options.add_option("WINRS_NOPROFILE", str(self.no_profile))
         if self.codepage is not None:
-            options.add_option('WINRS_CODEPAGE', self.codepage)
+            options.add_option("WINRS_CODEPAGE", str(self.codepage))
 
-        if len(options.values) == 0:
-            # set options back to None if nothing was actually set
-            options = None
-
-        response = self.wsman.create(self.resource_uri, shell,
-                                     option_set=options)
+        response = self.wsman.create(self.resource_uri, shell, option_set=options if len(options.values) else None)
         self._parse_shell_create(response)
         self.opened = True
 
         return response
 
-    def receive(self, stream='stdout stderr', command_id=None, timeout=None):
+    def receive(
+        self,
+        stream: str = "stdout stderr",
+        command_id: typing.Optional[str] = None,
+        timeout: typing.Optional[int] = None,
+    ) -> typing.Tuple[str, typing.Optional[int], typing.Dict[str, bytes]]:
         """
         Send a receive message to the WSMan host
 
@@ -217,53 +229,52 @@ class WinRS(object):
             buffer: A dict containing a byte string for each buffer, the stream
                 name of each buffer is the key in this return value
         """
-        rsp = NAMESPACES['rsp']
+        rsp = NAMESPACES["rsp"]
 
         receive = ET.Element("{%s}Receive" % rsp)
-        stream_xml = ET.SubElement(receive,
-                                   "{%s}DesiredStream" % rsp)
+        stream_xml = ET.SubElement(receive, "{%s}DesiredStream" % rsp)
         stream_xml.text = stream
         if command_id is not None:
-            stream_xml.attrib['CommandId'] = command_id
+            stream_xml.attrib["CommandId"] = command_id
 
         options = OptionSet()
-        options.add_option('WSMAN_CMDSHELL_OPTION_KEEPALIVE', True)
+        options.add_option("WSMAN_CMDSHELL_OPTION_KEEPALIVE", str(True))
 
-        response = self.wsman.receive(self.resource_uri, receive,
-                                      option_set=options,
-                                      selector_set=self._selector_set,
-                                      timeout=timeout)
+        response = self.wsman.receive(
+            self.resource_uri, receive, option_set=options, selector_set=self._selector_set, timeout=timeout
+        )
 
-        command_state = response.find("rsp:ReceiveResponse/"
-                                      "rsp:CommandState",
-                                      namespaces=NAMESPACES)
-        if command_state is not None:
-            command_state = command_state.attrib['State']
+        command_state_et = response.find("rsp:ReceiveResponse/rsp:CommandState", namespaces=NAMESPACES)
+        command_state = CommandState.PENDING
+        if command_state_et is not None:
+            command_state = command_state_et.attrib["State"]
 
-        rc = response.find("rsp:ReceiveResponse/"
-                           "rsp:CommandState/"
-                           "rsp:ExitCode",
-                           namespaces=NAMESPACES)
-        if rc is not None:
-            rc = int(rc.text)
+        rc_et = response.find("rsp:ReceiveResponse/rsp:CommandState/rsp:ExitCode", namespaces=NAMESPACES)
+        rc = None
+        if rc_et is not None:
+            rc = int(rc_et.text or "0")
 
         buffer = {}
-        for stream_name in stream.split(" "):
+        for stream_name in stream.split():
             buffer[stream_name] = b""
-        streams = response.findall("rsp:ReceiveResponse/"
-                                   "rsp:Stream",
-                                   namespaces=NAMESPACES)
-        for stream in streams:
-            if stream.text is None:
+        streams = response.findall("rsp:ReceiveResponse/rsp:Stream", namespaces=NAMESPACES)
+        for s in streams:
+            if s.text is None:
                 continue
 
-            stream_value = base64.b64decode(stream.text.encode('utf-8'))
-            stream_name = stream.attrib['Name']
+            stream_value = base64.b64decode(s.text.encode("utf-8"))
+            stream_name = s.attrib["Name"]
             buffer[stream_name] += stream_value
 
         return command_state, rc, buffer
 
-    def send(self, stream, data, command_id=None, end=None):
+    def send(
+        self,
+        stream: str,
+        data: bytes,
+        command_id: typing.Optional[str] = None,
+        end: typing.Optional[bool] = None,
+    ) -> ET.Element:
         """
         Send the input data to the shell or command (if command_id is set)
 
@@ -274,20 +285,23 @@ class WinRS(object):
         :param end: Whether this is the last input element for the command
         :return: The raw WSMan body of the response
         """
-        rsp = NAMESPACES['rsp']
+        rsp = NAMESPACES["rsp"]
 
         send = ET.Element("{%s}Send" % rsp)
-        stream = ET.SubElement(send, "{%s}Stream" % rsp, Name=stream)
+        resp = ET.SubElement(send, "{%s}Stream" % rsp, Name=stream)
         if end is not None:
-            stream.attrib['End'] = str(end)
+            resp.attrib["End"] = str(end)
         if command_id is not None:
-            stream.attrib['CommandId'] = command_id
+            resp.attrib["CommandId"] = command_id
 
-        stream.text = base64.b64encode(data).decode('utf-8')
-        return self.wsman.send(self.resource_uri, send,
-                               selector_set=self._selector_set)
+        resp.text = base64.b64encode(data).decode("utf-8")
+        return self.wsman.send(self.resource_uri, send, selector_set=self._selector_set)
 
-    def signal(self, code, command_id):
+    def signal(
+        self,
+        code: str,
+        command_id: str,
+    ) -> ET.Element:
         """
         Send a signal to the command
 
@@ -295,15 +309,16 @@ class WinRS(object):
         :param command_id: The command id the signal is for
         :return: The raw WSMan body of the response
         """
-        rsp = NAMESPACES['rsp']
+        rsp = NAMESPACES["rsp"]
 
-        signal = ET.Element("{%s}Signal" % rsp,
-                            attrib={"CommandId": command_id})
+        signal = ET.Element("{%s}Signal" % rsp, attrib={"CommandId": command_id})
         ET.SubElement(signal, "{%s}Code" % rsp).text = code
-        return self.wsman.signal(self.resource_uri, signal,
-                                 selector_set=self._selector_set)
+        return self.wsman.signal(self.resource_uri, signal, selector_set=self._selector_set)
 
-    def _parse_shell_create(self, response):
+    def _parse_shell_create(
+        self,
+        response: ET.Element,
+    ) -> None:
         fields = {
             "rsp:ShellId": "id",
             "rsp:ResourceUri": "resource_uri",
@@ -312,7 +327,7 @@ class WinRS(object):
             "rsp:IdleTimeOut": "idle_time_out",
             "rsp:OutputStreams": "output_streams",
             "rsp:ShellRunTime": "shell_run_time",
-            "rsp:ShellInactivity": "shell_inactivity"
+            "rsp:ShellInactivity": "shell_inactivity",
         }
 
         for xml_element, shell_attr in fields.items():
@@ -320,20 +335,22 @@ class WinRS(object):
             if element is not None:
                 setattr(self, shell_attr, element.text)
 
-        selector_set = response.find("wst:ResourceCreated/"
-                                     "wsa:ReferenceParameters/"
-                                     "wsman:SelectorSet", NAMESPACES)
+        selector_set = response.find("wst:ResourceCreated/wsa:ReferenceParameters/wsman:SelectorSet", NAMESPACES)
         if selector_set is not None:
             self._selector_set = SelectorSet()
             for selector in selector_set:
-                self._selector_set.add_option(selector.attrib['Name'],
-                                              selector.text)
+                self._selector_set.add_option(selector.attrib["Name"], selector.text or "")
 
 
 class Process(object):
-
-    def __init__(self, shell, executable, arguments=None, id=None,
-                 no_shell=False):
+    def __init__(
+        self,
+        shell: WinRS,
+        executable: str,
+        arguments: typing.Optional[typing.List[str]] = None,
+        id: typing.Optional[str] = None,
+        no_shell: bool = False,
+    ) -> None:
         """
         A new process to run over a default WinRS shell.
 
@@ -347,44 +364,42 @@ class Process(object):
             bypass it. If True then executable must be the full path to the
             exe. This only works on older OS's before 2012 R2 (not including)
         """
-        log.debug("Creating WinRS process for '%s' with arguments '%s'"
-                  % (executable, arguments))
+        log.debug("Creating WinRS process for '%s' with arguments '%s'" % (executable, arguments))
         self.shell = shell
         self.id = id
         self.no_shell = no_shell
         self.executable = executable
         self.arguments = arguments
         self.state = CommandState.PENDING
-        self.rc = None
+        self.rc: typing.Optional[int] = None
         self.stdout = b""
         self.stderr = b""
 
-    def begin_invoke(self):
+    def begin_invoke(self) -> None:
         """
         Start the process in the background and return immediately. Call
         poll_invoke to get the latest output/status of the command and
         end_invoke to wait until the process is complete.
         """
-        response = self.shell.command(self.executable, self.arguments,
-                                      no_shell=self.no_shell)
-        self.id = response.find("rsp:CommandResponse/rsp:CommandId",
-                                namespaces=NAMESPACES).text
+        response = self.shell.command(self.executable, self.arguments, no_shell=self.no_shell)
+        command_id = response.find("rsp:CommandResponse/rsp:CommandId", namespaces=NAMESPACES)
+        self.id = command_id.text if command_id is not None else None
 
-    def end_invoke(self):
+    def end_invoke(self) -> None:
         """
         Wait until the process is done
         """
         while not self.state == CommandState.DONE:
             self.poll_invoke()
 
-    def invoke(self):
+    def invoke(self) -> None:
         """
         Start the process synchronously and wait for it to be completed.
         """
         self.begin_invoke()
         self.end_invoke()
 
-    def poll_invoke(self, timeout=None):
+    def poll_invoke(self, timeout: typing.Optional[int] = None) -> None:
         """
         Poll the running process to update the output buffer and the status.
 
@@ -392,9 +407,7 @@ class Process(object):
         process.
         """
         try:
-            self.state, self.rc, buffer = self.shell.receive('stdout stderr',
-                                                             self.id,
-                                                             timeout=timeout)
+            self.state, self.rc, buffer = self.shell.receive("stdout stderr", self.id, timeout=timeout)
         except WSManFaultError as exc:
             # if a command exceeds the OperationTimeout set, we will get
             # a WSManFaultError with the code 2150858793. We ignore this
@@ -404,10 +417,10 @@ class Process(object):
             else:
                 raise exc
         else:
-            self.stdout += buffer['stdout']
-            self.stderr += buffer['stderr']
+            self.stdout += buffer["stdout"]
+            self.stderr += buffer["stderr"]
 
-    def send(self, data, end=True):
+    def send(self, data: bytes, end: bool = True) -> None:
         """
         Send data to the running process.
 
@@ -417,10 +430,10 @@ class Process(object):
         """
         self.shell.send("stdin", data, command_id=self.id, end=end)
 
-    def signal(self, code):
+    def signal(self, code: str) -> None:
         """
         Send a signal to the process.
 
         :param code: The SignalCode to send
         """
-        self.shell.signal(code, self.id)
+        self.shell.signal(code, self.id or "")

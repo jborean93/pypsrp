@@ -5,50 +5,77 @@ import base64
 import binascii
 import logging
 import re
+import typing
 import uuid
 import xml.etree.ElementTree as ET
-
 from copy import copy
+from queue import Empty, Queue
+
 from cryptography.hazmat.primitives.padding import PKCS7
-from queue import Queue, Empty
 
-from pypsrp.complex_objects import ApartmentState, Color, \
-    CommandMetadataCount, CommandOrigin, Coordinates, ComplexObject, \
-    CultureInfo, DictionaryMeta, GenericComplexObject, HostMethodIdentifier, \
-    InformationalRecord, KeyInfoDotNet, ListMeta, ObjectMeta, \
-    ParameterMetadata, PipelineResultTypes, ProgressRecordType, PSCredential,\
-    PSThreadOptions, QueueMeta, RemoteStreamOptions, \
-    SessionStateEntryVisibility, Size, StackMeta
-from pypsrp.exceptions import SerializationError
-from pypsrp.messages import DebugRecord, ErrorRecordMessage, InformationRecord, \
-    VerboseRecord, WarningRecord
 from pypsrp._utils import to_bytes, to_string, to_unicode
-
+from pypsrp.complex_objects import (
+    ApartmentState,
+    Color,
+    CommandMetadataCount,
+    CommandOrigin,
+    ComplexObject,
+    Coordinates,
+    CultureInfo,
+    DictionaryMeta,
+    GenericComplexObject,
+    HostMethodIdentifier,
+    InformationalRecord,
+    KeyInfoDotNet,
+    ListMeta,
+    ObjectMeta,
+    ParameterMetadata,
+    PipelineResultTypes,
+    ProgressRecordType,
+    PSCredential,
+    PSThreadOptions,
+    QueueMeta,
+    RemoteStreamOptions,
+    SessionStateEntryVisibility,
+    Size,
+    StackMeta,
+)
+from pypsrp.exceptions import SerializationError
+from pypsrp.messages import (
+    DebugRecord,
+    ErrorRecordMessage,
+    InformationRecord,
+    VerboseRecord,
+    WarningRecord,
+)
 
 log = logging.getLogger(__name__)
 
 
 class Serializer(object):
-
-    def __init__(self):
+    def __init__(self) -> None:
         self.obj_id = 0
-        self.obj = {}
+        self.obj: typing.Dict = {}
         self.tn_id = 0
-        self.tn = {}
+        self.tn: typing.Dict = {}
 
-        self.cipher = None
+        self.cipher: typing.Any = None
         # Finds C0, C1 and surrogate pairs in a unicode string for us to
         # encode according to the PSRP rules
-        self._serial_str = re.compile(u'[\u0000-\u001F'
-                                      u'\u007F-\u009F'
-                                      u'\U00010000-\U0010FFFF]')
+        self._serial_str = re.compile(u"[\u0000-\u001F" u"\u007F-\u009F" u"\U00010000-\U0010FFFF]")
 
         # to support surrogate UTF-16 pairs we need to use a UTF-16 regex
         # so we can replace the UTF-16 string representation with the actual
         # UTF-16 byte value and then decode that
         self._deserial_str = re.compile(b"\\x00_\\x00x([\\0\\w]{8})\\x00_")
 
-    def serialize(self, value, metadata=None, parent=None, clear=True):
+    def serialize(
+        self,
+        value: typing.Any,
+        metadata: typing.Optional[ObjectMeta] = None,
+        parent: typing.Optional[ET.Element] = None,
+        clear: bool = True,
+    ) -> typing.Optional[ET.Element]:
         """
         Serializes a raw value or class into an XML Element that can be sent
         over to the remote host.
@@ -66,7 +93,7 @@ class Serializer(object):
 
         if isinstance(value, ET.Element):
             if metadata is not None and metadata.name is not None:
-                value.attrib['N'] = metadata.name
+                value.attrib["N"] = metadata.name
 
             if parent is not None:
                 parent.append(value)
@@ -81,44 +108,46 @@ class Serializer(object):
             else:
                 metadata.tag = self._get_tag_from_value(value)
 
-        pack_function = {
+        pack_function: typing.Callable[[ObjectMeta, typing.Any], ET.Element] = {  # type: ignore[assignment] # Not sure why
             # primitive types
-            'S': lambda m, d: self._serialize_string(d),
-            'ToString': lambda d: self._serialize_string(d),
-            'C': lambda m, d: str(ord(d)),
-            'B': lambda m, d: str(d).lower(),
-            'DT': lambda m, d: None,
-            'TS': lambda m, d: str(d),
-            'By': lambda m, d: str(d),
-            'SB': lambda m, d: str(d),
-            'U16': lambda m, d: str(d),
-            'I16': lambda m, d: str(d),
-            'U32': lambda m, d: str(d),
-            'I32': lambda m, d: str(d),
-            'U64': lambda m, d: str(d),
-            'I64': lambda m, d: str(d),
-            'Sg': lambda m, d: str(d),
-            'Db': lambda m, d: str(d),
-            'D': lambda m, d: str(d),
-            'BA': lambda m, d: to_string(base64.b64encode(d)),
-            'G': lambda m, d: str(d),
-            'URI': lambda m, d: self._serialize_string(d),
-            'Version': lambda m, d: str(d),
-            'XD': lambda m, d: self._serialize_string(d),
-            'SBK': lambda m, d: self._serialize_string(d),
-            'SS': lambda m, d: self._serialize_secure_string(d),
-            'Obj': self._serialize_obj,
+            "S": lambda m, d: self._serialize_string(d),
+            "ToString": lambda d: self._serialize_string(d),
+            "C": lambda m, d: str(ord(d)),
+            "B": lambda m, d: str(d).lower(),
+            "DT": lambda m, d: None,
+            "TS": lambda m, d: str(d),
+            "By": lambda m, d: str(d),
+            "SB": lambda m, d: str(d),
+            "U16": lambda m, d: str(d),
+            "I16": lambda m, d: str(d),
+            "U32": lambda m, d: str(d),
+            "I32": lambda m, d: str(d),
+            "U64": lambda m, d: str(d),
+            "I64": lambda m, d: str(d),
+            "Sg": lambda m, d: str(d),
+            "Db": lambda m, d: str(d),
+            "D": lambda m, d: str(d),
+            "BA": lambda m, d: to_string(base64.b64encode(d)),
+            "G": lambda m, d: str(d),
+            "URI": lambda m, d: self._serialize_string(d),
+            "Version": lambda m, d: str(d),
+            "XD": lambda m, d: self._serialize_string(d),
+            "SBK": lambda m, d: self._serialize_string(d),
+            "SS": lambda m, d: self._serialize_secure_string(d),
+            "Obj": self._serialize_obj,
             "ObjDynamic": self._serialize_dynamic_obj,
-            'LST': self._serialize_lst,
-            'IE': self._serialize_ie,
-            'QUE': self._serialize_que,
-            'STK': self._serialize_stk,
-            'DCT': self._serialize_dct
-        }[metadata.tag]
+            "LST": self._serialize_lst,
+            "IE": self._serialize_ie,
+            "QUE": self._serialize_que,
+            "STK": self._serialize_stk,
+            "DCT": self._serialize_dct,
+        }[
+            metadata.tag
+        ]
 
         if value is None:
             if metadata.optional:
-                return
+                return None
             element = ET.Element("Nil")
         else:
             element_value = pack_function(metadata, value)
@@ -129,14 +158,19 @@ class Serializer(object):
                 element = element_value
 
         if metadata.name is not None:
-            element.attrib['N'] = metadata.name
+            element.attrib["N"] = metadata.name
 
         if parent is not None:
             parent.append(element)
 
         return element
 
-    def deserialize(self, element, metadata=None, clear=True):
+    def deserialize(
+        self,
+        element: typing.Union[ET.Element, str],
+        metadata: typing.Optional[ObjectMeta] = None,
+        clear: bool = True,
+    ) -> typing.Any:
         if clear:
             self._clear()
 
@@ -145,11 +179,10 @@ class Serializer(object):
             try:
                 element = ET.fromstring(element)
             except ET.ParseError as err:
-                log.warning("Failed to parse data '%s' as XML, return raw "
-                            "xml: %s" % (element_string, str(err)))
+                log.warning("Failed to parse data '%s' as XML, return raw xml: %s" % (element_string, str(err)))
                 return element_string
         else:
-            xml_string = ET.tostring(element, encoding='utf-8', method='xml')
+            xml_string = ET.tostring(element, encoding="utf-8", method="xml")
             element_string = to_string(xml_string)
 
         metadata = metadata or ObjectMeta()
@@ -160,36 +193,35 @@ class Serializer(object):
         obj_types = self._get_types_from_obj(element)
 
         # check if it is a primitive object
-        unpack_function = {
+        unpack_function: typing.Optional[typing.Callable[[ET.Element], typing.Any]] = {
             # Primitive types
-            'S': lambda d: self._deserialize_string(d.text),
-            'ToString': lambda d: self._deserialize_string(d.text),
-            'C': lambda d: chr(int(d.text)),
-            'B': lambda d: d.text.lower() == "true",
-            'DT': lambda d: d.text,
-            'TS': lambda d: d.text,
-            'By': lambda d: int(d.text),
-            'SB': lambda d: int(d.text),
-            'U16': lambda d: int(d.text),
-            'I16': lambda d: int(d.text),
-            'U32': lambda d: int(d.text),
-            'I32': lambda d: int(d.text),
-            'U64': lambda d: int(d.text),
-            'I64': lambda d: int(d.text),
-            'Sg': lambda d: float(d.text),
-            'Db': lambda d: float(d.text),
-            'D': lambda d: d.text,  # TODO: deserialize this
-            'BA': lambda d: base64.b64decode(d.text),
-            'G': lambda d: uuid.UUID(d.text),
-            'URI': lambda d: self._deserialize_string(d.text),
-            'Nil': lambda d: None,
-            'Version': lambda d: d.text,
-            'XD': lambda d: self._deserialize_string(d.text),
-            'SBK': lambda d: self._deserialize_string(d.text),
-            'SS': lambda d: self._deserialize_secure_string(d),
-
+            "S": lambda d: self._deserialize_string(d.text),
+            "ToString": lambda d: self._deserialize_string(d.text),
+            "C": lambda d: chr(int(d.text)),
+            "B": lambda d: d.text.lower() == "true",
+            "DT": lambda d: d.text,
+            "TS": lambda d: d.text,
+            "By": lambda d: int(d.text),
+            "SB": lambda d: int(d.text),
+            "U16": lambda d: int(d.text),
+            "I16": lambda d: int(d.text),
+            "U32": lambda d: int(d.text),
+            "I32": lambda d: int(d.text),
+            "U64": lambda d: int(d.text),
+            "I64": lambda d: int(d.text),
+            "Sg": lambda d: float(d.text),
+            "Db": lambda d: float(d.text),
+            "D": lambda d: d.text,  # TODO: deserialize this
+            "BA": lambda d: base64.b64decode(d.text),
+            "G": lambda d: uuid.UUID(d.text),
+            "URI": lambda d: self._deserialize_string(d.text),
+            "Nil": lambda d: None,
+            "Version": lambda d: d.text,
+            "XD": lambda d: self._deserialize_string(d.text),
+            "SBK": lambda d: self._deserialize_string(d.text),
+            "SS": lambda d: self._deserialize_secure_string(d),
             # references an object already deserialized
-            'Ref': lambda d: self.obj[d.attrib['RefId']],
+            "Ref": lambda d: self.obj[d.attrib["RefId"]],
         }.get(element.tag)
 
         if unpack_function is not None:
@@ -198,8 +230,9 @@ class Serializer(object):
         # not a primitive object, so try and decode the complex object
         if type(metadata) == ObjectMeta and metadata.object is None:
             structures = {
-                "Selected.Microsoft.PowerShell.Commands.GenericMeasureInfo":
-                    ObjectMeta("Obj", object=CommandMetadataCount),
+                "Selected.Microsoft.PowerShell.Commands.GenericMeasureInfo": ObjectMeta(
+                    "Obj", object=CommandMetadataCount
+                ),
                 "System.Array": ListMeta(),
                 "System.Collections.ArrayList": ListMeta(),
                 "System.Collections.Hashtable": DictionaryMeta(),
@@ -207,58 +240,40 @@ class Serializer(object):
                 "System.Collections.Queue": QueueMeta(),
                 "System.Collections.Stack": StackMeta(),
                 "System.ConsoleColor": ObjectMeta("Obj", object=Color),
-                "System.Management.Automation.CommandOrigin":
-                    ObjectMeta("Obj", object=CommandOrigin),
-                "System.Management.Automation.DebugRecord":
-                    ObjectMeta("Obj", object=DebugRecord),
-                "System.Management.Automation.ErrorRecord":
-                    ObjectMeta("Obj", object=ErrorRecordMessage),
-                "System.Management.Automation.Host.Coordinates":
-                    ObjectMeta("Obj", object=Coordinates),
-                "System.Management.Automation.Host.KeyInfo":
-                    ObjectMeta("Obj", object=KeyInfoDotNet),
-                "System.Management.Automation.Host.Size":
-                    ObjectMeta("Obj", object=Size),
-                "System.Management.Automation.InformationalRecord":
-                    ObjectMeta("Obj", object=InformationalRecord),
-                "System.Management.Automation.InformationRecord":
-                    ObjectMeta("Obj", object=InformationRecord),
-                "System.Management.Automation.ParameterMetadata":
-                    ObjectMeta("Obj", object=ParameterMetadata),
-                "System.Management.Automation.ProgressRecordType":
-                    ObjectMeta("Obj", object=ProgressRecordType),
-                "System.Management.Automation.PSBoundParametersDictionary":
-                    DictionaryMeta(),
-                "System.Management.Automation.PSCredential":
-                    ObjectMeta("Obj", object=PSCredential),
-                "System.Management.Automation.PSObject":
-                    ObjectMeta("ObjDynamic", object=GenericComplexObject),
-                "System.Management.Automation.PSPrimitiveDictionary":
-                    DictionaryMeta(),
+                "System.Management.Automation.CommandOrigin": ObjectMeta("Obj", object=CommandOrigin),
+                "System.Management.Automation.DebugRecord": ObjectMeta("Obj", object=DebugRecord),
+                "System.Management.Automation.ErrorRecord": ObjectMeta("Obj", object=ErrorRecordMessage),
+                "System.Management.Automation.Host.Coordinates": ObjectMeta("Obj", object=Coordinates),
+                "System.Management.Automation.Host.KeyInfo": ObjectMeta("Obj", object=KeyInfoDotNet),
+                "System.Management.Automation.Host.Size": ObjectMeta("Obj", object=Size),
+                "System.Management.Automation.InformationalRecord": ObjectMeta("Obj", object=InformationalRecord),
+                "System.Management.Automation.InformationRecord": ObjectMeta("Obj", object=InformationRecord),
+                "System.Management.Automation.ParameterMetadata": ObjectMeta("Obj", object=ParameterMetadata),
+                "System.Management.Automation.ProgressRecordType": ObjectMeta("Obj", object=ProgressRecordType),
+                "System.Management.Automation.PSBoundParametersDictionary": DictionaryMeta(),
+                "System.Management.Automation.PSCredential": ObjectMeta("Obj", object=PSCredential),
+                "System.Management.Automation.PSObject": ObjectMeta("ObjDynamic", object=GenericComplexObject),
+                "System.Management.Automation.PSPrimitiveDictionary": DictionaryMeta(),
                 "System.Management.Automation.PSTypeName": ObjectMeta("S"),
-                "System.Management.Automation.Remoting.RemoteHostMethodId":
-                    ObjectMeta("Obj", object=HostMethodIdentifier),
-                "System.Management.Automation.Runspaces.ApartmentState":
-                    ObjectMeta("Obj", object=ApartmentState),
-                "System.Management.Automation.Runspaces.PipelineResultTypes":
-                    ObjectMeta("Obj", object=PipelineResultTypes),
-                "System.Management.Automation.Runspaces.PSThreadOptions":
-                    ObjectMeta("Obj", object=PSThreadOptions),
-                "System.Management.Automation.Runspaces.RemoteStreamOptions":
-                    ObjectMeta("Obj", object=RemoteStreamOptions),
-                "System.Management.Automation.SessionStateEntryVisibility":
-                    ObjectMeta("Obj", object=SessionStateEntryVisibility),
-                "System.Management.Automation.VerboseRecord":
-                    ObjectMeta("Obj", object=VerboseRecord),
-                "System.Management.Automation.WarningRecord":
-                    ObjectMeta("Obj", object=WarningRecord),
-                "System.Globalization.CultureInfo":
-                    ObjectMeta("Obj", object=CultureInfo),
-
+                "System.Management.Automation.Remoting.RemoteHostMethodId": ObjectMeta(
+                    "Obj", object=HostMethodIdentifier
+                ),
+                "System.Management.Automation.Runspaces.ApartmentState": ObjectMeta("Obj", object=ApartmentState),
+                "System.Management.Automation.Runspaces.PipelineResultTypes": ObjectMeta(
+                    "Obj", object=PipelineResultTypes
+                ),
+                "System.Management.Automation.Runspaces.PSThreadOptions": ObjectMeta("Obj", object=PSThreadOptions),
+                "System.Management.Automation.Runspaces.RemoteStreamOptions": ObjectMeta(
+                    "Obj", object=RemoteStreamOptions
+                ),
+                "System.Management.Automation.SessionStateEntryVisibility": ObjectMeta(
+                    "Obj", object=SessionStateEntryVisibility
+                ),
+                "System.Management.Automation.VerboseRecord": ObjectMeta("Obj", object=VerboseRecord),
+                "System.Management.Automation.WarningRecord": ObjectMeta("Obj", object=WarningRecord),
+                "System.Globalization.CultureInfo": ObjectMeta("Obj", object=CultureInfo),
                 # Fallback to the GenericComplexObject
-                "System.Object":
-                    ObjectMeta("ObjDynamic", object=GenericComplexObject),
-
+                "System.Object": ObjectMeta("ObjDynamic", object=GenericComplexObject),
                 # Primitive types
                 "System.String": ObjectMeta("S"),
                 "System.Char": ObjectMeta("C"),
@@ -298,30 +313,23 @@ class Serializer(object):
                 if obj_type.endswith("[]"):
                     obj_type = obj_type[0:-2]
                     is_list = True
-                elif obj_type.startswith("System.Collections."
-                                         "Generic.List`1[["):
+                elif obj_type.startswith("System.Collections.Generic.List`1[["):
                     list_info = obj_type[35:-1]
                     obj_type = list_info.split(",")[0]
                     is_list = True
-                elif obj_type.startswith("System.Collections.ObjectModel."
-                                         "Collection`1[["):
+                elif obj_type.startswith("System.Collections.ObjectModel.Collection`1[["):
                     list_info = obj_type[45:-1]
                     obj_type = list_info.split(",")[0]
                     is_list = True
-                elif obj_type.startswith("System.Collections.ObjectModel."
-                                         "ReadOnlyCollection`1[["):
+                elif obj_type.startswith("System.Collections.ObjectModel.ReadOnlyCollection`1[["):
                     list_info = obj_type[53:-1]
                     obj_type = list_info.split(",")[0]
                     is_list = True
-                elif obj_type.startswith("System.Collections.Generic."
-                                         "Dictionary`2[["):
+                elif obj_type.startswith("System.Collections.Generic.Dictionary`2[["):
                     dict_meta = obj_type[41:-2].split("],[")
-                    key_type = structures.get(dict_meta[0].split(",")[0],
-                                              ObjectMeta())
-                    value_type = structures.get(dict_meta[1].split(",")[0],
-                                                ObjectMeta())
-                    metadata = DictionaryMeta(dict_key_meta=key_type,
-                                              dict_value_meta=value_type)
+                    key_type = structures.get(dict_meta[0].split(",")[0], ObjectMeta())
+                    value_type = structures.get(dict_meta[1].split(",")[0], ObjectMeta())
+                    metadata = DictionaryMeta(dict_key_meta=key_type, dict_value_meta=value_type)
                     break
 
                 obj_meta = structures.get(obj_type)
@@ -333,6 +341,7 @@ class Serializer(object):
 
         # we were unable to find the complex object type so just return the
         # element
+        obj: typing.Any
         if metadata is None:
             obj = element_string
         elif metadata.tag == "Obj":
@@ -348,19 +357,21 @@ class Serializer(object):
         elif metadata.tag == "DCT":
             obj = self._deserialize_dct(element)
         else:
-            log.warning("Unknown metadata tag type '%s', failed to "
-                        "deserialize object" % metadata.tag)
+            log.warning("Unknown metadata tag type '%s', failed to deserialize object" % metadata.tag)
             obj = element_string
 
         if element.tag == "Obj":
-            self.obj[element.attrib['RefId']] = obj
+            self.obj[element.attrib["RefId"]] = obj
 
         if isinstance(obj, ComplexObject):
             obj._xml = element_string
 
         return obj
 
-    def _get_tag_from_value(self, value):
+    def _get_tag_from_value(
+        self,
+        value: typing.Any,
+    ) -> str:
         # Get's the XML tag based on the value type, this is a simple list
         # and explicit tagging is recommended.
 
@@ -395,7 +406,11 @@ class Serializer(object):
             # error
             return "S"
 
-    def _serialize_obj(self, metadata, value):
+    def _serialize_obj(
+        self,
+        metadata: ObjectMeta,
+        value: typing.Any,
+    ) -> ET.Element:
         obj = ET.Element("Obj", RefId=self._get_obj_id())
 
         if len(value._types) > 0:
@@ -403,27 +418,30 @@ class Serializer(object):
 
         to_string_value = value._to_string
         if to_string_value is not None:
-            ET.SubElement(obj, "ToString").text = \
-                self._serialize_string(to_string_value)
+            ET.SubElement(obj, "ToString").text = self._serialize_string(to_string_value)
 
         for attr, property_meta in value._property_sets:
             attr_value = getattr(value, attr)
             self._create_obj(obj, attr_value, meta=property_meta)
 
-        def serialize_prop(parent, properties):
+        def serialize_prop(parent: str, properties: typing.Tuple[typing.Tuple[str, ObjectMeta], ...]) -> None:
             if len(properties) == 0:
                 return
-            parent = ET.SubElement(obj, parent)
+            parent_et = ET.SubElement(obj, parent)
             for attr, property_meta in properties:
                 attr_value = getattr(value, attr)
-                self._create_obj(parent, attr_value, meta=property_meta)
+                self._create_obj(parent_et, attr_value, meta=property_meta)
 
         serialize_prop("MS", value._extended_properties)
         serialize_prop("Props", value._adapted_properties)
 
         return obj
 
-    def _serialize_dynamic_obj(self, metadata, value):
+    def _serialize_dynamic_obj(
+        self,
+        metadata: ObjectMeta,
+        value: typing.Any,
+    ) -> ET.Element:
         obj = ET.Element("Obj", RefId=self._get_obj_id())
         self.obj[obj.attrib["RefId"]] = value
 
@@ -431,13 +449,12 @@ class Serializer(object):
             self._create_tn(obj, value.types)
 
         if value.to_string is not None:
-            ET.SubElement(obj, "ToString").text = \
-                self._serialize_string(value.to_string)
+            ET.SubElement(obj, "ToString").text = self._serialize_string(value.to_string)
 
         for prop in value.property_sets:
             self._create_obj(obj, prop)
 
-        def set_properties(element, prop_name):
+        def set_properties(element: str, prop_name: str) -> None:
             prop_keys = list(getattr(value, prop_name).keys())
             if len(prop_keys) == 0:
                 return
@@ -453,25 +470,31 @@ class Serializer(object):
 
         return obj
 
-    def _serialize_que(self, metadata, values):
+    def _serialize_que(
+        self,
+        metadata: QueueMeta,
+        values: Queue,
+    ) -> ET.Element:
         obj = ET.Element("Obj", RefId=self._get_obj_id())
         if not isinstance(metadata, QueueMeta):
-            metadata = QueueMeta(name=metadata.name,
-                                 optional=metadata.optional)
+            metadata = QueueMeta(name=metadata.name, optional=metadata.optional)
         self._create_tn(obj, metadata.list_types)
 
         que = ET.SubElement(obj, "QUE")
         while True:
             try:
                 value = values.get(block=False)
-                self.serialize(value, metadata.list_value_meta, parent=que,
-                               clear=False)
+                self.serialize(value, metadata.list_value_meta, parent=que, clear=False)
             except Empty:
                 break
 
         return obj
 
-    def _serialize_stk(self, metadata, values):
+    def _serialize_stk(
+        self,
+        metadata: StackMeta,
+        values: typing.List,
+    ) -> ET.Element:
         obj = ET.Element("Obj", RefId=self._get_obj_id())
         self._create_tn(obj, metadata.list_types)
 
@@ -479,41 +502,51 @@ class Serializer(object):
         while True:
             try:
                 value = values.pop()
-                self.serialize(value, metadata.list_value_meta, parent=stk,
-                               clear=False)
+                self.serialize(value, metadata.list_value_meta, parent=stk, clear=False)
             except IndexError:
                 break
 
         return obj
 
-    def _serialize_ie(self, metadata, values):
+    def _serialize_ie(
+        self,
+        metadata: ListMeta,
+        values: typing.List,
+    ) -> ET.Element:
         return self._serialize_lst(metadata, values, tag="IE")
 
-    def _serialize_lst(self, metadata, values, tag="LST"):
+    def _serialize_lst(
+        self,
+        metadata: ListMeta,
+        values: typing.List,
+        tag: str = "LST",
+    ) -> ET.Element:
         obj = ET.Element("Obj", RefId=self._get_obj_id())
         if not isinstance(metadata, ListMeta):
-            metadata = ListMeta(name=metadata.name,
-                                optional=metadata.optional)
+            metadata = ListMeta(name=metadata.name, optional=metadata.optional)
         self._create_tn(obj, metadata.list_types)
 
         lst = ET.SubElement(obj, tag)
         for value in iter(values):
             entry_meta = copy(metadata.list_value_meta)
-            self.serialize(value, entry_meta, parent=lst,
-                           clear=False)
+            self.serialize(value, entry_meta, parent=lst, clear=False)
 
         return obj
 
-    def _serialize_dct(self, metadata, values):
+    def _serialize_dct(
+        self,
+        metadata: DictionaryMeta,
+        values: typing.Dict,
+    ) -> ET.Element:
         obj = ET.Element("Obj", RefId=self._get_obj_id())
         if not isinstance(metadata, DictionaryMeta):
-            metadata = DictionaryMeta(name=metadata.name,
-                                      optional=metadata.optional)
+            metadata = DictionaryMeta(name=metadata.name, optional=metadata.optional)
         self._create_tn(obj, metadata.dict_types)
 
         dct = ET.SubElement(obj, "DCT")
 
         # allow dicts to be defined as a tuple so that the order is kept
+        iterator: typing.Iterable[typing.Tuple[typing.Any, typing.Any]]
         if isinstance(values, tuple):
             iterator = values
         else:
@@ -528,15 +561,18 @@ class Serializer(object):
 
         return obj
 
-    def _serialize_string(self, value):
+    def _serialize_string(
+        self,
+        value: typing.Optional[str],
+    ) -> typing.Optional[str]:
         if value is None:
             return None
 
         def rplcr(matchobj):
             surrogate_char = matchobj.group(0)
-            byte_char = to_bytes(surrogate_char, encoding='utf-16-be')
+            byte_char = to_bytes(surrogate_char, encoding="utf-16-be")
             hex_char = to_unicode(binascii.hexlify(byte_char)).upper()
-            hex_split = [hex_char[i:i + 4] for i in range(0, len(hex_char), 4)]
+            hex_split = [hex_char[i : i + 4] for i in range(0, len(hex_char), 4)]
 
             return u"".join([u"_x%s_" % i for i in hex_split])
 
@@ -551,17 +587,19 @@ class Serializer(object):
 
         return string_value
 
-    def _serialize_secure_string(self, value):
+    def _serialize_secure_string(
+        self,
+        value: str,
+    ) -> str:
         if self.cipher is None:
-            raise SerializationError("Cannot generate secure string as cipher "
-                                     "is not initialised")
+            raise SerializationError("Cannot generate secure string as cipher is not initialised")
 
         # convert the string to a UTF-16 byte string as that is what is
         # expected in Windows. If a byte string (native string in Python 2) was
         # passed in, the sender must make sure it is a valid UTF-16
         # representation and not UTF-8 or else the server will fail to decrypt
         # the secure string in most cases
-        string_bytes = to_bytes(value, encoding='utf-16-le')
+        string_bytes = to_bytes(value, encoding="utf-16-le")
 
         padder = PKCS7(self.cipher.algorithm.block_size).padder()
         padded_data = padder.update(string_bytes) + padder.finalize()
@@ -572,15 +610,19 @@ class Serializer(object):
 
         return ss_string
 
-    def _deserialize_obj(self, element, metadata):
-        obj = metadata.object()
-        self.obj[element.attrib['RefId']] = obj
+    def _deserialize_obj(
+        self,
+        element: ET.Element,
+        metadata: ObjectMeta,
+    ) -> typing.Any:
+        obj = metadata.object()  # type: ignore[misc] # Caller always sets object
+        self.obj[element.attrib["RefId"]] = obj
 
         to_string_value = element.find("ToString")
         if to_string_value is not None:
             obj._to_string = self._deserialize_string(to_string_value.text)
 
-        def deserialize_property(prop_tag, properties):
+        def deserialize_property(prop_tag: str, properties: typing.Tuple[typing.Tuple[str, ObjectMeta], ...]) -> None:
             for attr, property_meta in properties:
                 if attr == "invocation_info":
                     a = ""
@@ -592,25 +634,23 @@ class Serializer(object):
 
                 tags = [property_meta.tag]
                 # The below tags are actually seen as Obj in the parent element
-                if property_meta.tag in ["DCT", "LST", "IE", "QUE", "STK",
-                                         "ObjDynamic"]:
+                if property_meta.tag in ["DCT", "LST", "IE", "QUE", "STK", "ObjDynamic"]:
                     tags = ["Obj", "Ref"]
 
                 val = None
                 for tag in tags:
-                    val = element.find("%s%s%s" % (prop_tag, tag,
-                                                   property_filter))
+                    val = element.find("%s%s%s" % (prop_tag, tag, property_filter))
                     if val is not None:
                         break
 
                 if val is None and not property_meta.optional:
                     val = element.find("%sNil%s" % (prop_tag, property_filter))
                     if val is None:
-                        obj_name = str(obj) if obj._to_string is not None \
-                            else "Unknown"
-                        err_msg = "Mandatory return value for '%s' was not " \
-                                  "found on object %s"\
-                                  % (property_name, obj_name)
+                        obj_name = str(obj) if obj._to_string is not None else "Unknown"
+                        err_msg = "Mandatory return value for '%s' was not found on object %s" % (
+                            property_name,
+                            obj_name,
+                        )
                         raise SerializationError(err_msg)
                     val = None
                 elif val is not None:
@@ -624,25 +664,29 @@ class Serializer(object):
 
         return obj
 
-    def _deserialize_dynamic_obj(self, element, metadata):
-        obj = metadata.object()
-        self.obj[element.attrib['RefId']] = obj
+    def _deserialize_dynamic_obj(
+        self,
+        element: ET.Element,
+        metadata: ObjectMeta,
+    ) -> typing.Any:
+        obj = metadata.object()  # type: ignore[misc] # Caller always sets object
+        self.obj[element.attrib["RefId"]] = obj
 
         for obj_property in element:
             if obj_property.tag == "TN":
                 for obj_type in obj_property:
                     obj.types.append(obj_type.text)
-                self.tn[obj_property.attrib['RefId']] = obj.types
+                self.tn[obj_property.attrib["RefId"]] = obj.types
             elif obj_property.tag == "TNRef":
-                obj.types = self.tn[obj_property.attrib['RefId']]
+                obj.types = self.tn[obj_property.attrib["RefId"]]
             elif obj_property.tag == "Props":
                 for adapted_property in obj_property:
-                    key = adapted_property.attrib['N']
+                    key = adapted_property.attrib["N"]
                     value = self.deserialize(adapted_property, clear=False)
                     obj.adapted_properties[key] = value
             elif obj_property.tag == "MS":
                 for extended_property in obj_property:
-                    key = extended_property.attrib['N']
+                    key = extended_property.attrib["N"]
                     value = self.deserialize(extended_property, clear=False)
                     obj.extended_properties[key] = value
             elif obj_property.tag == "ToString":
@@ -654,54 +698,70 @@ class Serializer(object):
 
         return obj
 
-    def _deserialize_lst(self, element, metadata=None):
+    def _deserialize_lst(
+        self,
+        element: ET.Element,
+        metadata: typing.Optional[ObjectMeta] = None,
+    ) -> typing.List:
         list_value = []
         value_meta = getattr(metadata, "list_value_meta", None)
 
         entries = element.find("LST")
-        for entry in entries:
+        for entry in entries or []:
             entry_value = self.deserialize(entry, value_meta, clear=False)
             list_value.append(entry_value)
 
         return list_value
 
-    def _deserialize_que(self, element):
-        queue = Queue()
+    def _deserialize_que(
+        self,
+        element: ET.Element,
+    ) -> Queue:
+        queue: Queue = Queue()
 
         entries = element.find("QUE")
-        for entry in entries:
+        for entry in entries or []:
             entry_value = self.deserialize(entry, clear=False)
             queue.put(entry_value)
 
         return queue
 
-    def _deserialize_stk(self, element):
+    def _deserialize_stk(
+        self,
+        element: ET.Element,
+    ) -> typing.List:
         # no native Stack object in Python so just use a list
         stack = []
 
         entries = element.find("STK")
-        for entry in entries:
+        for entry in entries or []:
             entry_value = self.deserialize(entry, clear=False)
             stack.append(entry_value)
 
         return stack
 
-    def _deserialize_dct(self, element):
+    def _deserialize_dct(
+        self,
+        element: ET.Element,
+    ) -> typing.Dict:
         dictionary = {}
         entries = element.findall("DCT/En")
         for entry in entries:
             key = entry.find("*[@N='Key']")
             value = entry.find("*[@N='Value']")
 
-            key = self.deserialize(key, clear=False)
-            value = self.deserialize(value, clear=False)
+            key = self.deserialize(key if key is not None else "", clear=False)
+            value = self.deserialize(value if value is not None else "", clear=False)
             dictionary[key] = value
 
         return dictionary
 
-    def _deserialize_string(self, value):
+    def _deserialize_string(
+        self,
+        value: typing.Optional[str],
+    ) -> str:
         if value is None:
-            return u""
+            return ""
 
         def rplcr(matchobj):
             # The matched object is the UTF-16 byte representation of the UTF-8
@@ -713,58 +773,65 @@ class Serializer(object):
             # unicode (from utf-16-be) == u"000A"
             # returns b"\x00\x0A"
             match_hex = matchobj.group(1)
-            hex_string = to_unicode(match_hex, encoding='utf-16-be')
+            hex_string = to_unicode(match_hex, encoding="utf-16-be")
             return binascii.unhexlify(hex_string)
 
         # need to ensure we start with a unicode representation of the string
         # so that we can get the actual UTF-16 bytes value from that string
         unicode_value = to_unicode(value)
-        unicode_bytes = to_bytes(unicode_value, encoding='utf-16-be')
+        unicode_bytes = to_bytes(unicode_value, encoding="utf-16-be")
         bytes_value = re.sub(self._deserial_str, rplcr, unicode_bytes)
-        return to_unicode(bytes_value, encoding='utf-16-be')
+        return to_unicode(bytes_value, encoding="utf-16-be")
 
-    def _deserialize_secure_string(self, value):
+    def _deserialize_secure_string(self, value: ET.Element) -> typing.Union[ET.Element, str]:
         if self.cipher is None:
             # cipher is not set up so we can't decrypt the string, just return
             # the raw element
             return value
 
-        ss_string = base64.b64decode(value.text)
+        ss_string = base64.b64decode(value.text or "")
         decryptor = self.cipher.decryptor()
         decrypted_bytes = decryptor.update(ss_string) + decryptor.finalize()
 
         unpadder = PKCS7(self.cipher.algorithm.block_size).unpadder()
         unpadded_bytes = unpadder.update(decrypted_bytes) + unpadder.finalize()
-        decrypted_string = to_unicode(unpadded_bytes, 'utf-16-le')
+        decrypted_string = to_unicode(unpadded_bytes, "utf-16-le")
 
         return decrypted_string
 
-    def _clear(self):
+    def _clear(self) -> None:
         self.obj_id = 0
         self.obj = {}
         self.tn = {}
         self.tn_id = 0
 
-    def _get_obj_id(self):
+    def _get_obj_id(self) -> str:
         ref_id = str(self.obj_id)
         self.obj_id += 1
         return ref_id
 
-    def _get_types_from_obj(self, element):
-        obj_types = [e.text for e in element.findall("TN/T")]
+    def _get_types_from_obj(
+        self,
+        element: ET.Element,
+    ) -> typing.List[str]:
+        obj_types = [e.text or "" for e in element.findall("TN/T")]
 
         if len(obj_types) > 0:
-            ref_id = element.find("TN").attrib['RefId']
+            ref_id = element.find("TN").attrib["RefId"]  # type: ignore[union-attr] # Mandated by the spec
             self.tn[ref_id] = obj_types
 
         tn_ref = element.find("TNRef")
         if tn_ref is not None:
-            ref_id = tn_ref.attrib['RefId']
+            ref_id = tn_ref.attrib["RefId"]
             obj_types = self.tn[ref_id]
 
         return obj_types
 
-    def _create_tn(self, parent, types):
+    def _create_tn(
+        self,
+        parent: ET.Element,
+        types: typing.List[str],
+    ) -> None:
         main_type = types[0]
         ref_id = self.tn.get(main_type, None)
         if ref_id is None:
@@ -778,7 +845,13 @@ class Serializer(object):
         else:
             ET.SubElement(parent, "TNRef", RefId=str(ref_id))
 
-    def _create_obj(self, parent, obj, key=None, meta=None):
+    def _create_obj(
+        self,
+        parent: ET.Element,
+        obj: typing.Any,
+        key: typing.Optional[str] = None,
+        meta: typing.Optional[ObjectMeta] = None,
+    ) -> None:
         if isinstance(obj, ComplexObject):
             for ref, value in self.obj.items():
                 if value == obj:
@@ -793,6 +866,10 @@ class Serializer(object):
 
 
 class TaggedValue(object):
-    def __init__(self, tag, value):
+    def __init__(
+        self,
+        tag: str,
+        value: typing.Any,
+    ) -> None:
         self.tag = tag
         self.value = value

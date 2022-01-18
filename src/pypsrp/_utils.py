@@ -2,11 +2,14 @@
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 import pkgutil
-
+import typing
 from urllib.parse import urlparse
 
 
-def to_bytes(obj, encoding='utf-8'):
+def to_bytes(
+    obj: typing.Any,
+    encoding: str = "utf-8",
+) -> bytes:
     """
     Makes sure the string is encoded as a byte string.
 
@@ -20,7 +23,10 @@ def to_bytes(obj, encoding='utf-8'):
     return obj.encode(encoding)
 
 
-def to_unicode(obj, encoding='utf-8'):
+def to_unicode(
+    obj: typing.Any,
+    encoding: str = "utf-8",
+) -> str:
     """
     Makes sure the string is unicode string.
 
@@ -45,7 +51,10 @@ convert an existing string like object to the native version that is required
 to_string = to_unicode
 
 
-def version_equal_or_newer(version, reference_version):
+def version_equal_or_newer(
+    version: str,
+    reference_version: str,
+) -> bool:
     """
     Compares the 2 version strings and returns a bool that states whether
     version is newer than or equal to the reference version.
@@ -71,21 +80,21 @@ def version_equal_or_newer(version, reference_version):
 
     newer = True
     for idx, version in enumerate(version_parts):
-        reference_version = int(reference_version_parts[idx])
-        if int(version) < reference_version:
+        current_version = int(reference_version_parts[idx])
+        if int(version) < current_version:
             newer = False
             break
-        elif int(version) > reference_version:
+        elif int(version) > current_version:
             break
 
     return newer
 
 
-def get_hostname(url):
+def get_hostname(url: str) -> typing.Optional[str]:
     return urlparse(url).hostname
 
 
-def get_pwsh_script(name):
+def get_pwsh_script(name: str) -> str:
     """
     Get the contents of a script stored in pypsrp/pwsh_scripts. Will also strip out any empty lines and comments to
     reduce the data we send across as much as possible.
@@ -93,7 +102,7 @@ def get_pwsh_script(name):
     :param name: The filename of the script in pypsrp/pwsh_scripts to get.
     :return: The script contents.
     """
-    script = to_unicode(pkgutil.get_data('pypsrp.pwsh_scripts', name))
+    script = to_unicode(pkgutil.get_data("pypsrp.pwsh_scripts", name))
 
     block_comment = False
     new_lines = []
@@ -101,10 +110,10 @@ def get_pwsh_script(name):
 
         line = line.strip()
         if block_comment:
-            block_comment = not line.endswith('#>')
-        elif line.startswith('<#'):
+            block_comment = not line.endswith("#>")
+        elif line.startswith("<#"):
             block_comment = True
-        elif line and not line.startswith('#'):
+        elif line and not line.startswith("#"):
             new_lines.append(line)
 
-    return '\n'.join(new_lines)
+    return "\n".join(new_lines)

@@ -1,22 +1,26 @@
 import uuid
 
 import pytest
-
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from pypsrp.complex_objects import Color, ControlKeyState, Coordinates, \
-    CultureInfo, KeyInfo, KeyInfoDotNet, GenericComplexObject, \
-    HostMethodIdentifier, ObjectMeta, PSCredential, Size
+from pypsrp.complex_objects import (
+    Color,
+    ControlKeyState,
+    Coordinates,
+    CultureInfo,
+    GenericComplexObject,
+    HostMethodIdentifier,
+    KeyInfo,
+    KeyInfoDotNet,
+    ObjectMeta,
+    PSCredential,
+    Size,
+)
 from pypsrp.host import PSHost, PSHostRawUserInterface, PSHostUserInterface
 from pypsrp.messages import ProgressRecord
 from pypsrp.powershell import PowerShell, RunspacePool
 from pypsrp.wsman import WSMan
-
-try:
-    from unittest.mock import MagicMock
-except ImportError:
-    from mock import MagicMock
 
 
 def gen_rsa_keypair(public_exponent, key_size, backend):
@@ -36,19 +40,19 @@ def gen_rsa_keypair(public_exponent, key_size, backend):
     n = 24692106711502830011203227021058444318027801046612842012663747949974978593541529463344548800446917862266219189049856550539417324579114258210080798360122994007305091566363663241781504651372764226027210216355916383975880112316706422502404691353489765771310270171473497918954906308690817673196552680498374521519566949221302301125182104198985782657283395055909134373469597836420671163965867038455758131344733786842283328454828820406016508955409107145350345035248825315933976893356673777910251028486191789752627573225093968284278302684745743589192378470115772764709506475265246795419324395050366115533203601201395969892207
 
     public_numbers = rsa.RSAPublicNumbers(e, n)
-    numbers = rsa.RSAPrivateNumbers(p, q, d, dmp1, dmq1, iqmp,
-                                    public_numbers)
+    numbers = rsa.RSAPrivateNumbers(p, q, d, dmp1, dmq1, iqmp, public_numbers)
     key = default_backend().load_rsa_private_numbers(numbers)
 
     return key
 
 
 class TestPSHost(object):
-
-    @pytest.mark.parametrize('wsman_conn',
-                             # The actual culture can vary from host to host
-                             [[True, 'test_psrp_pshost_methods']],
-                             indirect=True)
+    @pytest.mark.parametrize(
+        "wsman_conn",
+        # The actual culture can vary from host to host
+        [[True, "test_psrp_pshost_methods"]],
+        indirect=True,
+    )
     def test_psrp_pshost_methods(self, wsman_conn):
         host = PSHost(None, None, False, "host name", None, None, "1.0")
 
@@ -56,7 +60,7 @@ class TestPSHost(object):
             ps = PowerShell(pool)
             # SetShouldExit is really the only one that seems to work so
             # we will just test that
-            ps.add_script('$host.CurrentCulture; $host.SetShouldExit(1)')
+            ps.add_script("$host.CurrentCulture; $host.SetShouldExit(1)")
             actual = ps.invoke()
             assert len(actual) == 1
             assert str(actual[0]) == "en-US"
@@ -73,8 +77,7 @@ class TestPSHost(object):
     def test_pshost_methods(self):
         wsman = WSMan("server")
         runspace = RunspacePool(wsman)
-        host = PSHost(CultureInfo(), CultureInfo(), True, "name", None, None,
-                      "1.0")
+        host = PSHost(CultureInfo(), CultureInfo(), True, "name", None, None, "1.0")
 
         assert host.GetName(None, None) == "name"
         actual_version = host.GetVersion(runspace, None)
@@ -93,33 +96,31 @@ class TestPSHost(object):
 
 
 class TestPSHostUserInterface(object):
-
-    @pytest.mark.parametrize('wsman_conn',
-                             [[True, 'test_psrp_pshost_ui_mocked_methods']],
-                             indirect=True)
-    def test_psrp_pshost_ui_mocked_methods(self, wsman_conn, monkeypatch):
+    @pytest.mark.parametrize("wsman_conn", [[True, "test_psrp_pshost_ui_mocked_methods"]], indirect=True)
+    def test_psrp_pshost_ui_mocked_methods(self, wsman_conn, monkeypatch, mocker):
         # This tests that the args from an actual host call match up with our
         # definitions
-        monkeypatch.setattr('cryptography.hazmat.primitives.asymmetric.rsa.'
-                            'generate_private_key', gen_rsa_keypair)
+        monkeypatch.setattr("cryptography.hazmat.primitives.asymmetric.rsa.generate_private_key", gen_rsa_keypair)
 
-        mock_read_line = MagicMock(return_value="ReadLine response")
-        mock_read_line_as_ss = MagicMock()
-        mock_write1 = MagicMock(return_value=None)
-        mock_write2 = MagicMock(return_value=None)
-        mock_write_line1 = MagicMock(return_value=None)
-        mock_write_line2 = MagicMock(return_value=None)
-        mock_write_line3 = MagicMock(return_value=None)
-        mock_write_error = MagicMock(return_value=None)
-        mock_write_debug = MagicMock(return_value=None)
-        mock_write_progress = MagicMock(return_value=None)
-        mock_write_verbose = MagicMock(return_value=None)
-        mock_write_warning = MagicMock(return_value=None)
-        mock_prompt = MagicMock(return_value={
-            "prompt field": "prompt response",
-        })
-        mock_prompt_credential = MagicMock()
-        mock_prompt_choice = MagicMock(return_value=1)
+        mock_read_line = mocker.MagicMock(return_value="ReadLine response")
+        mock_read_line_as_ss = mocker.MagicMock()
+        mock_write1 = mocker.MagicMock(return_value=None)
+        mock_write2 = mocker.MagicMock(return_value=None)
+        mock_write_line1 = mocker.MagicMock(return_value=None)
+        mock_write_line2 = mocker.MagicMock(return_value=None)
+        mock_write_line3 = mocker.MagicMock(return_value=None)
+        mock_write_error = mocker.MagicMock(return_value=None)
+        mock_write_debug = mocker.MagicMock(return_value=None)
+        mock_write_progress = mocker.MagicMock(return_value=None)
+        mock_write_verbose = mocker.MagicMock(return_value=None)
+        mock_write_warning = mocker.MagicMock(return_value=None)
+        mock_prompt = mocker.MagicMock(
+            return_value={
+                "prompt field": "prompt response",
+            }
+        )
+        mock_prompt_credential = mocker.MagicMock()
+        mock_prompt_choice = mocker.MagicMock(return_value=1)
 
         host_ui = PSHostUserInterface()
         host_ui.ReadLine = mock_read_line
@@ -143,15 +144,13 @@ class TestPSHostUserInterface(object):
 
         with RunspacePool(wsman_conn, host=host) as pool:
             pool.exchange_keys()
-            mock_read_line_as_ss.return_value = pool.serialize(
-                u"ReadLineAsSecureString response", ObjectMeta("SS")
-            )
-            mock_ps_credential = PSCredential(username="username",
-                                              password=u"password")
+            mock_read_line_as_ss.return_value = pool.serialize(u"ReadLineAsSecureString response", ObjectMeta("SS"))
+            mock_ps_credential = PSCredential(username="username", password=u"password")
             mock_prompt_credential.return_value = mock_ps_credential
 
             ps = PowerShell(pool)
-            ps.add_script('''$host.UI.ReadLine()
+            ps.add_script(
+                """$host.UI.ReadLine()
 $host.UI.ReadLineAsSecureString()
 $host.UI.Write("Write1")
 $host.UI.Write([System.ConsoleColor]::Blue, [System.ConsoleColor]::White, "Write2")
@@ -172,7 +171,8 @@ $host.UI.PromptForCredential("PromptForCredential caption", "PromptForCredential
 
 $choice_field1 = New-Object -TypeName System.Management.Automation.Host.ChoiceDescription -ArgumentList "Prompt1 label", "Prompt1 help"
 $choice_field2 = New-Object -TypeName System.Management.Automation.Host.ChoiceDescription -ArgumentList "Prompt2 label", "Prompt2 help"
-$host.UI.PromptForChoice("PromptForChoice caption", "PromptForChoice message", @($choice_field1, $choice_field2), 0)''')
+$host.UI.PromptForChoice("PromptForChoice caption", "PromptForChoice message", @($choice_field1, $choice_field2), 0)"""
+            )
             actual = ps.invoke()
 
         assert len(actual) == 5
@@ -184,8 +184,7 @@ $host.UI.PromptForChoice("PromptForChoice caption", "PromptForChoice message", @
 
         assert actual[1] == "ReadLineAsSecureString response"
         assert mock_read_line_as_ss.call_count == 1
-        assert isinstance(mock_read_line_as_ss.call_args[0][0],
-                          RunspacePool)
+        assert isinstance(mock_read_line_as_ss.call_args[0][0], RunspacePool)
         assert isinstance(mock_read_line_as_ss.call_args[0][1], PowerShell)
 
         assert mock_write1.call_count == 1
@@ -234,9 +233,7 @@ $host.UI.PromptForChoice("PromptForChoice caption", "PromptForChoice message", @
         assert isinstance(progress_args[0][0], RunspacePool)
         assert isinstance(progress_args[0][1], PowerShell)
         assert progress_args[0][2] == 1
-        progress_record = pool._serializer.deserialize(
-            progress_args[0][3], ObjectMeta("Obj", object=ProgressRecord)
-        )
+        progress_record = pool._serializer.deserialize(progress_args[0][3], ObjectMeta("Obj", object=ProgressRecord))
         assert progress_record.activity == "activity"
         assert progress_record.activity_id == 2
         assert progress_record.description == "description"
@@ -259,27 +256,19 @@ $host.UI.PromptForChoice("PromptForChoice caption", "PromptForChoice message", @
         assert mock_prompt.call_args[0][3] == "Prompt message"
         assert isinstance(mock_prompt.call_args[0][4], list)
         assert len(mock_prompt.call_args[0][4]) == 1
-        assert mock_prompt.call_args[0][4][0].extended_properties['name'] == \
-            'prompt field'
-        assert mock_prompt.call_args[0][4][0].extended_properties['label'] == \
-            'PromptLabel'
+        assert mock_prompt.call_args[0][4][0].extended_properties["name"] == "prompt field"
+        assert mock_prompt.call_args[0][4][0].extended_properties["label"] == "PromptLabel"
 
         assert isinstance(actual[3], PSCredential)
         assert actual[3].username == "username"
         assert actual[3].password == "password"
         assert mock_prompt_credential.call_count == 1
-        assert isinstance(mock_prompt_credential.call_args[0][0],
-                          RunspacePool)
-        assert isinstance(mock_prompt_credential.call_args[0][1],
-                          PowerShell)
-        assert mock_prompt_credential.call_args[0][2] == \
-            "PromptForCredential caption"
-        assert mock_prompt_credential.call_args[0][3] == \
-            "PromptForCredential message"
-        assert mock_prompt_credential.call_args[0][4] == \
-            "PromptForCredential user"
-        assert mock_prompt_credential.call_args[0][5] == \
-            "PromptForCredential target"
+        assert isinstance(mock_prompt_credential.call_args[0][0], RunspacePool)
+        assert isinstance(mock_prompt_credential.call_args[0][1], PowerShell)
+        assert mock_prompt_credential.call_args[0][2] == "PromptForCredential caption"
+        assert mock_prompt_credential.call_args[0][3] == "PromptForCredential message"
+        assert mock_prompt_credential.call_args[0][4] == "PromptForCredential user"
+        assert mock_prompt_credential.call_args[0][5] == "PromptForCredential target"
         assert mock_prompt_credential.call_args[0][6] == 3
         assert mock_prompt_credential.call_args[0][7] == 1
 
@@ -291,14 +280,10 @@ $host.UI.PromptForChoice("PromptForChoice caption", "PromptForChoice message", @
         assert mock_prompt_choice.call_args[0][3] == "PromptForChoice message"
         assert isinstance(mock_prompt_choice.call_args[0][4], list)
         assert len(mock_prompt_choice.call_args[0][4]) == 2
-        assert mock_prompt_choice.call_args[0][4][0].extended_properties[
-            'label'] == "Prompt1 label"
-        assert mock_prompt_choice.call_args[0][4][0].extended_properties[
-            'helpMessage'] == "Prompt1 help"
-        assert mock_prompt_choice.call_args[0][4][1].extended_properties[
-            'label'] == "Prompt2 label"
-        assert mock_prompt_choice.call_args[0][4][1].extended_properties[
-            'helpMessage'] == "Prompt2 help"
+        assert mock_prompt_choice.call_args[0][4][0].extended_properties["label"] == "Prompt1 label"
+        assert mock_prompt_choice.call_args[0][4][0].extended_properties["helpMessage"] == "Prompt1 help"
+        assert mock_prompt_choice.call_args[0][4][1].extended_properties["label"] == "Prompt2 label"
+        assert mock_prompt_choice.call_args[0][4][1].extended_properties["helpMessage"] == "Prompt2 help"
 
     def test_ps_host_ui_implemented(self):
         ui = PSHostUserInterface()
@@ -358,43 +343,36 @@ $host.UI.PromptForChoice("PromptForChoice caption", "PromptForChoice message", @
             ui.PromptForCredential1(None, None, None, None, None, None)
 
         with pytest.raises(NotImplementedError):
-            ui.PromptForCredential2(None, None, None, None, None, None, None,
-                                    None)
+            ui.PromptForCredential2(None, None, None, None, None, None, None, None)
 
         with pytest.raises(NotImplementedError):
             ui.PromptForChoice(None, None, None, None, None, None)
 
 
 class TestPSHostRawUserInterface(object):
-
-    @pytest.mark.parametrize(
-        'wsman_conn', [[True, 'test_psrp_pshost_raw_ui_mocked_methods']],
-        indirect=True
-    )
-    def test_psrp_pshost_raw_ui_mocked_methods(self, wsman_conn,
-                                               monkeypatch):
+    @pytest.mark.parametrize("wsman_conn", [[True, "test_psrp_pshost_raw_ui_mocked_methods"]], indirect=True)
+    def test_psrp_pshost_raw_ui_mocked_methods(self, wsman_conn, monkeypatch, mocker):
         # in a mocked context the calculated size differs on a few variables
         # we will mock out that call and return the ones used in our existing
         # responses
-        mock_calc = MagicMock()
+        mock_calc = mocker.MagicMock()
         mock_calc.side_effect = [113955, 382750]
 
-        key_info = KeyInfo(code=65, character="a",
-                           state=ControlKeyState.CapsLockOn, key_down=True)
+        key_info = KeyInfo(code=65, character="a", state=ControlKeyState.CapsLockOn, key_down=True)
 
-        set_foreground_color = MagicMock(return_value=None)
-        set_background_color = MagicMock(return_value=None)
-        set_cursor_position = MagicMock(return_value=None)
-        set_window_position = MagicMock(return_value=None)
-        set_cursor_size = MagicMock(return_value=None)
-        set_buffer_size = MagicMock(return_value=None)
-        set_window_size = MagicMock(return_value=None)
-        set_window_title = MagicMock(return_value=None)
-        read_key = MagicMock(return_value=key_info)
-        flush_input = MagicMock(return_value=None)
-        set_buffer1 = MagicMock(return_value=None)
-        set_buffer2 = MagicMock(return_value=None)
-        scroll_buffer = MagicMock(return_value=None)
+        set_foreground_color = mocker.MagicMock(return_value=None)
+        set_background_color = mocker.MagicMock(return_value=None)
+        set_cursor_position = mocker.MagicMock(return_value=None)
+        set_window_position = mocker.MagicMock(return_value=None)
+        set_cursor_size = mocker.MagicMock(return_value=None)
+        set_buffer_size = mocker.MagicMock(return_value=None)
+        set_window_size = mocker.MagicMock(return_value=None)
+        set_window_title = mocker.MagicMock(return_value=None)
+        read_key = mocker.MagicMock(return_value=key_info)
+        flush_input = mocker.MagicMock(return_value=None)
+        set_buffer1 = mocker.MagicMock(return_value=None)
+        set_buffer2 = mocker.MagicMock(return_value=None)
+        scroll_buffer = mocker.MagicMock(return_value=None)
 
         window_title = "pypsrp window"
         cursor_size = 50
@@ -407,12 +385,18 @@ class TestPSHostRawUserInterface(object):
         max_window_size = Size(width=80, height=80)
         window_size = Size(width=80, height=80)
 
-        host_raw_ui = PSHostRawUserInterface(window_title, cursor_size,
-                                             foreground_color,
-                                             background_color, cursor_position,
-                                             window_position, buffer_size,
-                                             max_physical_window_size,
-                                             max_window_size, window_size)
+        host_raw_ui = PSHostRawUserInterface(
+            window_title,
+            cursor_size,
+            foreground_color,
+            background_color,
+            cursor_position,
+            window_position,
+            buffer_size,
+            max_physical_window_size,
+            max_window_size,
+            window_size,
+        )
         host_raw_ui.SetForegroundColor = set_foreground_color
         host_raw_ui.SetBackgroundColor = set_background_color
         host_raw_ui.SetCursorPosition = set_cursor_position
@@ -432,7 +416,8 @@ class TestPSHostRawUserInterface(object):
 
         with RunspacePool(wsman_conn, host=host) as pool:
             ps = PowerShell(pool)
-            ps.add_script('''$host.UI.RawUI.ForegroundColor
+            ps.add_script(
+                """$host.UI.RawUI.ForegroundColor
 $host.UI.RawUI.ForegroundColor = [System.ConsoleColor]::Green
 $host.UI.RawUI.ForegroundColor
 
@@ -486,7 +471,8 @@ $cells[1,1] = $buffer_cell2_2
 $cells[1,0] = $buffer_cell2_1
 $host.UI.RawUI.SetBufferContents($coordinates, $cells)
 
-$host.UI.RawUI.ScrollBufferContents($rectangle, $coordinates, $rectangle, $buffer_cell)''')
+$host.UI.RawUI.ScrollBufferContents($rectangle, $coordinates, $rectangle, $buffer_cell)"""
+            )
             actual = ps.invoke()
 
         assert len(actual) == 17
@@ -510,20 +496,16 @@ $host.UI.RawUI.ScrollBufferContents($rectangle, $coordinates, $rectangle, $buffe
         assert set_cursor_position.call_count == 1
         assert isinstance(set_cursor_position.call_args[0][0], RunspacePool)
         assert isinstance(set_cursor_position.call_args[0][1], PowerShell)
-        assert set_cursor_position.call_args[0][2].extended_properties['x'] \
-            == 11
-        assert set_cursor_position.call_args[0][2].extended_properties['y'] \
-            == 12
+        assert set_cursor_position.call_args[0][2].extended_properties["x"] == 11
+        assert set_cursor_position.call_args[0][2].extended_properties["y"] == 12
 
         assert str(actual[6]) == "3,4"
         assert str(actual[7]) == "13,14"
         assert set_window_position.call_count == 1
         assert isinstance(set_window_position.call_args[0][0], RunspacePool)
         assert isinstance(set_window_position.call_args[0][1], PowerShell)
-        assert set_window_position.call_args[0][2].extended_properties['x'] \
-            == 13
-        assert set_window_position.call_args[0][2].extended_properties['y'] \
-            == 14
+        assert set_window_position.call_args[0][2].extended_properties["x"] == 13
+        assert set_window_position.call_args[0][2].extended_properties["y"] == 14
 
         assert actual[8] == 50
         assert actual[9] == 25
@@ -537,24 +519,18 @@ $host.UI.RawUI.ScrollBufferContents($rectangle, $coordinates, $rectangle, $buffe
         assert set_buffer_size.call_count == 1
         assert isinstance(set_buffer_size.call_args[0][0], RunspacePool)
         assert isinstance(set_buffer_size.call_args[0][1], PowerShell)
-        assert isinstance(set_buffer_size.call_args[0][2],
-                          GenericComplexObject)
-        assert set_buffer_size.call_args[0][2].extended_properties['width'] \
-            == 8
-        assert set_buffer_size.call_args[0][2].extended_properties['height'] \
-            == 9
+        assert isinstance(set_buffer_size.call_args[0][2], GenericComplexObject)
+        assert set_buffer_size.call_args[0][2].extended_properties["width"] == 8
+        assert set_buffer_size.call_args[0][2].extended_properties["height"] == 9
 
         assert str(actual[12]) == "80,80"
         assert str(actual[13]) == "8,9"
         assert set_window_size.call_count == 1
         assert isinstance(set_window_size.call_args[0][0], RunspacePool)
         assert isinstance(set_window_size.call_args[0][1], PowerShell)
-        assert isinstance(set_window_size.call_args[0][2],
-                          GenericComplexObject)
-        assert set_window_size.call_args[0][2].extended_properties['width'] \
-            == 8
-        assert set_window_size.call_args[0][2].extended_properties['height'] \
-            == 9
+        assert isinstance(set_window_size.call_args[0][2], GenericComplexObject)
+        assert set_window_size.call_args[0][2].extended_properties["width"] == 8
+        assert set_window_size.call_args[0][2].extended_properties["height"] == 9
 
         assert actual[14] == "pypsrp window"
         assert actual[15] == "New Window Title"
@@ -578,69 +554,69 @@ $host.UI.RawUI.ScrollBufferContents($rectangle, $coordinates, $rectangle, $buffe
         assert isinstance(set_buffer1.call_args[0][0], RunspacePool)
         assert isinstance(set_buffer1.call_args[0][1], PowerShell)
         assert isinstance(set_buffer1.call_args[0][2], GenericComplexObject)
-        assert set_buffer1.call_args[0][2].extended_properties['left'] == 1
-        assert set_buffer1.call_args[0][2].extended_properties['top'] == 2
-        assert set_buffer1.call_args[0][2].extended_properties['right'] == 3
-        assert set_buffer1.call_args[0][2].extended_properties['bottom'] == 4
+        assert set_buffer1.call_args[0][2].extended_properties["left"] == 1
+        assert set_buffer1.call_args[0][2].extended_properties["top"] == 2
+        assert set_buffer1.call_args[0][2].extended_properties["right"] == 3
+        assert set_buffer1.call_args[0][2].extended_properties["bottom"] == 4
         fill = set_buffer1.call_args[0][3]
         assert isinstance(fill, GenericComplexObject)
-        assert fill.extended_properties['character'] == "Z"
-        assert fill.extended_properties['foregroundColor'] == 12
-        assert fill.extended_properties['backgroundColor'] == 10
-        assert fill.extended_properties['bufferCellType'] == 0
+        assert fill.extended_properties["character"] == "Z"
+        assert fill.extended_properties["foregroundColor"] == 12
+        assert fill.extended_properties["backgroundColor"] == 10
+        assert fill.extended_properties["bufferCellType"] == 0
 
         assert set_buffer2.call_count == 1
         assert isinstance(set_buffer2.call_args[0][0], RunspacePool)
         assert isinstance(set_buffer2.call_args[0][1], PowerShell)
         assert isinstance(set_buffer2.call_args[0][2], GenericComplexObject)
-        assert set_buffer2.call_args[0][2].extended_properties['x'] == 15
-        assert set_buffer2.call_args[0][2].extended_properties['y'] == 15
+        assert set_buffer2.call_args[0][2].extended_properties["x"] == 15
+        assert set_buffer2.call_args[0][2].extended_properties["y"] == 15
         assert isinstance(set_buffer2.call_args[0][3], GenericComplexObject)
-        assert set_buffer2.call_args[0][3].extended_properties['mal'] == [2, 2]
-        set_contents = set_buffer2.call_args[0][3].extended_properties['mae']
+        assert set_buffer2.call_args[0][3].extended_properties["mal"] == [2, 2]
+        set_contents = set_buffer2.call_args[0][3].extended_properties["mae"]
         assert len(set_contents) == 4
-        assert set_contents[0].extended_properties['character'] == "A"
-        assert set_contents[0].extended_properties['foregroundColor'] == 0
-        assert set_contents[0].extended_properties['backgroundColor'] == 15
-        assert set_contents[0].extended_properties['bufferCellType'] == 1
-        assert set_contents[1].extended_properties['character'] == "B"
-        assert set_contents[1].extended_properties['foregroundColor'] == 0
-        assert set_contents[1].extended_properties['backgroundColor'] == 15
-        assert set_contents[1].extended_properties['bufferCellType'] == 2
-        assert set_contents[2].extended_properties['character'] == "C"
-        assert set_contents[2].extended_properties['foregroundColor'] == 0
-        assert set_contents[2].extended_properties['backgroundColor'] == 15
-        assert set_contents[2].extended_properties['bufferCellType'] == 1
-        assert set_contents[3].extended_properties['character'] == "D"
-        assert set_contents[3].extended_properties['foregroundColor'] == 0
-        assert set_contents[3].extended_properties['backgroundColor'] == 15
-        assert set_contents[3].extended_properties['bufferCellType'] == 2
+        assert set_contents[0].extended_properties["character"] == "A"
+        assert set_contents[0].extended_properties["foregroundColor"] == 0
+        assert set_contents[0].extended_properties["backgroundColor"] == 15
+        assert set_contents[0].extended_properties["bufferCellType"] == 1
+        assert set_contents[1].extended_properties["character"] == "B"
+        assert set_contents[1].extended_properties["foregroundColor"] == 0
+        assert set_contents[1].extended_properties["backgroundColor"] == 15
+        assert set_contents[1].extended_properties["bufferCellType"] == 2
+        assert set_contents[2].extended_properties["character"] == "C"
+        assert set_contents[2].extended_properties["foregroundColor"] == 0
+        assert set_contents[2].extended_properties["backgroundColor"] == 15
+        assert set_contents[2].extended_properties["bufferCellType"] == 1
+        assert set_contents[3].extended_properties["character"] == "D"
+        assert set_contents[3].extended_properties["foregroundColor"] == 0
+        assert set_contents[3].extended_properties["backgroundColor"] == 15
+        assert set_contents[3].extended_properties["bufferCellType"] == 2
 
         assert scroll_buffer.call_count == 1
         assert isinstance(scroll_buffer.call_args[0][0], RunspacePool)
         assert isinstance(scroll_buffer.call_args[0][1], PowerShell)
         source = scroll_buffer.call_args[0][2]
         assert isinstance(source, GenericComplexObject)
-        assert source.extended_properties['left'] == 1
-        assert source.extended_properties['top'] == 2
-        assert source.extended_properties['right'] == 3
-        assert source.extended_properties['bottom'] == 4
+        assert source.extended_properties["left"] == 1
+        assert source.extended_properties["top"] == 2
+        assert source.extended_properties["right"] == 3
+        assert source.extended_properties["bottom"] == 4
         destination = scroll_buffer.call_args[0][3]
         assert isinstance(destination, GenericComplexObject)
-        assert destination.extended_properties['x'] == 15
-        assert destination.extended_properties['y'] == 15
+        assert destination.extended_properties["x"] == 15
+        assert destination.extended_properties["y"] == 15
         clip = scroll_buffer.call_args[0][4]
         assert isinstance(clip, GenericComplexObject)
-        assert clip.extended_properties['left'] == 1
-        assert clip.extended_properties['top'] == 2
-        assert clip.extended_properties['right'] == 3
-        assert clip.extended_properties['bottom'] == 4
+        assert clip.extended_properties["left"] == 1
+        assert clip.extended_properties["top"] == 2
+        assert clip.extended_properties["right"] == 3
+        assert clip.extended_properties["bottom"] == 4
         fill = scroll_buffer.call_args[0][5]
         assert isinstance(fill, GenericComplexObject)
-        assert fill.extended_properties['character'] == "Z"
-        assert fill.extended_properties['foregroundColor'] == 12
-        assert fill.extended_properties['backgroundColor'] == 10
-        assert fill.extended_properties['bufferCellType'] == 0
+        assert fill.extended_properties["character"] == "Z"
+        assert fill.extended_properties["foregroundColor"] == 12
+        assert fill.extended_properties["backgroundColor"] == 10
+        assert fill.extended_properties["bufferCellType"] == 0
 
     def test_ps_host_raw_ui_method(self):
         window_title = "pypsrp window"
@@ -655,9 +631,16 @@ $host.UI.RawUI.ScrollBufferContents($rectangle, $coordinates, $rectangle, $buffe
         window_size = Size(width=80, height=80)
 
         raw_ui = PSHostRawUserInterface(
-            window_title, cursor_size, foreground_color, background_color,
-            cursor_position, window_position, buffer_size,
-            max_physical_window_size, max_window_size, window_size
+            window_title,
+            cursor_size,
+            foreground_color,
+            background_color,
+            cursor_position,
+            window_position,
+            buffer_size,
+            max_physical_window_size,
+            max_window_size,
+            window_size,
         )
 
         actual_foreground_color = raw_ui.GetForegroundColor(None, None)
@@ -673,8 +656,8 @@ $host.UI.RawUI.ScrollBufferContents($rectangle, $coordinates, $rectangle, $buffe
         assert raw_ui.background_color.value == Color.DARK_MAGENTA
 
         coordinates = GenericComplexObject()
-        coordinates.extended_properties['x'] = 11
-        coordinates.extended_properties['y'] = 12
+        coordinates.extended_properties["x"] = 11
+        coordinates.extended_properties["y"] = 12
 
         actual_cursor_position = raw_ui.GetCursorPosition(None, None)
         assert actual_cursor_position == cursor_position
@@ -696,8 +679,8 @@ $host.UI.RawUI.ScrollBufferContents($rectangle, $coordinates, $rectangle, $buffe
         assert raw_ui.cursor_size == 25
 
         size = GenericComplexObject()
-        size.extended_properties['height'] = 160
-        size.extended_properties['width'] = 160
+        size.extended_properties["height"] = 160
+        size.extended_properties["width"] = 160
 
         actual_buffer_size = raw_ui.GetBufferSize(None, None)
         assert actual_buffer_size == buffer_size
@@ -721,8 +704,7 @@ $host.UI.RawUI.ScrollBufferContents($rectangle, $coordinates, $rectangle, $buffe
         actual_max_window_size = raw_ui.GetMaxWindowSize(None, None)
         assert actual_max_window_size == max_window_size
 
-        actual_physical_window_size = raw_ui.GetMaxPhysicalWindowSize(None,
-                                                                      None)
+        actual_physical_window_size = raw_ui.GetMaxPhysicalWindowSize(None, None)
         assert actual_physical_window_size == max_physical_window_size
 
         raw_ui.key_available = True
@@ -732,29 +714,27 @@ $host.UI.RawUI.ScrollBufferContents($rectangle, $coordinates, $rectangle, $buffe
         raw_ui.FlushInputBuffer(None, None)
 
         rectangle = GenericComplexObject()
-        rectangle.extended_properties['left'] = 1
-        rectangle.extended_properties['top'] = 2
-        rectangle.extended_properties['right'] = 3
-        rectangle.extended_properties['bottom'] = 4
+        rectangle.extended_properties["left"] = 1
+        rectangle.extended_properties["top"] = 2
+        rectangle.extended_properties["right"] = 3
+        rectangle.extended_properties["bottom"] = 4
 
         fill = GenericComplexObject()
-        fill.extended_properties['character'] = "A"
-        fill.extended_properties['foregroundColor'] = 12
-        fill.extended_properties['backgroundColor'] = 10
-        fill.extended_properties['bufferCellType'] = 0
+        fill.extended_properties["character"] = "A"
+        fill.extended_properties["foregroundColor"] = 12
+        fill.extended_properties["backgroundColor"] = 10
+        fill.extended_properties["bufferCellType"] = 0
 
         contents = GenericComplexObject()
-        contents.extended_properties['mal'] = [2, 2]
-        contents.extended_properties['mae'] = [[fill, fill], [fill, fill]]
+        contents.extended_properties["mal"] = [2, 2]
+        contents.extended_properties["mae"] = [[fill, fill], [fill, fill]]
 
         raw_ui.SetBufferContents1(None, None, rectangle, fill)
         raw_ui.SetBufferContents2(None, None, coordinates, contents)
-        raw_ui.ScrollBufferContents(None, None, rectangle, coordinates,
-                                    rectangle, fill)
+        raw_ui.ScrollBufferContents(None, None, rectangle, coordinates, rectangle, fill)
 
     def test_ps_host_raw_ui_not_implemented(self):
-        raw_ui = PSHostRawUserInterface(None, None, None, None, None, None,
-                                        None, None, None, None)
+        raw_ui = PSHostRawUserInterface(None, None, None, None, None, None, None, None, None, None)
 
         with pytest.raises(NotImplementedError):
             raw_ui.ReadKey(None, None)

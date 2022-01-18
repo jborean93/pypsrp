@@ -2,17 +2,39 @@
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 import logging
+import typing
 import uuid
+import xml.etree.ElementTree as ET
 
-from pypsrp.complex_objects import Color, Coordinates, ObjectMeta, Size
+from pypsrp.complex_objects import (
+    Array,
+    BufferCell,
+    Color,
+    Coordinates,
+    CultureInfo,
+    GenericComplexObject,
+    HostMethodIdentifier,
+    KeyInfo,
+    ObjectMeta,
+    PSCredential,
+    Size,
+)
+from pypsrp.powershell import PowerShell, RunspacePool
 
 log = logging.getLogger(__name__)
 
 
 class PSHost(object):
-
-    def __init__(self, current_culture, current_ui_culture, debugger_enabled,
-                 name, private_data, ui, version):
+    def __init__(
+        self,
+        current_culture: typing.Optional[CultureInfo],
+        current_ui_culture: typing.Optional[CultureInfo],
+        debugger_enabled: bool,
+        name: typing.Optional[str],
+        private_data: typing.Optional[typing.Dict],
+        ui: typing.Optional["PSHostUserInterface"],
+        version: str,
+    ) -> None:
         """
         Defines the properties and facilities provided by an application
         hosting a RunspacePool.
@@ -38,7 +60,7 @@ class PSHost(object):
         self.ui = ui
         self.debugger_enabled = debugger_enabled
         self.private_data = private_data
-        self.rc = None
+        self.rc: typing.Optional[int] = None
 
         self.name = name
         self.version = version
@@ -46,7 +68,13 @@ class PSHost(object):
         self.current_culture = current_culture
         self.current_ui_culture = current_ui_culture
 
-    def run_method(self, method_identifier, args, runspace, pipeline=None):
+    def run_method(
+        self,
+        method_identifier: HostMethodIdentifier,
+        args: typing.List,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell] = None,
+    ) -> typing.Any:
         """
         Run a host call method requested by the server and return the response
         from this method to send back to the server.
@@ -64,25 +92,29 @@ class PSHost(object):
         :return: The response (if any) to send back to the server
         """
         response = None
-        if method_identifier.value < 11:
+        mi = method_identifier.value or 0
+        if mi < 11:
             func = getattr(self, str(method_identifier))
             response = func(runspace, pipeline, *args)
-        elif method_identifier.value < 27:
+        elif mi < 27:
             func = getattr(self.ui, str(method_identifier))
             response = func(runspace, pipeline, *args)
-        elif method_identifier.value < 52:
-            func = getattr(self.ui.raw_ui, str(method_identifier))
+        elif mi < 52:
+            func = getattr(getattr(self.ui, "raw_ui", None), str(method_identifier))
             response = func(runspace, pipeline, *args)
         else:
-            log.warning("Received unexpected/unsupported host method "
-                        "identifier: %d" % method_identifier.value)
+            log.warning("Received unexpected/unsupported host method identifier: %d" % mi)
 
         return response
 
     # Start of Host Methods, the names of these functions are important as
     # they line up to the names defined by MS and are sent in the host call
     # messages
-    def GetName(self, runspace, pipeline):
+    def GetName(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> typing.Optional[str]:
         """
         MI: 1
         SHOULD return a string identifying the hosting application in a user
@@ -95,7 +127,11 @@ class PSHost(object):
         """
         return self.name
 
-    def GetVersion(self, runspace, pipeline):
+    def GetVersion(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> typing.Optional[ET.Element]:
         """
         MI: 2
         SHOULD return the version number of the hosting application.
@@ -109,7 +145,11 @@ class PSHost(object):
         value = runspace.serialize(self.version, meta)
         return value
 
-    def GetInstanceId(self, runspace, pipeline):
+    def GetInstanceId(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> uuid.UUID:
         """
         MI: 3
         SHOULD return a GUID that uniquely identifies the hosting application.
@@ -121,7 +161,11 @@ class PSHost(object):
         """
         return self.instance_id
 
-    def GetCurrentCulture(self, runspace, pipeline):
+    def GetCurrentCulture(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> typing.Optional[CultureInfo]:
         """
         MI: 4
         SHOULD return the host's culture.
@@ -133,7 +177,11 @@ class PSHost(object):
         """
         return self.current_culture
 
-    def GetCurrentUICulture(self, runspace, pipeline):
+    def GetCurrentUICulture(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> typing.Optional[CultureInfo]:
         """
         MI: 5
         MUST return the host's UI culture.
@@ -145,7 +193,12 @@ class PSHost(object):
         """
         return self.current_ui_culture
 
-    def SetShouldExit(self, runspace, pipeline, exit_code):
+    def SetShouldExit(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        exit_code: int,
+    ) -> None:
         """
         MI: 6
         SHOULD shut down the hosting application and close the current
@@ -160,7 +213,11 @@ class PSHost(object):
         """
         self.rc = exit_code
 
-    def EnterNestedPrompt(self, runspace, pipeline):
+    def EnterNestedPrompt(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> None:
         """
         MI: 7
         SHOULD interrupt the current pipeline and start a nested pipeline.
@@ -171,7 +228,11 @@ class PSHost(object):
         """
         raise NotImplementedError()
 
-    def ExitNestedPrompt(self, runspace, pipeline):
+    def ExitNestedPrompt(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> None:
         """
         MI: 8
         SHOULD stop the nested pipeline and resume the current pipeline.
@@ -182,7 +243,11 @@ class PSHost(object):
         """
         raise NotImplementedError()
 
-    def NotifyBeginApplication(self, runspace, pipeline):
+    def NotifyBeginApplication(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> None:
         """
         MI: 9
         Called by an application to indicate that it is executing a command
@@ -194,7 +259,11 @@ class PSHost(object):
         """
         pass
 
-    def NotifyEndApplication(self, runspace, pipeline):
+    def NotifyEndApplication(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> None:
         """
         MI: 10
         Called by an application to indicate that it has finished executing a
@@ -208,8 +277,10 @@ class PSHost(object):
 
 
 class PSHostUserInterface(object):
-
-    def __init__(self, raw_ui=None):
+    def __init__(
+        self,
+        raw_ui: typing.Optional["PSHostRawUserInterface"] = None,
+    ) -> None:
         """
         Defines the properties and facilities provided by a hosting application
         deriving from PSHost that offers dialog-oriented and line-oriented
@@ -226,10 +297,14 @@ class PSHostUserInterface(object):
 
         # the below properties don't need to be used, they are just here for
         # the default implementation
-        self.stdout = []
-        self.stderr = []
+        self.stdout: typing.List[str] = []
+        self.stderr: typing.List[str] = []
 
-    def ReadLine(self, runspace, pipeline):
+    def ReadLine(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> str:
         """
         MI: 11
         SHOULD read a line of characters from a user.
@@ -241,7 +316,11 @@ class PSHostUserInterface(object):
         """
         raise NotImplementedError()
 
-    def ReadLineAsSecureString(self, runspace, pipeline):
+    def ReadLineAsSecureString(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> ET.Element:
         """
         MI: 12
         SHOULD read a line of characters from a user, with the user input not
@@ -258,7 +337,12 @@ class PSHostUserInterface(object):
         """
         raise NotImplementedError()
 
-    def Write1(self, runspace, pipeline, value):
+    def Write1(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        value: str,
+    ) -> None:
         """
         MI: 13
         SHOULD write specified characters on the hosting application.
@@ -270,8 +354,14 @@ class PSHostUserInterface(object):
         """
         self.stdout.append(value)
 
-    def Write2(self, runspace, pipeline, foreground_color, background_color,
-               value):
+    def Write2(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        foreground_color: int,
+        background_color: int,
+        value: str,
+    ) -> None:
         """
         MI: 14
         SHOULD write the specified characters with the specified foreground and
@@ -292,7 +382,11 @@ class PSHostUserInterface(object):
         """
         self.stdout.append(value)
 
-    def WriteLine1(self, runspace, pipeline):
+    def WriteLine1(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> None:
         """
         MI: 15
         SHOULD write a carriage return on the hosting application.
@@ -303,7 +397,12 @@ class PSHostUserInterface(object):
         """
         self.stdout.append("\r\n")
 
-    def WriteLine2(self, runspace, pipeline, value):
+    def WriteLine2(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        value: str,
+    ) -> None:
         """
         MI: 16
         SHOULD write the specified line on the hosting application.
@@ -315,8 +414,14 @@ class PSHostUserInterface(object):
         """
         self.stdout.append(value + "\r\n")
 
-    def WriteLine3(self, runspace, pipeline, foreground_color,
-                   background_color, value):
+    def WriteLine3(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        foreground_color: int,
+        background_color: int,
+        value: str,
+    ) -> None:
         """
         MI: 17
         SHOULD write the specified line with the specified foreground and
@@ -337,7 +442,12 @@ class PSHostUserInterface(object):
         """
         self.stdout.append(value + "\r\n")
 
-    def WriteErrorLine(self, runspace, pipeline, message):
+    def WriteErrorLine(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        message: str,
+    ) -> None:
         """
         MI: 18
         SHOULD write a line to the error display of the hosting application.
@@ -349,7 +459,12 @@ class PSHostUserInterface(object):
         """
         self.stderr.append(message + "\r\n")
 
-    def WriteDebugLine(self, runspace, pipeline, message):
+    def WriteDebugLine(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        message: str,
+    ) -> None:
         """
         MI: 19
         SHOULD write a line to the debug display of the hosting application.
@@ -361,7 +476,13 @@ class PSHostUserInterface(object):
         """
         self.stdout.append("DEBUG: %s\r\n" % message)
 
-    def WriteProgress(self, runspace, pipeline, source_id, record):
+    def WriteProgress(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        source_id: int,
+        record: str,
+    ) -> None:
         """
         MI: 20
         SHOULD display a progress record on the hosting application.
@@ -383,7 +504,12 @@ class PSHostUserInterface(object):
         """
         pass
 
-    def WriteVerboseLine(self, runspace, pipeline, message):
+    def WriteVerboseLine(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        message: str,
+    ) -> None:
         """
         MI: 21
         SHOULD write a line on the verbose display of the hosting application.
@@ -395,7 +521,12 @@ class PSHostUserInterface(object):
         """
         self.stdout.append("VERBOSE: %s\r\n" % message)
 
-    def WriteWarningLine(self, runspace, pipeline, message):
+    def WriteWarningLine(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        message: str,
+    ) -> None:
         """
         MI: 22
         SHOULD write a line on the warning display of the hosting application.
@@ -407,7 +538,14 @@ class PSHostUserInterface(object):
         """
         self.stdout.append("WARNING: %s\r\n" % message)
 
-    def Prompt(self, runspace, pipeline, caption, message, descriptions):
+    def Prompt(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        caption: str,
+        message: str,
+        description: typing.List[GenericComplexObject],
+    ) -> typing.Dict[str, typing.Any]:
         """
         MI: 23
         SHOULD prompt the user with a set of choices.
@@ -440,8 +578,15 @@ class PSHostUserInterface(object):
         """
         raise NotImplementedError()
 
-    def PromptForCredential1(self, runspace, pipeline, caption, message,
-                             user_name, target_name):
+    def PromptForCredential1(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        caption: str,
+        message: str,
+        user_name: str,
+        target_name: str,
+    ) -> PSCredential:
         """
         MI: 24
         SHOULD prompt the user for entering credentials with the specified
@@ -461,9 +606,17 @@ class PSHostUserInterface(object):
         """
         raise NotImplementedError()
 
-    def PromptForCredential2(self, runspace, pipeline, caption, message,
-                             user_name, target_name, allowed_credential_types,
-                             options):
+    def PromptForCredential2(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        caption: str,
+        message: str,
+        user_name: str,
+        target_name: str,
+        allowed_credential_types: int,
+        options: int,
+    ) -> PSCredential:
         """
         MI: 25
         SHOULD prompt the user for entering credentials with the specified
@@ -488,8 +641,15 @@ class PSHostUserInterface(object):
         """
         raise NotImplementedError()
 
-    def PromptForChoice(self, runspace, pipeline, caption, message, choices,
-                        default_choice):
+    def PromptForChoice(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        caption: str,
+        message: str,
+        choices: typing.List[GenericComplexObject],
+        default_choice: int,
+    ) -> int:
         """
         MI: 26
         SHOULD display a list of choices to the user and MUST return the index
@@ -512,11 +672,19 @@ class PSHostUserInterface(object):
 
 
 class PSHostRawUserInterface(object):
-
-    def __init__(self, window_title, cursor_size, foreground_color,
-                 background_color, cursor_position, window_position,
-                 buffer_size, max_physical_window_size, max_window_size,
-                 window_size):
+    def __init__(
+        self,
+        window_title: str,
+        cursor_size: int,
+        foreground_color: Color,
+        background_color: Color,
+        cursor_position: Coordinates,
+        window_position: Coordinates,
+        buffer_size: Size,
+        max_physical_window_size: Size,
+        max_window_size: Size,
+        window_size: Size,
+    ) -> None:
         """
         Defines the lowest-level user interface functions that an interactive
         application hosting a Runspace can choose to implement if it wants
@@ -560,7 +728,11 @@ class PSHostRawUserInterface(object):
         self.max_window_size = max_window_size
         self.window_size = window_size
 
-    def GetForegroundColor(self, runspace, pipeline):
+    def GetForegroundColor(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> Color:
         """
         MI: 27
         SHOULD return the foreground color of the hosting application.
@@ -571,7 +743,12 @@ class PSHostRawUserInterface(object):
         """
         return self.foreground_color
 
-    def SetForegroundColor(self, runspace, pipeline, color):
+    def SetForegroundColor(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        color: Color,
+    ) -> None:
         """
         MI: 28
         SHOULD set the foreground color of the hosting application.
@@ -582,7 +759,11 @@ class PSHostRawUserInterface(object):
         """
         self.foreground_color = Color(value=color)
 
-    def GetBackgroundColor(self, runspace, pipeline):
+    def GetBackgroundColor(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> Color:
         """
         MI: 29
         SHOULD return the background color of the hosting application.
@@ -593,7 +774,12 @@ class PSHostRawUserInterface(object):
         """
         return self.background_color
 
-    def SetBackgroundColor(self, runspace, pipeline, color):
+    def SetBackgroundColor(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        color: Color,
+    ) -> None:
         """
         MI: 30
         SHOULD set the background color of the hosting application.
@@ -604,7 +790,11 @@ class PSHostRawUserInterface(object):
         """
         self.background_color = Color(value=color)
 
-    def GetCursorPosition(self, runspace, pipeline):
+    def GetCursorPosition(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> Coordinates:
         """
         MI: 31
         SHOULD return the current cursor position in the hosting application.
@@ -615,7 +805,12 @@ class PSHostRawUserInterface(object):
         """
         return self.cursor_position
 
-    def SetCursorPosition(self, runspace, pipeline, coordinates):
+    def SetCursorPosition(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        coordinates: GenericComplexObject,
+    ) -> None:
         """
         MI: 32
         SHOULD return the current cursor position in the hosting application.
@@ -625,11 +820,14 @@ class PSHostRawUserInterface(object):
         :param coordinates: A GenericComplexObject that contains the extended
             properties for the coordinates
         """
-        pos = Coordinates(x=coordinates.extended_properties['x'],
-                          y=coordinates.extended_properties['y'])
+        pos = Coordinates(x=coordinates.extended_properties["x"], y=coordinates.extended_properties["y"])
         self.cursor_position = pos
 
-    def GetWindowPosition(self, runspace, pipeline):
+    def GetWindowPosition(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> Coordinates:
         """
         MI: 33
         SHOULD return the position of the view window relative to the screen
@@ -641,7 +839,12 @@ class PSHostRawUserInterface(object):
         """
         return self.window_position
 
-    def SetWindowPosition(self, runspace, pipeline, coordinates):
+    def SetWindowPosition(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        coordinates: GenericComplexObject,
+    ) -> None:
         """
         MI: 34
         SHOULD set the position of the view window relative to the screen
@@ -652,11 +855,14 @@ class PSHostRawUserInterface(object):
         :param coordinates: A GenericComplexObject that contains the extended
             properties for the coordinates
         """
-        pos = Coordinates(x=coordinates.extended_properties['x'],
-                          y=coordinates.extended_properties['y'])
+        pos = Coordinates(x=coordinates.extended_properties["x"], y=coordinates.extended_properties["y"])
         self.window_position = pos
 
-    def GetCursorSize(self, runspace, pipeline):
+    def GetCursorSize(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> int:
         """
         MI: 35
         SHOULD return the cursor size as a percentage.
@@ -667,7 +873,12 @@ class PSHostRawUserInterface(object):
         """
         return self.cursor_size
 
-    def SetCursorSize(self, runspace, pipeline, percentage):
+    def SetCursorSize(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        percentage: int,
+    ) -> None:
         """
         MI: 36
         SHOULD set the cursor size based on the percentage value specified.
@@ -678,7 +889,11 @@ class PSHostRawUserInterface(object):
         """
         self.cursor_size = percentage
 
-    def GetBufferSize(self, runspace, pipeline):
+    def GetBufferSize(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> Size:
         """
         MI: 37
         SHOULD return the current size of the screen buffer, measured in
@@ -691,7 +906,12 @@ class PSHostRawUserInterface(object):
         """
         return self.buffer_size
 
-    def SetBufferSize(self, runspace, pipeline, size):
+    def SetBufferSize(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        size: GenericComplexObject,
+    ) -> None:
         """
         MI: 38
         SHOULD set the size of the screen buffer with the specified size in
@@ -702,11 +922,14 @@ class PSHostRawUserInterface(object):
         :param size: A GenericComplexObject that contains the extended
             properties for the size
         """
-        obj = Size(height=size.extended_properties['height'],
-                   width=size.extended_properties['width'])
+        obj = Size(height=size.extended_properties["height"], width=size.extended_properties["width"])
         self.buffer_size = obj
 
-    def GetWindowSize(self, runspace, pipeline):
+    def GetWindowSize(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> Size:
         """
         MI: 39
         SHOULD return the current view window size.
@@ -717,7 +940,12 @@ class PSHostRawUserInterface(object):
         """
         return self.window_size
 
-    def SetWindowSize(self, runspace, pipeline, size):
+    def SetWindowSize(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        size: GenericComplexObject,
+    ) -> None:
         """
         MI: 40
         SHOULD set the view window size based on the size specified.
@@ -727,11 +955,14 @@ class PSHostRawUserInterface(object):
         :param size: A GenericComplexObject that contains the extended
             properties for the size
         """
-        obj = Size(height=size.extended_properties['height'],
-                   width=size.extended_properties['width'])
+        obj = Size(height=size.extended_properties["height"], width=size.extended_properties["width"])
         self.window_size = obj
 
-    def GetWindowTitle(self, runspace, pipeline):
+    def GetWindowTitle(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> str:
         """
         MI: 41
         SHOULD return the title of the hosting application's window.
@@ -742,7 +973,12 @@ class PSHostRawUserInterface(object):
         """
         return self.window_title
 
-    def SetWindowTitle(self, runspace, pipeline, title):
+    def SetWindowTitle(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        title: str,
+    ) -> None:
         """
         MI: 42
         SHOULD set the view window size based on the size specified.
@@ -753,7 +989,11 @@ class PSHostRawUserInterface(object):
         """
         self.window_title = title
 
-    def GetMaxWindowSize(self, runspace, pipeline):
+    def GetMaxWindowSize(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> Size:
         """
         MI: 43
         SHOULD return the maximum window size possible for the current buffer,
@@ -765,7 +1005,11 @@ class PSHostRawUserInterface(object):
         """
         return self.max_window_size
 
-    def GetMaxPhysicalWindowSize(self, runspace, pipeline):
+    def GetMaxPhysicalWindowSize(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> Size:
         """
         MI: 44
         SHOULD return the maximum window size possible for the current font and
@@ -778,7 +1022,11 @@ class PSHostRawUserInterface(object):
         """
         return self.max_physical_window_size
 
-    def GetKeyAvailable(self, runspace, pipeline):
+    def GetKeyAvailable(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> bool:
         """
         MI: 45
         SHOULD examine if a keystroke is waiting on the input, returning TRUE
@@ -790,7 +1038,12 @@ class PSHostRawUserInterface(object):
         """
         return self.key_available
 
-    def ReadKey(self, runspace, pipeline, options=4):
+    def ReadKey(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        options: int = 4,
+    ) -> KeyInfo:
         """
         MI: 46
         SHOULD read a key stroke from the keyboard, blocking until a key is
@@ -805,7 +1058,11 @@ class PSHostRawUserInterface(object):
         """
         raise NotImplementedError()
 
-    def FlushInputBuffer(self, runspace, pipeline):
+    def FlushInputBuffer(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+    ) -> None:
         """
         MI: 47
         SHOULD reset the keyboard input buffer.
@@ -816,7 +1073,13 @@ class PSHostRawUserInterface(object):
         """
         pass
 
-    def SetBufferContents1(self, runspace, pipeline, rectangle, fill):
+    def SetBufferContents1(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        rectangle: GenericComplexObject,
+        fill: GenericComplexObject,
+    ) -> None:
         """
         MI: 49
         SHOULD copy the specified buffer cell into all the cells within the
@@ -834,7 +1097,13 @@ class PSHostRawUserInterface(object):
         """
         pass
 
-    def SetBufferContents2(self, runspace, pipeline, origin, contents):
+    def SetBufferContents2(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        origin: GenericComplexObject,
+        contents: GenericComplexObject,
+    ) -> None:
         """
         MI: 48
         SHOULD copy the specified buffer cell array into the screen buffer at
@@ -860,7 +1129,12 @@ class PSHostRawUserInterface(object):
         """
         pass
 
-    def GetBufferContents(self, runspace, pipeline, rectangle):
+    def GetBufferContents(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        rectangle: GenericComplexObject,
+    ) -> Array:
         """
         MI: 50
         SHOULD return the contents in a specified rectangular region of the
@@ -876,8 +1150,15 @@ class PSHostRawUserInterface(object):
         """
         raise NotImplementedError()
 
-    def ScrollBufferContents(self, runspace, pipeline, source, destination,
-                             clip, fill):
+    def ScrollBufferContents(
+        self,
+        runspace: RunspacePool,
+        pipeline: typing.Optional[PowerShell],
+        source: GenericComplexObject,
+        destination: Coordinates,
+        clip: GenericComplexObject,
+        fill: BufferCell,
+    ) -> None:
         """
         MI: 51
         SHOULD scroll a region on the screen buffer.

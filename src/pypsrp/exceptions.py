@@ -1,6 +1,8 @@
 # Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
+import typing
+
 from pypsrp.complex_objects import PSInvocationState, RunspacePoolState
 
 
@@ -31,9 +33,11 @@ class WinRMTransportError(WinRMError):
 
     @property
     def message(self):
-        return "Bad %s response returned from the server. Code: %d, " \
-               "Content: '%s'"\
-               % (self.protocol.upper(), self.code, self.response_text)
+        return "Bad %s response returned from the server. Code: %d, Content: '%s'" % (
+            self.protocol.upper(),
+            self.code,
+            self.response_text,
+        )
 
     def __str__(self):
         return self.message
@@ -90,8 +94,7 @@ class WSManFaultError(WinRMError):
         if len(error_details) == 0:
             error_details.append("No details returned by the server")
 
-        error_msg = "Received a WSManFault message. (%s)" \
-                    % ", ".join(error_details)
+        error_msg = "Received a WSManFault message. (%s)" % ", ".join(error_details)
         return error_msg
 
     def __str__(self):
@@ -100,7 +103,7 @@ class WSManFaultError(WinRMError):
 
 # PSRP Exceptions below
 class _InvalidStateError(WinRMError):
-    _STATE_OBJ = None
+    _STATE_OBJ: typing.Optional[typing.Type] = None
 
     @property
     def current_state(self):
@@ -121,8 +124,11 @@ class _InvalidStateError(WinRMError):
         if not isinstance(expected_state, list):
             expected_state = [expected_state]
         exp_state = [str(self._STATE_OBJ(s)) for s in expected_state]
-        return "Cannot '%s' on the current state '%s', expecting state(s): " \
-               "'%s'" % (self.action, current_state, ", ".join(exp_state))
+        return "Cannot '%s' on the current state '%s', expecting state(s): '%s'" % (
+            self.action,
+            current_state,
+            ", ".join(exp_state),
+        )
 
     def __str__(self):
         return self.message

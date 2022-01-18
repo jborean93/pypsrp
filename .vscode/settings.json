@@ -6,14 +6,20 @@
     ],
     "files.trimTrailingWhitespace": true,
     "editor.trimAutoWhitespace": true,
+    "python.formatting.provider": "black",
+    "python.linting.mypyEnabled": true,
     "python.analysis.extraPaths": [
         "src",
     ],
-    "python.formatting.provider": "none",
     "python.testing.pytestArgs": [
         "tests",
         "-vv"
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
+    "[python]": {
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": true
+        },
+    },
 }
