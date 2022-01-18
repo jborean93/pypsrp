@@ -1,10 +1,11 @@
 import os
 import time
+import typing
 
 from pypsrp.client import Client
 
 
-def test_winrm() -> None:
+def test_winrm() -> typing.Tuple[str, str, int]:
     server = os.environ["PYPSRP_SERVER"]
     username = os.environ["PYPSRP_USERNAME"]
     password = os.environ["PYPSRP_PASSWORD"]

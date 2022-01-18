@@ -1,14 +1,20 @@
 import uuid
 
 from pypsrp.complex_objects import HostMethodIdentifier, ObjectMeta
-from pypsrp.messages import ErrorRecordMessage, Message, MessageType, \
-    PublicKeyRequest, RunspacePoolHostCall, RunspacePoolHostResponse, \
-    UserEvent, WarningRecord
+from pypsrp.messages import (
+    ErrorRecordMessage,
+    Message,
+    MessageType,
+    PublicKeyRequest,
+    RunspacePoolHostCall,
+    RunspacePoolHostResponse,
+    UserEvent,
+    WarningRecord,
+)
 from pypsrp.serializer import Serializer
 
 
 class TestPublicKeyRequest(object):
-
     def test_create_public_key_request(self):
         pub_key_req = PublicKeyRequest()
         empty_uuid = "00000000-0000-0000-0000-000000000000"
@@ -17,31 +23,33 @@ class TestPublicKeyRequest(object):
 
         msg = Message(0x2, empty_uuid, empty_uuid, pub_key_req, serializer)
         actual = msg.pack()
-        assert actual == b"\x02\x00\x00\x00" \
-                         b"\x07\x00\x01\x00" \
-                         b"\x00\x00\x00\x00\x00\x00\x00\x00" \
-                         b"\x00\x00\x00\x00\x00\x00\x00\x00" \
-                         b"\x00\x00\x00\x00\x00\x00\x00\x00" \
-                         b"\x00\x00\x00\x00\x00\x00\x00\x00" + \
-                         expected
+        assert (
+            actual == b"\x02\x00\x00\x00"
+            b"\x07\x00\x01\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00" + expected
+        )
 
     def test_parse_public_key_request(self):
-        data = b"\x02\x00\x00\x00" \
-               b"\x07\x00\x01\x00" \
-               b"\x00\x00\x00\x00\x00\x00\x00\x00" \
-               b"\x00\x00\x00\x00\x00\x00\x00\x00" \
-               b"\x00\x00\x00\x00\x00\x00\x00\x00" \
-               b"\x00\x00\x00\x00\x00\x00\x00\x00" \
-               b"<S />"
+        data = (
+            b"\x02\x00\x00\x00"
+            b"\x07\x00\x01\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"\x00\x00\x00\x00\x00\x00\x00\x00"
+            b"<S />"
+        )
         actual = Message.unpack(data, Serializer())
         assert actual.message_type == MessageType.PUBLIC_KEY_REQUEST
         assert isinstance(actual.data, PublicKeyRequest)
 
 
 class TestUserEvent(object):
-
     def test_parse_msg(self):
-        xml = '''<Obj RefId="0">
+        xml = """<Obj RefId="0">
             <MS>
                 <I32 N="PSEventArgs.EventIdentifier">1</I32>
                 <S N="PSEventArgs.SourceIdentifier">ae6245f2-c179-4a9a-a039-47b60fc44500</S>
@@ -88,31 +96,28 @@ class TestUserEvent(object):
                 <Nil N="PSEventArgs.ComputerName"/>
                 <G N="PSEventArgs.RunspaceId">fb9c87e8-1190-40a7-a681-6fc9b9f84a17</G>
             </MS>
-        </Obj>'''
+        </Obj>"""
         serializer = Serializer()
         meta = ObjectMeta("Obj", object=UserEvent)
         actual = serializer.deserialize(xml, meta)
 
         assert str(actual.args[0]) == "System.Timers.Timer"
-        assert actual.args[0].adapted_properties['Interval'] == 5000.0
+        assert actual.args[0].adapted_properties["Interval"] == 5000.0
         assert str(actual.args[1]) == "System.Timers.ElapsedEventArgs"
-        assert actual.args[1].adapted_properties['SignalTime'] == \
-            "2009-06-17T10:57:23.1568275-07:00"
+        assert actual.args[1].adapted_properties["SignalTime"] == "2009-06-17T10:57:23.1568275-07:00"
         assert actual.computer is None
         assert actual.data is None
         assert actual.event_id == 1
-        assert actual.runspace_id == \
-            uuid.UUID("fb9c87e8-1190-40a7-a681-6fc9b9f84a17")
+        assert actual.runspace_id == uuid.UUID("fb9c87e8-1190-40a7-a681-6fc9b9f84a17")
         assert str(actual.sender) == "System.Timers.Timer"
-        assert actual.sender.adapted_properties['Interval'] == 5000.0
+        assert actual.sender.adapted_properties["Interval"] == 5000.0
         assert actual.source_id == "ae6245f2-c179-4a9a-a039-47b60fc44500"
         assert actual.time == "2009-06-17T10:57:23.1578277-07:00"
 
 
 class TestRunspacePoolHostCall(object):
-
     def test_parse_message(self):
-        xml = '''<Obj RefId="0">
+        xml = """<Obj RefId="0">
             <MS>
                 <I64 N="ci">1</I64>
                 <Obj N="mi" RefId="1">
@@ -133,7 +138,7 @@ class TestRunspacePoolHostCall(object):
                     <LST/>
                 </Obj>
             </MS>
-        </Obj>'''
+        </Obj>"""
         serializer = Serializer()
         meta = ObjectMeta("Obj", object=RunspacePoolHostCall)
         actual = serializer.deserialize(xml, meta)
@@ -145,9 +150,8 @@ class TestRunspacePoolHostCall(object):
 
 
 class TestRunspacePoolHostResponse(object):
-
     def test_parse_message(self):
-        xml = '''<Obj RefId="11">
+        xml = """<Obj RefId="11">
             <MS>
                 <S N="mr">Line read from the host</S>
                 <I64 N="ci">1</I64>
@@ -162,7 +166,7 @@ class TestRunspacePoolHostResponse(object):
                     <I32>11</I32>
                 </Obj>
             </MS>
-        </Obj>'''
+        </Obj>"""
         serializer = Serializer()
         meta = ObjectMeta("Obj", object=RunspacePoolHostResponse)
         actual = serializer.deserialize(xml, meta)
@@ -175,9 +179,8 @@ class TestRunspacePoolHostResponse(object):
 
 
 class TestErrorRecord(object):
-
     def test_parse_error(self):
-        xml = '''<Obj RefId="0">
+        xml = """<Obj RefId="0">
             <TN RefId="0">
                 <T>System.Management.Automation.ErrorRecord</T>
                 <T>System.Object</T>
@@ -325,38 +328,34 @@ class TestErrorRecord(object):
                 <S N="ErrorDetails_ScriptStackTrace">at &lt;ScriptBlock&gt;, &lt;No file&gt;: line 5</S>
                 <Nil N="PSMessageDetails"/>
             </MS>
-        </Obj>'''
+        </Obj>"""
         serializer = Serializer()
         meta = ObjectMeta("Obj", object=ErrorRecordMessage)
         actual = serializer.deserialize(xml, meta)
 
         assert str(actual) == "error stream"
-        assert actual.exception.adapted_properties['Message'] == "error stream"
-        assert actual.exception.adapted_properties['HResult'] == -2146233087
+        assert actual.exception.adapted_properties["Message"] == "error stream"
+        assert actual.exception.adapted_properties["HResult"] == -2146233087
         assert actual.target_object is None
-        assert actual.fq_error == \
-            "Microsoft.PowerShell.Commands.WriteErrorException"
+        assert actual.fq_error == "Microsoft.PowerShell.Commands.WriteErrorException"
         assert actual.invocation
         invoc_props = actual.invocation_info.adapted_properties
-        assert invoc_props['MyCommand'] == "Write-Error 'error stream'\n"
-        assert invoc_props['BoundParameters'] == {}
-        assert invoc_props['UnboundArguments'] == []
-        assert invoc_props['ScriptLineNumber'] == 0
-        assert invoc_props['OffsetInLine'] == 0
-        assert invoc_props['HistoryId'] == 1
-        assert invoc_props['CommandOrigin'] == 'Internal'
-        assert actual.fq_error == \
-            "Microsoft.PowerShell.Commands.WriteErrorException"
+        assert invoc_props["MyCommand"] == "Write-Error 'error stream'\n"
+        assert invoc_props["BoundParameters"] == {}
+        assert invoc_props["UnboundArguments"] == []
+        assert invoc_props["ScriptLineNumber"] == 0
+        assert invoc_props["OffsetInLine"] == 0
+        assert invoc_props["HistoryId"] == 1
+        assert invoc_props["CommandOrigin"] == "Internal"
+        assert actual.fq_error == "Microsoft.PowerShell.Commands.WriteErrorException"
         assert actual.category == 0
         assert actual.reason == "WriteErrorException"
         assert actual.target_name == ""
         assert actual.target_type == ""
-        assert actual.message == \
-            "NotSpecified: (:) [Write-Error], WriteErrorException"
+        assert actual.message == "NotSpecified: (:) [Write-Error], WriteErrorException"
         assert actual.details_message is None
         assert actual.action is None
-        assert actual.script_stacktrace == \
-            "at <ScriptBlock>, <No file>: line 5"
+        assert actual.script_stacktrace == "at <ScriptBlock>, <No file>: line 5"
         assert actual.extended_info_present
         assert actual.invocation_name == ""
         assert actual.invocation_bound_parameters == {}
@@ -380,9 +379,8 @@ class TestErrorRecord(object):
 
 
 class TestWarningRecord(object):
-
     def test_parse_warning(self):
-        xml = '''<Obj RefId="0">
+        xml = """<Obj RefId="0">
             <TN RefId="0">
                 <T>System.Management.Automation.WarningRecord</T>
                 <T>System.Management.Automation.InformationalRecord</T>
@@ -474,7 +472,7 @@ class TestWarningRecord(object):
                     </LST>
                 </Obj>
             </MS>
-        </Obj>'''
+        </Obj>"""
         serializer = Serializer()
         meta = ObjectMeta("Obj", object=WarningRecord)
         actual = serializer.deserialize(xml, meta)

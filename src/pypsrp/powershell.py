@@ -6,30 +6,79 @@ import logging
 import struct
 import time
 import types
+import typing
 import uuid
 import warnings
 import xml.etree.ElementTree as ET
 
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from pypsrp.complex_objects import ApartmentState, Command, CommandMetadata, \
-    CommandParameter, CommandType, HostInfo, ObjectMeta, Pipeline, \
-    PipelineResultTypes, PSInvocationState, PSThreadOptions, \
-    RemoteStreamOptions, RunspacePoolState
-from pypsrp.exceptions import FragmentError, InvalidPipelineStateError, \
-    InvalidPSRPOperation, InvalidRunspacePoolStateError, WSManFaultError
-from pypsrp.messages import ConnectRunspacePool, CreatePipeline, Destination, \
-    EndOfPipelineInput, GetAvailableRunspaces, GetCommandMetadata, \
-    InitRunspacePool, Message, MessageType, PipelineHostResponse, \
-    PipelineInput, PublicKey, ResetRunspaceState, RunspacePoolHostResponse, \
-    SessionCapability, SetMaxRunspaces, SetMinRunspaces
+from pypsrp._utils import version_equal_or_newer
+from pypsrp.complex_objects import (
+    ApartmentState,
+    Command,
+    CommandMetadata,
+    CommandParameter,
+    CommandType,
+    ComplexObject,
+    HostInfo,
+    ObjectMeta,
+    Pipeline,
+    PipelineResultTypes,
+    PSInvocationState,
+    PSThreadOptions,
+    RemoteStreamOptions,
+    RunspacePoolState,
+)
+from pypsrp.exceptions import (
+    FragmentError,
+    InvalidPipelineStateError,
+    InvalidPSRPOperation,
+    InvalidRunspacePoolStateError,
+    WSManFaultError,
+)
+from pypsrp.messages import (
+    ApplicationPrivateData,
+    ConnectRunspacePool,
+    CreatePipeline,
+    DebugRecord,
+    Destination,
+    EncryptedSessionKey,
+    EndOfPipelineInput,
+    ErrorRecordMessage,
+    GetAvailableRunspaces,
+    GetCommandMetadata,
+    InformationRecord,
+    InitRunspacePool,
+    Message,
+    MessageType,
+    PipelineHostCall,
+    PipelineHostResponse,
+    PipelineInput,
+    PipelineState,
+    ProgressRecord,
+    PublicKey,
+    ResetRunspaceState,
+    RunspaceAvailability,
+    RunspacePoolHostCall,
+    RunspacePoolHostResponse,
+    RunspacePoolInitData,
+    RunspacePoolStateMessage,
+    SessionCapability,
+    SetMaxRunspaces,
+    SetMinRunspaces,
+    UserEvent,
+    VerboseRecord,
+    WarningRecord,
+)
 from pypsrp.serializer import Serializer
 from pypsrp.shell import SignalCode, WinRS
-from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet
-from pypsrp._utils import version_equal_or_newer
+from pypsrp.wsman import NAMESPACES, OptionSet, SelectorSet, WSMan
 
+if typing.TYPE_CHECKING:
+    from pypsrp.host import PSHost
 
 log = logging.getLogger(__name__)
 
@@ -44,11 +93,17 @@ class RunspacePoolWarning(Warning):
 
 
 class RunspacePool(object):
-
-    def __init__(self, connection, apartment_state=ApartmentState.UNKNOWN,
-                 thread_options=PSThreadOptions.DEFAULT, host=None,
-                 configuration_name=DEFAULT_CONFIGURATION_NAME, min_runspaces=1,
-                 max_runspaces=1, session_key_timeout_ms=60000):
+    def __init__(
+        self,
+        connection: WSMan,
+        apartment_state: int = ApartmentState.UNKNOWN,
+        thread_options: int = PSThreadOptions.DEFAULT,
+        host: typing.Optional["PSHost"] = None,
+        configuration_name: str = DEFAULT_CONFIGURATION_NAME,
+        min_runspaces: int = 1,
+        max_runspaces: int = 1,
+        session_key_timeout_ms: int = 60000,
+    ) -> None:
         """
         Represents a Runspace pool on a remote host. This pool can contain
         one or more running PowerShell instances.
@@ -75,19 +130,18 @@ class RunspacePool(object):
         :param session_key_timeout_ms: The maximum time to wait for a session
             key transfer from the server
         """
-        log.info("Initialising RunspacePool object for configuration %s"
-                 % configuration_name)
+        log.info("Initialising RunspacePool object for configuration %s" % configuration_name)
         # The below are defined in some way at
         # https://msdn.microsoft.com/en-us/library/ee176015.aspx
         self.id = str(uuid.uuid4()).upper()
         self.state = RunspacePoolState.BEFORE_OPEN
         self.connection = connection
-        resource_uri = "http://schemas.microsoft.com/powershell/%s" \
-                       % configuration_name
-        self.shell = WinRS(connection, resource_uri=resource_uri, id=self.id,
-                           input_streams='stdin pr', output_streams='stdout')
-        self.ci_table = {}
-        self.pipelines = {}
+        resource_uri = "http://schemas.microsoft.com/powershell/%s" % configuration_name
+        self.shell = WinRS(
+            connection, resource_uri=resource_uri, id=self.id, input_streams="stdin pr", output_streams="stdout"
+        )
+        self.ci_table: typing.Dict = {}
+        self.pipelines: typing.Dict[str, "PowerShell"] = {}
         self.session_key_timeout_ms = session_key_timeout_ms
 
         # Extra properties that are important and can control the RunspacePool
@@ -95,24 +149,23 @@ class RunspacePool(object):
         self.apartment_state = apartment_state
         self.thread_options = thread_options
         self.host = host
-        self.protocol_version = None
-        self.ps_version = None
-        self.serialization_version = None
-        self.user_events = []
+        self.protocol_version: typing.Optional[str] = None
+        self.ps_version: typing.Optional[str] = None
+        self.serialization_version: typing.Optional[str] = None
+        self.user_events: typing.List[UserEvent] = []
 
-        self._application_private_data = None
+        self._application_private_data: typing.Optional[ApplicationPrivateData] = None
         self._min_runspaces = min_runspaces
         self._max_runspaces = max_runspaces
         self._serializer = Serializer()
-        self._fragmenter = Fragmenter(self.connection.max_payload_size,
-                                      self._serializer)
-        self._exchange_key = None
+        self._fragmenter = Fragmenter(self.connection.max_payload_size, self._serializer)
+        self._exchange_key: typing.Optional[rsa.RSAPrivateKeyWithSerialization] = None
         self._key_exchanged = False
         self._new_client = False
         self._ci_counter = 0
 
     @property
-    def application_private_data(self):
+    def application_private_data(self) -> typing.Optional[ApplicationPrivateData]:
         """
         Private data to be used by applications built on top of PowerShell.
         Runspace data is gathered when creating the remote runspace pool and
@@ -121,11 +174,14 @@ class RunspacePool(object):
         return self._application_private_data
 
     @property
-    def min_runspaces(self):
+    def min_runspaces(self) -> int:
         return self._min_runspaces
 
     @min_runspaces.setter
-    def min_runspaces(self, min_runspaces):
+    def min_runspaces(
+        self,
+        min_runspaces: int,
+    ) -> None:
         """
         Sets the minimum number of Runspaces that the pool maintains in
         anticipation of new requests.
@@ -150,7 +206,7 @@ class RunspacePool(object):
 
         set_min_runspace = SetMinRunspaces(min_runspaces=min_runspaces, ci=ci)
         data = self._fragmenter.fragment(set_min_runspace, self.id)[0]
-        self.shell.send('stdin', data)
+        self.shell.send("stdin", data)
 
         while not isinstance(self.ci_table[ci], bool):
             self._receive()
@@ -158,11 +214,14 @@ class RunspacePool(object):
         del self.ci_table[ci]
 
     @property
-    def max_runspaces(self):
+    def max_runspaces(self) -> int:
         return self._max_runspaces
 
     @max_runspaces.setter
-    def max_runspaces(self, max_runspaces):
+    def max_runspaces(
+        self,
+        max_runspaces: int,
+    ) -> None:
         """
         Sets the maximum number of Runspaces that can be active concurrently
         in the pool. All requests above that number remain queued until
@@ -188,21 +247,26 @@ class RunspacePool(object):
 
         set_max_runspace = SetMaxRunspaces(max_runspaces=max_runspaces, ci=ci)
         data = self._fragmenter.fragment(set_max_runspace, self.id)[0]
-        self.shell.send('stdin', data)
+        self.shell.send("stdin", data)
 
         while not isinstance(self.ci_table[ci], bool):
             self._receive()
         self._max_runspaces = max_runspaces
         del self.ci_table[ci]
 
-    def __enter__(self):
+    def __enter__(self) -> "RunspacePool":
         self.open()
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(
+        self,
+        exc_type: typing.Optional[typing.Type[BaseException]],
+        value: typing.Optional[BaseException],
+        traceback: typing.Optional[types.TracebackType],
+    ) -> None:
         self.close()
 
-    def close(self):
+    def close(self) -> None:
         """
         Closes the RunspacePool and cleans all the internal resources. This
         will close all the runspaces in the runspacepool and release all the
@@ -210,14 +274,13 @@ class RunspacePool(object):
         broken or closing, this will just return
         """
         log.info("Closing Runspace Pool")
-        if self.state in [RunspacePoolState.CLOSED, RunspacePoolState.CLOSING,
-                          RunspacePoolState.BROKEN]:
+        if self.state in [RunspacePoolState.CLOSED, RunspacePoolState.CLOSING, RunspacePoolState.BROKEN]:
             return
 
         self.shell.close()
         self.state = RunspacePoolState.CLOSED
 
-    def connect(self):
+    def connect(self) -> None:
         """
         Connects the runspace pool, Runspace pool must be in a disconnected
         state. This only supports reconnecting to a runspace pool created by
@@ -228,32 +291,27 @@ class RunspacePool(object):
             return
         elif self.state != RunspacePoolState.DISCONNECTED:
             raise InvalidRunspacePoolStateError(
-                self.state, RunspacePoolState.DISCONNECTED,
-                "connect to a disconnected Runspace Pool"
+                self.state, RunspacePoolState.DISCONNECTED, "connect to a disconnected Runspace Pool"
             )
 
         if self._new_client:
-            log.debug("Remote Runspace Pool was created with a different "
-                      "client, connecting as new client")
+            log.debug("Remote Runspace Pool was created with a different client, connecting as new client")
             self._connect_new_client()
             self._new_client = False
         else:
-            log.debug("Remote Runspace Pool was created with the same client, "
-                      "connecting as an existing client")
+            log.debug("Remote Runspace Pool was created with the same client, connecting as an existing client")
             self._connect_existing_client()
 
-    def _connect_existing_client(self):
+    def _connect_existing_client(self) -> None:
         selector_set = SelectorSet()
-        selector_set.add_option("ShellId", self.shell.id)
+        selector_set.add_option("ShellId", self.shell.id or "")
 
-        self.connection.reconnect(self.shell.resource_uri,
-                                  selector_set=selector_set)
+        self.connection.reconnect(self.shell.resource_uri, selector_set=selector_set)
         self.state = RunspacePoolState.OPENED
 
-    def _connect_new_client(self):
-        rsp = NAMESPACES['rsp']
-        session_capability = SessionCapability(PROTOCOL_VERSION, PS_VERSION,
-                                               SERIALIZATION_VERSION)
+    def _connect_new_client(self) -> None:
+        rsp = NAMESPACES["rsp"]
+        session_capability = SessionCapability(PROTOCOL_VERSION, PS_VERSION, SERIALIZATION_VERSION)
         connect_runspace = ConnectRunspacePool()
         data = self._fragmenter.fragment(session_capability, self.id)[0]
         data += self._fragmenter.fragment(connect_runspace, self.id)[0]
@@ -263,27 +321,21 @@ class RunspacePool(object):
         selectors.add_option("ShellId", self.id)
 
         options = OptionSet()
-        options.add_option("protocolversion", PROTOCOL_VERSION,
-                           {"MustComply": "true"})
+        options.add_option("protocolversion", PROTOCOL_VERSION, {"MustComply": "true"})
 
-        open_content = ET.SubElement(connect, "connectXml",
-                                     xmlns="http://schemas.microsoft.com/"
-                                           "powershell")
-        open_content.text = base64.b64encode(data).decode('utf-8')
+        open_content = ET.SubElement(connect, "connectXml", xmlns="http://schemas.microsoft.com/powershell")
+        open_content.text = base64.b64encode(data).decode("utf-8")
 
-        response = self.connection.connect(self.shell.resource_uri, connect,
-                                           options, selectors)
-        response_xml = response.find("rsp:ConnectResponse/"
-                                     "pwsh:connectResponseXml",
-                                     NAMESPACES).text
-        fragments = base64.b64decode(response_xml)
+        response = self.connection.connect(self.shell.resource_uri, connect, options, selectors)
+        response_xml = response.find("rsp:ConnectResponse/pwsh:connectResponseXml", NAMESPACES)
+        fragments = base64.b64decode(response_xml.text)  # type: ignore[arg-type, union-attr] # Mandated by spec
 
         self._parse_responses(fragments)
         self.shell.id = self.id  # need to sync up the ShellID with the rs ID
         self.shell._selector_set = selectors
         self._receive()
 
-    def create_disconnected_power_shells(self):
+    def create_disconnected_power_shells(self) -> typing.List["PowerShell"]:
         """
         Creates a list of PowerShell objects that are in the Disconnected state
         for all currently disconnected running commands associated with this
@@ -291,12 +343,10 @@ class RunspacePool(object):
 
         :return: List<PowerShell>: List of disconnected PowerShell objects
         """
-        log.info("Getting list of disconnected PowerShells for the current "
-                 "Runspace Pool")
-        return [s for s in self.pipelines.values() if
-                s.state == PSInvocationState.DISCONNECTED]
+        log.info("Getting list of disconnected PowerShells for the current Runspace Pool")
+        return [s for s in self.pipelines.values() if s.state == PSInvocationState.DISCONNECTED]
 
-    def disconnect(self):
+    def disconnect(self) -> None:
         """
         Disconnects the runspace pool, must be in the Opened state
         """
@@ -304,28 +354,25 @@ class RunspacePool(object):
         if self.state == RunspacePoolState.DISCONNECTED:
             return
         elif self.state != RunspacePoolState.OPENED:
-            raise InvalidRunspacePoolStateError(
-                self.state, RunspacePoolState.OPENED,
-                "disconnect a Runspace Pool"
-            )
+            raise InvalidRunspacePoolStateError(self.state, RunspacePoolState.OPENED, "disconnect a Runspace Pool")
 
-        disconnect = ET.Element("{%s}Disconnect" % NAMESPACES['rsp'])
+        disconnect = ET.Element("{%s}Disconnect" % NAMESPACES["rsp"])
         selector_set = SelectorSet()
-        selector_set.add_option("ShellId", self.shell.id)
+        selector_set.add_option("ShellId", self.shell.id or "")
 
-        self.connection.disconnect(self.shell.resource_uri, disconnect,
-                                   selector_set=selector_set)
+        self.connection.disconnect(self.shell.resource_uri, disconnect, selector_set=selector_set)
         self.state = RunspacePoolState.DISCONNECTED
         for pipeline in self.pipelines.values():
             pipeline.state = PSInvocationState.DISCONNECTED
 
-    def get_available_runspaces(self):
+    def get_available_runspaces(self) -> int:
         """
         Retrieves the number of runspaces available at the time of calling this
         method.
 
         :return: The number of available runspaces in the pool
         """
+
         def response_handler(response):
             self._max_runspaces = response
             return response
@@ -336,7 +383,7 @@ class RunspacePool(object):
 
         get_runspaces = GetAvailableRunspaces(ci=ci)
         data = self._fragmenter.fragment(get_runspaces, self.id)[0]
-        self.shell.send('stdin', data)
+        self.shell.send("stdin", data)
 
         avail_runspaces = None
         while avail_runspaces is None:
@@ -347,8 +394,13 @@ class RunspacePool(object):
         del self.ci_table[ci]
         return avail_runspaces
 
-    def get_command_metadata(self, names, command_types=CommandType.ALL,
-                             namespace=None, arguments=None):
+    def get_command_metadata(
+        self,
+        names: typing.Union[str, typing.List[str]],
+        command_types: int = CommandType.ALL,
+        namespace: typing.Optional[typing.List[str]] = None,
+        arguments: typing.Optional[typing.List] = None,
+    ) -> typing.List[CommandMetadata]:
         """
         Get's metadata of the higher layer command's. This is very similar to
         running the Get-Help cmdlet's but just done on the protocol layer
@@ -370,16 +422,12 @@ class RunspacePool(object):
         :return: List of CommandMetadata objects returned by the server
         """
         if self.state != RunspacePoolState.OPENED:
-            raise InvalidRunspacePoolStateError(
-                self.state, RunspacePoolState.OPENED,
-                "get command metadata"
-            )
+            raise InvalidRunspacePoolStateError(self.state, RunspacePoolState.OPENED, "get command metadata")
 
         if not isinstance(names, list):
             names = [names]
 
-        get_msg = GetCommandMetadata(names, command_types, namespace,
-                                     arguments)
+        get_msg = GetCommandMetadata(names, command_types, namespace, arguments)
         ps = PowerShell(self)
         ps._invoke(get_msg)
         output = ps.end_invoke()
@@ -395,7 +443,9 @@ class RunspacePool(object):
         return [self._serializer.deserialize(o._xml, meta) for o in output]
 
     @staticmethod
-    def get_runspace_pools(connection):
+    def get_runspace_pools(
+        connection: WSMan,
+    ) -> typing.List["RunspacePool"]:
         """
         Queries the server for disconnected runspace pools and creates a list
         of runspace pool objects associated with each disconnected runspace
@@ -409,26 +459,23 @@ class RunspacePool(object):
         :return: List<RunspacePool> objects each in the Disconnected state
         """
         log.info("Getting list of Runspace Pools on remote host")
-        wsen = NAMESPACES['wsen']
-        wsmn = NAMESPACES['wsman']
+        wsen = NAMESPACES["wsen"]
+        wsmn = NAMESPACES["wsman"]
 
         enum_msg = ET.Element("{%s}Enumerate" % wsen)
         ET.SubElement(enum_msg, "{%s}OptimizeEnumeration" % wsmn)
         ET.SubElement(enum_msg, "{%s}MaxElements" % wsmn).text = "32000"
 
         # TODO: support wsman:EndOfSequence
-        response = connection.enumerate("http://schemas.microsoft.com/wbem/"
-                                        "wsman/1/windows/shell", enum_msg)
-        shells = response.findall("wsen:EnumerateResponse/"
-                                  "wsman:Items/"
-                                  "rsp:Shell", NAMESPACES)
+        response = connection.enumerate("http://schemas.microsoft.com/wbem/wsman/1/windows/shell", enum_msg)
+        shells = response.findall("wsen:EnumerateResponse/wsman:Items/rsp:Shell", NAMESPACES)
 
         runspace_pools = []
         for shell in shells:
-            shell_id = shell.find("rsp:ShellId", NAMESPACES).text
+            shell_id: str = shell.find("rsp:ShellId", NAMESPACES).text  # type: ignore # Mandated by spec
             pool = RunspacePool(connection)
             pool.id = shell_id
-            pool.shell.shell_id = shell_id
+            pool.shell.id = shell_id
             pool.shell.opened = True
             pool._new_client = True
 
@@ -440,21 +487,18 @@ class RunspacePool(object):
             enum_msg = ET.Element("{%s}Enumerate" % wsen)
             ET.SubElement(enum_msg, "{%s}OptimizeEnumeration" % wsmn)
             ET.SubElement(enum_msg, "{%s}MaxElements" % wsmn).text = "32000"
-            filter = ET.SubElement(enum_msg, "{%s}Filter" % wsmn,
-                                   Dialect="http://schemas.dmtf.org/wbem/wsman"
-                                           "/1/wsman/SelectorFilter")
+            filter = ET.SubElement(
+                enum_msg, "{%s}Filter" % wsmn, Dialect="http://schemas.dmtf.org/wbem/wsman/1/wsman/SelectorFilter"
+            )
             selector_set = SelectorSet()
             selector_set.add_option("ShellId", shell_id)
             filter.append(selector_set.pack())
 
-            resp = connection.enumerate("http://schemas.microsoft.com/wbem/"
-                                        "wsman/1/windows/shell/Command",
-                                        enum_msg)
-            commands = resp.findall("wsen:EnumerateResponse/wsman:Items/"
-                                    "rsp:Command", NAMESPACES)
+            resp = connection.enumerate("http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command", enum_msg)
+            commands = resp.findall("wsen:EnumerateResponse/wsman:Items/rsp:Command", NAMESPACES)
             pipelines = {}
             for command in commands:
-                command_id = command.find("rsp:CommandId", NAMESPACES).text
+                command_id: str = command.find("rsp:CommandId", NAMESPACES).text  # type: ignore # Mandated by spec
 
                 powershell = PowerShell(pool)
                 powershell.id = command_id
@@ -466,7 +510,10 @@ class RunspacePool(object):
             runspace_pools.append(pool)
         return runspace_pools
 
-    def open(self, application_arguments=None):
+    def open(
+        self,
+        application_arguments: typing.Optional[typing.Dict] = None,
+    ) -> None:
         """
         Opens the runspace pool, this step must be called before it can be
         used.
@@ -479,31 +526,25 @@ class RunspacePool(object):
         if self.state == RunspacePoolState.OPENED:
             return
         if self.state != RunspacePoolState.BEFORE_OPEN:
-            raise InvalidRunspacePoolStateError(
-                self.state, RunspacePoolState.BEFORE_OPEN,
-                "open a new Runspace Pool"
-            )
+            raise InvalidRunspacePoolStateError(self.state, RunspacePoolState.BEFORE_OPEN, "open a new Runspace Pool")
 
-        session_capability = SessionCapability(PROTOCOL_VERSION, PS_VERSION,
-                                               SERIALIZATION_VERSION)
+        session_capability = SessionCapability(PROTOCOL_VERSION, PS_VERSION, SERIALIZATION_VERSION)
         init_runspace_pool = InitRunspacePool(
-            self.min_runspaces, self.max_runspaces,
+            self.min_runspaces,
+            self.max_runspaces,
             PSThreadOptions(value=self.thread_options),
             ApartmentState(value=self.apartment_state),
             HostInfo(host=self.host),
-            application_arguments
+            application_arguments,
         )
         msgs = [session_capability, init_runspace_pool]
         fragments = self._fragmenter.fragment_multiple(msgs, self.id)
 
-        open_content = ET.Element(
-            "creationXml", xmlns="http://schemas.microsoft.com/powershell"
-        )
-        open_content.text = base64.b64encode(fragments.pop(0)).decode('utf-8')
+        open_content = ET.Element("creationXml", xmlns="http://schemas.microsoft.com/powershell")
+        open_content.text = base64.b64encode(fragments.pop(0)).decode("utf-8")
 
         options = OptionSet()
-        options.add_option("protocolversion", PROTOCOL_VERSION,
-                           {"MustComply": "true"})
+        options.add_option("protocolversion", PROTOCOL_VERSION, {"MustComply": "true"})
         self.shell.open(options, open_content)
         self.state = RunspacePoolState.NEGOTIATION_SENT
 
@@ -511,7 +552,7 @@ class RunspacePool(object):
         while self.state == RunspacePoolState.NEGOTIATION_SENT:
             responses.extend(self._receive())
 
-    def exchange_keys(self):
+    def exchange_keys(self) -> None:
         """
         Initiate a key exchange with the server that is required when dealing
         with secure strings. This can only be run once the RunspacePool is
@@ -534,29 +575,26 @@ class RunspacePool(object):
         exponent = struct.pack("<I", public_numbers.e)
         modulus = b""
         for i in range(0, 256):
-            byte_value = struct.pack("B", public_numbers.n >> (i * 8) & 0xff)
+            byte_value = struct.pack("B", public_numbers.n >> (i * 8) & 0xFF)
             modulus += byte_value
 
         # the public key bytes follow a set structure defined in MS-PSRP
-        public_key_bytes = b"\x06\x02\x00\x00\x00\xa4\x00\x00" \
-                           b"\x52\x53\x41\x31\x00\x08\x00\x00" + \
-                           exponent + modulus
+        public_key_bytes = b"\x06\x02\x00\x00\x00\xa4\x00\x00\x52\x53\x41\x31\x00\x08\x00\x00" + exponent + modulus
         public_key = base64.b64encode(public_key_bytes)
 
-        msg = PublicKey(public_key=public_key.decode('utf-8'))
+        msg = PublicKey(public_key=public_key.decode("utf-8"))
         fragments = self._fragmenter.fragment(msg, self.id)
         for fragment in fragments:
-            self.shell.send('stdin', fragment)
+            self.shell.send("stdin", fragment)
 
         start = time.time()
         while not self._key_exchanged:
             elapsed = int((time.time() - start) * 1000)
             if elapsed > self.session_key_timeout_ms:
-                raise InvalidPSRPOperation("Timeout while waiting for key "
-                                           "exchange")
+                raise InvalidPSRPOperation("Timeout while waiting for key exchange")
             self._receive()
 
-    def reset_runspace_state(self):
+    def reset_runspace_state(self) -> None:
         """
         Resets the variable table for the runspace to the default state.
 
@@ -569,14 +607,14 @@ class RunspacePool(object):
             return
         elif self.state != RunspacePoolState.OPENED:
             raise InvalidRunspacePoolStateError(
-                self.state,
-                [RunspacePoolState.BEFORE_OPEN, RunspacePoolState.OPENED],
-                "reset RunspacePool state"
+                self.state, [RunspacePoolState.BEFORE_OPEN, RunspacePoolState.OPENED], "reset RunspacePool state"
             )
-        elif not version_equal_or_newer(self.protocol_version, "2.3"):
-            raise InvalidPSRPOperation("Cannot reset runspace state on "
-                                       "protocol versions older than 2.3, "
-                                       "actual: %s" % self.protocol_version)
+        elif not version_equal_or_newer(self.protocol_version or "", "2.3"):
+            raise InvalidPSRPOperation(
+                "Cannot reset runspace state on "
+                "protocol versions older than 2.3, "
+                "actual: %s" % self.protocol_version
+            )
 
         def response_handler(response):
             if not response:
@@ -589,13 +627,17 @@ class RunspacePool(object):
 
         reset_state = ResetRunspaceState(ci=ci)
         data = self._fragmenter.fragment(reset_state, self.id)[0]
-        self.shell.send('stdin', data)
+        self.shell.send("stdin", data)
 
         while not isinstance(self.ci_table[ci], bool):
             self._receive()
         del self.ci_table[ci]
 
-    def serialize(self, obj, metadata=None):
+    def serialize(
+        self,
+        obj: typing.Any,
+        metadata: typing.Optional[ObjectMeta] = None,
+    ) -> typing.Optional[ET.Element]:
         """
         Serialize a Python object to PSRP object. This can try to automatically
         serialize based on the Python type to the closest PSRP object but
@@ -610,7 +652,11 @@ class RunspacePool(object):
         """
         return self._serializer.serialize(obj, metadata=metadata)
 
-    def _receive(self, id=None, timeout=None):
+    def _receive(
+        self,
+        id: typing.Optional[str] = None,
+        timeout: typing.Optional[int] = None,
+    ) -> typing.List[typing.Tuple[int, typing.Any]]:
         """
         Sends a Receive WSMV request to the host and processes the messages
         that are received from the host (if there are any).
@@ -626,24 +672,29 @@ class RunspacePool(object):
                 the message type
         """
         command_id = None
+        pipeline = None
 
-        pipeline = self.pipelines.get(id)
-        if pipeline is not None:
-            command_id = pipeline._command_id
+        if id:
+            pipeline = self.pipelines.get(id)
+            if pipeline is not None:
+                command_id = pipeline._command_id
 
-        response = self.shell.receive("stdout", command_id=command_id,
-                                      timeout=timeout)[2]['stdout']
+        response = self.shell.receive("stdout", command_id=command_id, timeout=timeout)[2]["stdout"]
         return self._parse_responses(response, pipeline)
 
-    def _parse_responses(self, responses, pipeline=None):
+    def _parse_responses(
+        self,
+        responses: bytes,
+        pipeline: typing.Optional["PowerShell"] = None,
+    ) -> typing.List[typing.Tuple[int, typing.Any]]:
         messages = self._fragmenter.defragment(responses)
 
-        response_functions = {
+        response_functions: typing.Dict[int, typing.Optional[typing.Callable[[Message], typing.Any]]] = {
             # While the docs say we should verify, they are out of date with
             # the possible responses and so we will just ignore for now
             MessageType.SESSION_CAPABILITY: self._process_session_capability,
             MessageType.ENCRYPTED_SESSION_KEY: self._process_encrypted_session_key,
-            MessageType.PUBLIC_KEY_REQUEST: self.exchange_keys,
+            MessageType.PUBLIC_KEY_REQUEST: lambda m: self.exchange_keys,
             MessageType.RUNSPACEPOOL_INIT_DATA: self._process_runspacepool_init_data,
             MessageType.RUNSPACE_AVAILABILITY: self._process_runspacepool_availability,
             MessageType.RUNSPACEPOOL_STATE: self._process_runspacepool_state,
@@ -654,7 +705,7 @@ class RunspacePool(object):
         }
 
         if pipeline is not None:
-            pipeline_response_functions = {
+            pipeline_response_functions: typing.Dict[int, typing.Optional[typing.Callable[[Message], typing.Any]]] = {
                 # The Pipeline Output isn't processes and just returned back to
                 # the receive caller
                 MessageType.PIPELINE_OUTPUT: None,
@@ -686,88 +737,126 @@ class RunspacePool(object):
 
         return return_values
 
-    def _process_host_call(self, message, response_obj, pipeline=None):
-        if self.host is None:
-            log.warning("Cannot run host call as no host was defined for the "
-                        "runspace, method: %s, args: %s"
-                        % (str(message.data.mi), str(message.data.mp)))
-            return message.data
+    def _process_host_call(
+        self,
+        message: Message,
+        response_obj: typing.Union[typing.Type[RunspacePoolHostResponse], typing.Type[PipelineHostResponse]],
+        pipeline: typing.Optional["PowerShell"] = None,
+    ) -> ComplexObject:
+        host_call = typing.cast(typing.Union[RunspacePoolHostCall, PipelineHostCall], message.data)
 
-        response = self.host.run_method(message.data.mi, message.data.mp, self,
-                                        pipeline)
+        if self.host is None:
+            log.warning(
+                "Cannot run host call as no host was defined for the "
+                "runspace, method: %s, args: %s" % (str(host_call.mi), str(host_call.mp))
+            )
+            return host_call
+
+        response = self.host.run_method(host_call.mi, host_call.mp, self, pipeline)
 
         if response is not None:
             msg = response_obj()
-            msg.ci = message.data.ci
-            msg.mi = message.data.mi
+            msg.ci = host_call.ci
+            msg.mi = host_call.mi
             msg.mr = response
 
             pid = pipeline.id if pipeline is not None else None
             fragments = self._fragmenter.fragment(msg, self.id, pid)
             for fragment in fragments:
-                self.shell.send('pr', fragment)
+                self.shell.send("pr", fragment)
 
-        return message.data
+        return host_call
 
-    def _process_session_capability(self, message):
-        log.debug("Received SessionCapability with protocol version: "
-                  "%s, ps version: %s, serialization version: %s"
-                  % (message.data.protocol_version, message.data.ps_version,
-                     message.data.serialization_version))
-        self.protocol_version = message.data.protocol_version
-        self.ps_version = message.data.ps_version
-        self.serialization_version = message.data.serialization_version
+    def _process_session_capability(
+        self,
+        message: Message,
+    ) -> None:
+        msg = typing.cast(SessionCapability, message.data)
+
+        log.debug(
+            "Received SessionCapability with protocol version: "
+            "%s, ps version: %s, serialization version: %s"
+            % (msg.protocol_version, msg.ps_version, msg.serialization_version)
+        )
+        self.protocol_version = msg.protocol_version
+        self.ps_version = msg.ps_version
+        self.serialization_version = msg.serialization_version
 
         # if protocol_version >= 2.2 and the max_envelope_size is still the
         # default, update the envelope size to 500KiB
-        if version_equal_or_newer(self.protocol_version, "2.2") and \
-                self.connection.max_envelope_size == 153600:
+        if version_equal_or_newer(msg.protocol_version or "", "2.2") and self.connection.max_envelope_size == 153600:
             self.connection.update_max_payload_size(512000)
             self._fragmenter.max_size = self.connection.max_payload_size
 
-    def _process_runspacepool_init_data(self, message):
-        log.debug("Received RunspacePoolInitData with min runspaces: %d and "
-                  "max runspaces: %d" % (message.data.min_runspaces,
-                                         message.data.max_runspaces))
-        self._min_runspaces = message.data.min_runspaces
-        self._max_runspaces = message.data.max_runspaces
+    def _process_runspacepool_init_data(
+        self,
+        message: Message,
+    ) -> None:
+        msg = typing.cast(RunspacePoolInitData, message.data)
 
-    def _process_runspacepool_availability(self, message):
-        ci = message.data.ci
-        response = message.data.response
+        log.debug(
+            "Received RunspacePoolInitData with min runspaces: %d and "
+            "max runspaces: %d" % (msg.min_runspaces, msg.max_runspaces)
+        )
+        self._min_runspaces = msg.min_runspaces
+        self._max_runspaces = msg.max_runspaces
+
+    def _process_runspacepool_availability(
+        self,
+        message: Message,
+    ) -> ComplexObject:
+        msg = typing.cast(RunspaceAvailability, message.data)
+
+        ci = msg.ci
+        response = msg.response
         ci_handler = self.ci_table[ci]
         response = ci_handler(response)
         self.ci_table[ci] = response
         return response
 
-    def _process_runspacepool_host_call(self, message):
+    def _process_runspacepool_host_call(
+        self,
+        message: Message,
+    ) -> ComplexObject:
         return self._process_host_call(message, RunspacePoolHostResponse)
 
-    def _process_runspacepool_state(self, message):
-        log.debug("Received RunspacePoolState with state: %d"
-                  % message.data.state)
-        self.state = message.data.state
-        if self.state == RunspacePoolState.BROKEN:
-            raise InvalidPSRPOperation(
-                "Received a broken RunspacePoolState message: %s"
-                % str(message.data.error_record)
-            )
-        return message.data
+    def _process_runspacepool_state(
+        self,
+        message: Message,
+    ) -> ComplexObject:
+        state_msg = typing.cast(RunspacePoolStateMessage, message.data)
 
-    def _process_runspacepool_warning(self, message):
+        log.debug("Received RunspacePoolState with state: %d" % state_msg.state)
+        self.state = state_msg.state
+        if self.state == RunspacePoolState.BROKEN:
+            raise InvalidPSRPOperation("Received a broken RunspacePoolState message: %s" % str(state_msg.error_record))
+        return state_msg
+
+    def _process_runspacepool_warning(
+        self,
+        message: Message,
+    ) -> None:
         warnings.warn(str(message.data), RunspacePoolWarning)
 
-    def _process_application_private_data(self, message):
-        self._application_private_data = message.data
+    def _process_application_private_data(
+        self,
+        message: Message,
+    ) -> None:
+        self._application_private_data = typing.cast(ApplicationPrivateData, message.data)
 
-    def _process_encrypted_session_key(self, message):
+    def _process_encrypted_session_key(
+        self,
+        message: Message,
+    ) -> None:
+        key_msg = typing.cast(EncryptedSessionKey, message.data)
+
         log.debug("Received EncryptedSessionKey response")
-        enc_sess_key = base64.b64decode(message.data.session_key)
+        enc_sess_key = base64.b64decode(key_msg.session_key)
 
         # strip off Win32 Crypto Blob Header and reverse the bytes
         encrypted_key = enc_sess_key[12:][::-1]
         pad_method = padding.PKCS1v15()
-        decrypted_key = self._exchange_key.decrypt(encrypted_key, pad_method)
+        decrypted_key = self._exchange_key.decrypt(encrypted_key, pad_method)  # type: ignore[union-attr] # Will be set
 
         iv = b"\x00" * 16  # PSRP doesn't use an IV
         algorithm = algorithms.AES(decrypted_key)
@@ -778,13 +867,19 @@ class RunspacePool(object):
         self._key_exchanged = True
         self._exchange_key = None
 
-    def _process_user_event(self, message):
-        self.user_events.append(message.data)
+    def _process_user_event(
+        self,
+        message: Message,
+    ) -> None:
+        user_event = typing.cast(UserEvent, message.data)
+        self.user_events.append(user_event)
 
 
 class PowerShell(object):
-
-    def __init__(self, runspace_pool):
+    def __init__(
+        self,
+        runspace_pool: RunspacePool,
+    ) -> None:
         """
         Represents a PowerShell command or script to execute against a
         RunspacePool.
@@ -799,23 +894,25 @@ class PowerShell(object):
         self.runspace_pool = runspace_pool
         self.state = PSInvocationState.NOT_STARTED
 
-        self.commands = []
-        self._current_command = None
+        self.commands: typing.List[Command] = []
         self.had_errors = False
         self.history_string = None
         self.id = str(uuid.uuid4()).upper()
         self.is_nested = False
         self.streams = PSDataStreams()
-        self.output = []
+        self.output: typing.List = []
         self._from_disconnect = False
 
         # this is not necessarily the same ID as id, this relates to the WSMan
         # CommandID that is created and we need to reference in the WSMan msgs
-        self._command_id = None
+        self._command_id: typing.Optional[str] = None
 
         runspace_pool.pipelines[self.id] = self
 
-    def add_argument(self, value):
+    def add_argument(
+        self,
+        value: typing.Any,
+    ) -> "PowerShell":
         """
         Adds an argument to the last added command.
 
@@ -826,10 +923,13 @@ class PowerShell(object):
             last added Command
         """
         command_parameter = CommandParameter(value=value)
-        self._current_command.args.append(command_parameter)
+        self.commands[-1].args.append(command_parameter)
         return self
 
-    def add_command(self, command):
+    def add_command(
+        self,
+        command: Command,
+    ) -> "PowerShell":
         """
         Add a Command object to the current command pipeline.
 
@@ -837,10 +937,13 @@ class PowerShell(object):
         :return: The current PowerShell object with the Command added
         """
         self.commands.append(command)
-        self._current_command = command
         return self
 
-    def add_cmdlet(self, cmdlet, use_local_scope=None):
+    def add_cmdlet(
+        self,
+        cmdlet: str,
+        use_local_scope: typing.Optional[bool] = None,
+    ) -> "PowerShell":
         """
         Add a cmdlet/command to the current command pipeline. This is similar
         to add_command but it takes in a string and constructs the Command
@@ -852,15 +955,20 @@ class PowerShell(object):
         :param use_local_scope: Run the cmdlet under the local scope
         :return: The current PowerShell object with the cmdlet added
         """
-        command = Command(cmdlet,
-                          protocol_version=self.runspace_pool.protocol_version,
-                          is_script=False,
-                          use_local_scope=use_local_scope)
+        command = Command(
+            cmdlet,
+            protocol_version=self.runspace_pool.protocol_version or "",
+            is_script=False,
+            use_local_scope=use_local_scope,
+        )
         self.commands.append(command)
-        self._current_command = command
         return self
 
-    def add_parameter(self, parameter_name, value=None):
+    def add_parameter(
+        self,
+        parameter_name: str,
+        value: typing.Any = None,
+    ) -> "PowerShell":
         """
         Add a parameter to the last added command. For example to construct a
         command string "get-service -name service-name"
@@ -875,10 +983,13 @@ class PowerShell(object):
         :return: the current PowerShell instance with the parameter added
         """
         command_parameter = CommandParameter(name=parameter_name, value=value)
-        self._current_command.args.append(command_parameter)
+        self.commands[-1].args.append(command_parameter)
         return self
 
-    def add_parameters(self, parameters):
+    def add_parameters(
+        self,
+        parameters: typing.Dict[str, typing.Any],
+    ) -> "PowerShell":
         """
         Adds a set of parameters to the last added command.
 
@@ -891,7 +1002,11 @@ class PowerShell(object):
             self.add_parameter(parameter_name, value)
         return self
 
-    def add_script(self, script, use_local_scope=None):
+    def add_script(
+        self,
+        script: str,
+        use_local_scope: typing.Optional[bool] = None,
+    ) -> "PowerShell":
         """
         Add a piece of script to construct a command pipeline.
 
@@ -899,14 +1014,16 @@ class PowerShell(object):
         :param use_local_scope: Run the script under the local scope
         :return: the current PowerShell instance with the command added
         """
-        command = Command(script, protocol_version=self.runspace_pool.protocol_version,
-                          is_script=True,
-                          use_local_scope=use_local_scope)
+        command = Command(
+            script,
+            protocol_version=self.runspace_pool.protocol_version or "",
+            is_script=True,
+            use_local_scope=use_local_scope,
+        )
         self.commands.append(command)
-        self._current_command = command
         return self
 
-    def add_statement(self):
+    def add_statement(self) -> "PowerShell":
         """
         Set's the last command in the pipeline to be the last in that
         statement/pipeline so the next command is in a new statement.
@@ -914,16 +1031,14 @@ class PowerShell(object):
         :return: The current PowerShell instance with the last command set
             as the last one in that statement
         """
-        self._current_command.end_of_statement = True
-        self._current_command = None
+        self.commands[-1].end_of_statement = True
         return self
 
-    def clear_commands(self):
+    def clear_commands(self) -> "PowerShell":
         """
         Clears all the commands of the current PowerShell object.
         :return: The current PowerShell instance with all the commands cleared
         """
-        self._current_command = None
         self.commands = []
         return self
 
@@ -945,16 +1060,14 @@ class PowerShell(object):
         """
         if self.state != PSInvocationState.DISCONNECTED:
             raise InvalidPipelineStateError(
-                self.state, PSInvocationState.DISCONNECTED,
-                "connect to a disconnected pipeline"
+                self.state, PSInvocationState.DISCONNECTED, "connect to a disconnected pipeline"
             )
-        rsp = NAMESPACES['rsp']
+        rsp = NAMESPACES["rsp"]
 
         connect = ET.Element("{%s}Connect" % rsp, CommandId=self.id)
 
         self.runspace_pool.connection.connect(
-            self.runspace_pool.shell.resource_uri, connect,
-            selector_set=self.runspace_pool.shell._selector_set
+            self.runspace_pool.shell.resource_uri, connect, selector_set=self.runspace_pool.shell._selector_set
         )
         self.state = PSInvocationState.RUNNING
         self._from_disconnect = True
@@ -974,22 +1087,27 @@ class PowerShell(object):
         """
         if self.state != PSInvocationState.RUNNING:
             raise InvalidPipelineStateError(
-                self.state, PSInvocationState.RUNNING,
-                "create a nested PowerShell pipeline"
+                self.state, PSInvocationState.RUNNING, "create a nested PowerShell pipeline"
             )
         elif self._from_disconnect:
-            raise InvalidPSRPOperation("Cannot created a nested PowerShell "
-                                       "pipeline from an existing pipeline "
-                                       "that was connected to remotely")
+            raise InvalidPSRPOperation(
+                "Cannot created a nested PowerShell "
+                "pipeline from an existing pipeline "
+                "that was connected to remotely"
+            )
 
         ps = PowerShell(self.runspace_pool)
         ps.is_nested = True
         return ps
 
     def begin_invoke(
-            self, input=None, add_to_history=False, apartment_state=None,
-            redirect_shell_error_to_out=False,
-            remote_stream_options=RemoteStreamOptions.ADD_INVOCATION_INFO):
+        self,
+        input: typing.Optional[typing.Union[bytes, typing.Iterator]] = None,
+        add_to_history: bool = False,
+        apartment_state: typing.Optional[int] = None,
+        redirect_shell_error_to_out: bool = False,
+        remote_stream_options: typing.Optional[int] = RemoteStreamOptions.ADD_INVOCATION_INFO,
+    ) -> None:
         """
         Invoke the command asynchronously, use end_invoke to get the output
         collection of return objects.
@@ -1007,14 +1125,10 @@ class PowerShell(object):
         """
         log.info("Beginning remote Pipeline invocation")
         if self.state != PSInvocationState.NOT_STARTED:
-            raise InvalidPipelineStateError(
-                self.state, PSInvocationState.NOT_STARTED,
-                "start a PowerShell pipeline"
-            )
+            raise InvalidPipelineStateError(self.state, PSInvocationState.NOT_STARTED, "start a PowerShell pipeline")
 
         if len(self.commands) == 0:
-            raise InvalidPSRPOperation("Cannot invoke PowerShell without any "
-                                       "commands being set")
+            raise InvalidPSRPOperation("Cannot invoke PowerShell without any commands being set")
 
         no_input = input is None or not input
         apartment_state = apartment_state or self.runspace_pool.apartment_state
@@ -1024,21 +1138,27 @@ class PowerShell(object):
             is_nested=self.is_nested,
             cmds=self.commands,
             history=self.history_string,
-            redirect_err_to_out=redirect_shell_error_to_out
+            redirect_err_to_out=redirect_shell_error_to_out,
         )
         create_pipeline = CreatePipeline(
-            no_input, ApartmentState(value=apartment_state),
-            RemoteStreamOptions(value=remote_stream_options), add_to_history,
-            host_info, pipeline, self.is_nested
+            no_input,
+            ApartmentState(value=apartment_state),
+            RemoteStreamOptions(value=remote_stream_options),
+            add_to_history,
+            host_info,
+            pipeline,
+            self.is_nested,
         )
         self._invoke(create_pipeline)
 
         # finally send the input if any was specified
         if input is not None:
             if not isinstance(input, types.GeneratorType):
-                def input_gen(i):
+
+                def input_gen(i: bytes) -> typing.Iterator[bytes]:
                     yield i
-                input = input_gen(input)
+
+                input = input_gen(input)  # type: ignore[arg-type]
 
             log.info("Sending input to remote Pipeline")
             next_input = next(input)
@@ -1046,7 +1166,7 @@ class PowerShell(object):
                 if not isinstance(next_input, list):
                     next_input = [next_input]
 
-                input_msgs = [PipelineInput(data=d) for d in next_input]
+                input_msgs: typing.List[ComplexObject] = [PipelineInput(data=d) for d in next_input]
 
                 try:
                     next_input = next(input)
@@ -1054,15 +1174,12 @@ class PowerShell(object):
                     input_msgs.append(EndOfPipelineInput())
                     next_input = None
 
-                fragments = self.runspace_pool._fragmenter.fragment_multiple(
-                    input_msgs, self.runspace_pool.id, self.id
-                )
+                fragments = self.runspace_pool._fragmenter.fragment_multiple(input_msgs, self.runspace_pool.id, self.id)
 
                 for fragment in fragments:
-                    self.runspace_pool.shell.send('stdin', fragment,
-                                                  command_id=self._command_id)
+                    self.runspace_pool.shell.send("stdin", fragment, command_id=self._command_id)
 
-    def end_invoke(self):
+    def end_invoke(self) -> typing.List:
         """
         Wait until the asynchronous command has finished executing and return
         the output collection of return objects.
@@ -1074,9 +1191,14 @@ class PowerShell(object):
 
         return self.output
 
-    def invoke(self, input=None, add_to_history=False, apartment_state=None,
-               redirect_shell_error_to_out=False,
-               remote_stream_options=RemoteStreamOptions.ADD_INVOCATION_INFO):
+    def invoke(
+        self,
+        input: typing.Optional[typing.Union[bytes, typing.Iterator]] = None,
+        add_to_history: bool = False,
+        apartment_state: typing.Optional[int] = None,
+        redirect_shell_error_to_out: bool = False,
+        remote_stream_options: typing.Optional[int] = RemoteStreamOptions.ADD_INVOCATION_INFO,
+    ) -> typing.List:
         """
         Invoke the command and return the output collection of return objects.
 
@@ -1092,11 +1214,13 @@ class PowerShell(object):
             values. Will default to returning the invocation info on all
         :return: A list of output objects
         """
-        self.begin_invoke(input, add_to_history, apartment_state,
-                          redirect_shell_error_to_out, remote_stream_options)
+        self.begin_invoke(input, add_to_history, apartment_state, redirect_shell_error_to_out, remote_stream_options)
         return self.end_invoke()
 
-    def merge_previous(self, enabled=False):
+    def merge_previous(
+        self,
+        enabled: bool = False,
+    ) -> "PowerShell":
         """
         Sets the MergePreviousResults of the last command in the pipeline.
         This is the same as the MergeUnclaimedPreviousCommandResults property
@@ -1112,10 +1236,13 @@ class PowerShell(object):
         else:
             value = PipelineResultTypes.NONE
         pipeline = PipelineResultTypes(protocol_version_2=True, value=value)
-        self._current_command.merge_previous = pipeline
+        self.commands[-1].merge_previous = pipeline
         return self
 
-    def merge_all(self, to="none"):
+    def merge_all(
+        self,
+        to: str = "none",
+    ) -> "PowerShell":
         """
         Will merge all relevant streams to the stream specified of the last
         command in the pipeline.
@@ -1128,16 +1255,19 @@ class PowerShell(object):
         """
         self.merge_error(to)
 
-        if version_equal_or_newer(self.runspace_pool.protocol_version, "2.2"):
+        if version_equal_or_newer(self.runspace_pool.protocol_version or "", "2.2"):
             self.merge_debug(to)
             self.merge_verbose(to)
             self.merge_warning(to)
 
-        if version_equal_or_newer(self.runspace_pool.protocol_version, "2.3"):
+        if version_equal_or_newer(self.runspace_pool.protocol_version or "", "2.3"):
             self.merge_information(to)
         return self
 
-    def merge_error(self, to="none"):
+    def merge_error(
+        self,
+        to: str = "none",
+    ) -> "PowerShell":
         """
         Controls where the Error stream of the last command in the pipeline
         will be sent to.
@@ -1152,15 +1282,17 @@ class PowerShell(object):
 
         # For V2 backwards compatibility
         if to == "none":
-            my_result = self._current_command.merge_error
+            my_result = self.commands[-1].merge_error
         else:
             my_result = PipelineResultTypes(value=PipelineResultTypes.ERROR)
-        self._current_command.merge_my_result = my_result
-        self._current_command.merge_to_result = \
-            self._current_command.merge_error
+        self.commands[-1].merge_my_result = my_result
+        self.commands[-1].merge_to_result = self.commands[-1].merge_error
         return self
 
-    def merge_warning(self, to="none"):
+    def merge_warning(
+        self,
+        to: str = "none",
+    ) -> "PowerShell":
         """
         Controls where the Warning stream of the last command in the pipeline
         will be sent to. This will throw an InvalidPSRPOperation error if the
@@ -1176,7 +1308,10 @@ class PowerShell(object):
         self._set_merge_to("merge_warning", to, None, "2.2")
         return self
 
-    def merge_verbose(self, to="none"):
+    def merge_verbose(
+        self,
+        to: str = "none",
+    ) -> "PowerShell":
         """
         Controls where the Verbose stream of the last command in the pipeline
         will be sent to. This will throw an InvalidPSRPOperation error if the
@@ -1192,7 +1327,10 @@ class PowerShell(object):
         self._set_merge_to("merge_verbose", to, None, "2.2")
         return self
 
-    def merge_debug(self, to="none"):
+    def merge_debug(
+        self,
+        to: str = "none",
+    ) -> "PowerShell":
         """
         Controls where the Debug stream of the last command in the pipeline
         will be sent to. This will throw an InvalidPSRPOperation error if the
@@ -1208,7 +1346,10 @@ class PowerShell(object):
         self._set_merge_to("merge_debug", to, None, "2.2")
         return self
 
-    def merge_information(self, to="none"):
+    def merge_information(
+        self,
+        to: str = "none",
+    ) -> "PowerShell":
         """
         Controls where the Information stream of the last command in the
         pipeline will be sent to. This will throw an InvalidPSRPOperation error
@@ -1224,7 +1365,7 @@ class PowerShell(object):
         self._set_merge_to("merge_information", to, None, "2.3")
         return self
 
-    def merge_reset(self):
+    def merge_reset(self) -> "PowerShell":
         """
         Will reset the merge behaviour of all streams back to the default. This
         is done on the last command in the pipeline.
@@ -1236,7 +1377,10 @@ class PowerShell(object):
         self.merge_all("none")
         return self
 
-    def poll_invoke(self, timeout=None):
+    def poll_invoke(
+        self,
+        timeout: typing.Optional[int] = None,
+    ) -> None:
         """
         Poll the running process to update the output streams and the status.
 
@@ -1244,8 +1388,7 @@ class PowerShell(object):
         pipeline.
         """
         try:
-            responses = self.runspace_pool._receive(self.id,
-                                                    timeout=timeout)
+            responses = self.runspace_pool._receive(self.id, timeout=timeout)
         except WSManFaultError as err:
             # operation timeout needs to be ignored and silently tried
             # again
@@ -1258,144 +1401,173 @@ class PowerShell(object):
             if response[0] == MessageType.PIPELINE_OUTPUT:
                 self.output.append(response[1].data.data)
 
-    def stop(self):
+    def stop(self) -> None:
         """
         Stop the currently running command.
         """
         log.info("Stopping remote Pipeline")
-        if self.state in [PSInvocationState.STOPPING,
-                          PSInvocationState.STOPPED]:
+        if self.state in [PSInvocationState.STOPPING, PSInvocationState.STOPPED]:
             return
         elif self.state != PSInvocationState.RUNNING:
-            raise InvalidPipelineStateError(
-                self.state, PSInvocationState.RUNNING,
-                "stop a running pipeline"
-            )
+            raise InvalidPipelineStateError(self.state, PSInvocationState.RUNNING, "stop a running pipeline")
 
         self.state = PSInvocationState.STOPPING
-        self.runspace_pool.shell.signal(SignalCode.PS_CTRL_C,
-                                        str(self.id).upper())
+        self.runspace_pool.shell.signal(SignalCode.PS_CTRL_C, str(self.id).upper())
         self.state = PSInvocationState.STOPPED
         del self.runspace_pool.pipelines[self.id]
 
-    def _invoke(self, msg):
-        fragments = self.runspace_pool._fragmenter.fragment(
-            msg, self.runspace_pool.id, self.id
-        )
+    def _invoke(
+        self,
+        msg: ComplexObject,
+    ) -> None:
+        fragments = self.runspace_pool._fragmenter.fragment(msg, self.runspace_pool.id, self.id)
 
         # send first fragment as Command message
-        first_frag = base64.b64encode(fragments.pop(0)).decode('utf-8')
-        resp = self.runspace_pool.shell.command('', arguments=[first_frag],
-                                                command_id=self.id)
+        first_frag = base64.b64encode(fragments.pop(0)).decode("utf-8")
+        resp = self.runspace_pool.shell.command("", arguments=[first_frag], command_id=self.id)
         cmd_id = resp.find("rsp:CommandResponse/rsp:CommandId", NAMESPACES)
         if cmd_id is not None:
-            self._command_id = cmd_id.text
+            self._command_id = cmd_id.text or ""
         self.state = PSInvocationState.RUNNING
 
         # send the remaining fragments with the Send message
         for fragment in fragments:
-            self.runspace_pool.shell.send('stdin', fragment,
-                                          command_id=self._command_id)
+            self.runspace_pool.shell.send("stdin", fragment, command_id=self._command_id)
 
-    def _set_merge_to(self, merge, to, valid, min_protocol=None):
+    def _set_merge_to(
+        self,
+        merge: str,
+        to: str,
+        valid: typing.Optional[typing.List[str]],
+        min_protocol: typing.Optional[str] = None,
+    ) -> None:
         valid = valid or ["none", "null", "output"]
         if to not in valid:
-            raise InvalidPSRPOperation("Invalid merge to option '%s', valid "
-                                       "values %s" % (to, ", ".join(valid)))
+            raise InvalidPSRPOperation("Invalid merge to option '%s', valid values %s" % (to, ", ".join(valid)))
 
         if min_protocol is not None:
-            if not version_equal_or_newer(self.runspace_pool.protocol_version,
-                                          min_protocol):
-                error_msg = \
-                    "Merge option for '%s' is not supported in the current " \
-                    "protocol version %s, minimum version required %s" % \
-                    (merge, self.runspace_pool.protocol_version, min_protocol)
+            if not version_equal_or_newer(self.runspace_pool.protocol_version or "", min_protocol):
+                error_msg = (
+                    "Merge option for '%s' is not supported in the current "
+                    "protocol version %s, minimum version required %s"
+                    % (merge, self.runspace_pool.protocol_version, min_protocol)
+                )
                 raise InvalidPSRPOperation(error_msg)
 
         to_value = getattr(PipelineResultTypes, to.upper())
         to_result = PipelineResultTypes(value=to_value)
-        setattr(self._current_command, merge, to_result)
+        setattr(self.commands[-1], merge, to_result)
 
-    def _process_error_record(self, message):
-        self.streams.error.append(message.data)
+    def _process_error_record(
+        self,
+        message: Message,
+    ) -> None:
+        self.streams.error.append(typing.cast(ErrorRecordMessage, message.data))
 
-    def _process_pipeline_host_call(self, message):
-        return self.runspace_pool._process_host_call(message,
-                                                     PipelineHostResponse,
-                                                     self)
+    def _process_pipeline_host_call(
+        self,
+        message: Message,
+    ) -> ComplexObject:
+        return self.runspace_pool._process_host_call(message, PipelineHostResponse, self)
 
-    def _process_pipeline_state(self, message):
-        log.debug("Received PipelineState with state: %d" % message.data.state)
-        self.state = message.data.state
-        if message.data.error_record is not None:
-            self.streams.error.append(message.data.error_record)
+    def _process_pipeline_state(
+        self,
+        message: Message,
+    ) -> None:
+        msg_state = typing.cast(PipelineState, message.data)
+
+        log.debug("Received PipelineState with state: %d" % msg_state.state)
+        self.state = msg_state.state
+        if msg_state.error_record is not None:
+            self.streams.error.append(msg_state.error_record)
 
         if self.state == PSInvocationState.FAILED:
             self.had_errors = True
 
-    def _process_debug_record(self, message):
-        self.streams.debug.append(message.data)
+    def _process_debug_record(
+        self,
+        message: Message,
+    ) -> None:
+        self.streams.debug.append(typing.cast(DebugRecord, message.data))
 
-    def _process_verbose_record(self, message):
-        self.streams.verbose.append(message.data)
+    def _process_verbose_record(
+        self,
+        message: Message,
+    ) -> None:
+        self.streams.verbose.append(typing.cast(VerboseRecord, message.data))
 
-    def _process_warning_record(self, message):
-        self.streams.warning.append(message.data)
+    def _process_warning_record(
+        self,
+        message: Message,
+    ) -> None:
+        self.streams.warning.append(typing.cast(WarningRecord, message.data))
 
-    def _process_progress_record(self, message):
-        self.streams.progress.append(message.data)
+    def _process_progress_record(
+        self,
+        message: Message,
+    ) -> None:
+        self.streams.progress.append(typing.cast(ProgressRecord, message.data))
 
-    def _process_information_record(self, message):
-        self.streams.information.append(message.data)
+    def _process_information_record(
+        self,
+        message: Message,
+    ) -> None:
+        self.streams.information.append(typing.cast(InformationRecord, message.data))
 
 
 class PSDataStreams(object):
-
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Streams generated by PowerShell invocations
 
         System.Management.Automation.PSDataStreams
         https://docs.microsoft.com/en-us/dotnet/api/system.management.automation.psdatastreams?view=powershellsdk-1.1.0
         """
-        self.debug = []
-        self.error = []
-        self.information = []
-        self.progress = []
-        self.verbose = []
-        self.warning = []
+        self.debug: typing.List[DebugRecord] = []
+        self.error: typing.List[ErrorRecordMessage] = []
+        self.information: typing.List[InformationRecord] = []
+        self.progress: typing.List[ProgressRecord] = []
+        self.verbose: typing.List[VerboseRecord] = []
+        self.warning: typing.List[WarningRecord] = []
 
 
 class Fragmenter(object):
-
-    def __init__(self, max_size, serializer):
-        self.incoming_buffer = {}
+    def __init__(
+        self,
+        max_size: int,
+        serializer: Serializer,
+    ) -> None:
+        self.incoming_buffer: typing.Dict[int, typing.Dict] = {}
         self.outgoing_counter = 1
         self.max_size = max_size - 21  # take away the fragment header size
         self.serializer = serializer
 
-    def fragment(self, data, rpid, pid=None, remaining_size=None):
+    def fragment(
+        self,
+        data: ComplexObject,
+        rpid: str,
+        pid: typing.Optional[str] = None,
+        remaining_size: typing.Optional[int] = None,
+    ) -> typing.List[bytes]:
         msg = Message(Destination.SERVER, rpid, pid, data, self.serializer)
         msg_data = msg.pack()
         max_size = self.max_size
         start = True
         fragment_id = 0
-        fragments = []
+        fragments: typing.List[bytes] = []
 
         if remaining_size is not None:
             msg_fragment = msg_data[:remaining_size]
-            msg_data = msg_data[len(msg_fragment):]
+            msg_data = msg_data[len(msg_fragment) :]
 
             end = msg_data == b""
-            fragment = Fragment(self.outgoing_counter, fragment_id,
-                                msg_fragment, start, end)
+            fragment = Fragment(self.outgoing_counter, fragment_id, msg_fragment, start, end)
             fragments.append(fragment.pack())
             fragment_id += 1
             start = False
 
         for msg_fragment, end in self._byte_iterator(msg_data, max_size):
-            fragment = Fragment(self.outgoing_counter, fragment_id,
-                                msg_fragment, start, end)
+            fragment = Fragment(self.outgoing_counter, fragment_id, msg_fragment, start, end)
             fragments.append(fragment.pack())
             fragment_id += 1
             start = False
@@ -1403,13 +1575,17 @@ class Fragmenter(object):
         self.outgoing_counter += 1
         return fragments
 
-    def fragment_multiple(self, blocks, rpid, pid=None):
+    def fragment_multiple(
+        self,
+        blocks: typing.List[ComplexObject],
+        rpid: str,
+        pid: typing.Optional[str] = None,
+    ) -> typing.List[bytes]:
         remaining_size = self.max_size
-        fragments = []
+        fragments: typing.List[bytes] = []
 
         for block in blocks:
-            block_fragments = self.fragment(block, rpid, pid,
-                                            remaining_size=remaining_size)
+            block_fragments = self.fragment(block, rpid, pid, remaining_size=remaining_size)
 
             # the first fragment can fit in with the previous block fragment
             # append to the last fragment and remove from the list
@@ -1425,7 +1601,10 @@ class Fragmenter(object):
 
         return fragments
 
-    def defragment(self, data):
+    def defragment(
+        self,
+        data: bytes,
+    ) -> typing.List[Message]:
         fragments = []
         while data != b"":
             frag, data = Fragment.unpack(data)
@@ -1434,45 +1613,53 @@ class Fragmenter(object):
                 incoming_buffer = {"data": b"", "id": 0}
                 self.incoming_buffer[frag.object_id] = incoming_buffer
 
-            if frag.fragment_id != incoming_buffer['id']:
+            if frag.fragment_id != incoming_buffer["id"]:
                 raise FragmentError(
-                    "Fragment Fragment Id: %d != Expected Fragment Id: %d"
-                    % (frag.fragment_id, incoming_buffer['id'])
+                    "Fragment Fragment Id: %d != Expected Fragment Id: %d" % (frag.fragment_id, incoming_buffer["id"])
                 )
 
             if frag.start and frag.end:
                 fragments.append(frag.data)
                 del self.incoming_buffer[frag.object_id]
             elif frag.start:
-                incoming_buffer['data'] = frag.data
-                incoming_buffer['id'] += 1
+                incoming_buffer["data"] = frag.data
+                incoming_buffer["id"] += 1
             elif frag.end:
-                fragments.append(incoming_buffer['data'] + frag.data)
+                fragments.append(incoming_buffer["data"] + frag.data)
                 del self.incoming_buffer[frag.object_id]
             else:
-                incoming_buffer['data'] += frag.data
-                incoming_buffer['id'] += 1
+                incoming_buffer["data"] += frag.data
+                incoming_buffer["id"] += 1
 
-        messages = [Message.unpack(fragment, self.serializer)
-                    for fragment in fragments]
+        messages = [Message.unpack(fragment, self.serializer) for fragment in fragments]
         return messages
 
-    def _byte_iterator(self, data, buffer_size):
+    def _byte_iterator(
+        self,
+        data: bytes,
+        buffer_size: int,
+    ) -> typing.Iterator[typing.Tuple[bytes, bool]]:
         byte_count = len(data)
         for i in range(0, byte_count, buffer_size):
-            yield data[i:i + buffer_size], i + buffer_size >= byte_count
+            yield data[i : i + buffer_size], i + buffer_size >= byte_count
 
 
 class Fragment(object):
-
-    def __init__(self, object_id, fragment_id, data, start=False, end=False):
+    def __init__(
+        self,
+        object_id: int,
+        fragment_id: int,
+        data: bytes,
+        start: bool = False,
+        end: bool = False,
+    ) -> None:
         self.object_id = object_id
         self.fragment_id = fragment_id
         self.start = start
         self.end = end
         self.data = data
 
-    def pack(self):
+    def pack(self) -> bytes:
         start_end_byte = 0
         if self.start:
             start_end_byte |= 0x1
@@ -1488,7 +1675,7 @@ class Fragment(object):
         return data
 
     @staticmethod
-    def unpack(data):
+    def unpack(data: bytes) -> typing.Tuple["Fragment", bytes]:
         object_id = struct.unpack(">Q", data[0:8])[0]
         fragment_id = struct.unpack(">Q", data[8:16])[0]
 
@@ -1497,7 +1684,7 @@ class Fragment(object):
         end = start_end_byte & 0x2 == 0x2
 
         length = struct.unpack(">I", data[17:21])[0]
-        fragment_data = data[21:length + 21]
+        fragment_data = data[21 : length + 21]
 
         fragment = Fragment(object_id, fragment_id, fragment_data, start, end)
-        return fragment, data[21 + length:]
+        return fragment, data[21 + length :]

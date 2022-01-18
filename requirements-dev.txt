@@ -1,6 +1,10 @@
+black
 build
 gssapi ; sys_platform != 'win32'
 krb5 ; sys_platform != 'win32'
+isort
+mypy
+pre-commit
 pycodestyle
 pytest
 pytest-cov
@@ -8,4 +12,7 @@ pytest-mock
 PyYAML
 requests-credssp
 tox
+types-cryptography
+types-requests
+types-PyYAML
 xmldiff

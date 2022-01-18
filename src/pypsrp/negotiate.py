@@ -4,19 +4,20 @@
 import base64
 import logging
 import re
-import spnego
-import spnego.channel_bindings
+import typing
 import warnings
 
+import spnego
+import spnego.channel_bindings
 from cryptography import x509
+from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
-from cryptography.exceptions import UnsupportedAlgorithm
 from requests.auth import AuthBase
 from requests.packages.urllib3.response import HTTPResponse
 
+from pypsrp._utils import get_hostname, to_bytes
 from pypsrp.exceptions import AuthenticationError
-from pypsrp._utils import to_bytes, get_hostname
 
 log = logging.getLogger(__name__)
 
@@ -30,9 +31,17 @@ class UnknownSignatureAlgorithmOID(Warning):
 
 
 class HTTPNegotiateAuth(AuthBase):
-
-    def __init__(self, username=None, password=None, auth_provider='negotiate', send_cbt=True, service='WSMAN',
-                 delegate=False, hostname_override=None, wrap_required=False):
+    def __init__(
+        self,
+        username: typing.Optional[str] = None,
+        password: typing.Optional[str] = None,
+        auth_provider: str = "negotiate",
+        send_cbt: bool = True,
+        service: str = "WSMAN",
+        delegate: bool = False,
+        hostname_override: typing.Optional[str] = None,
+        wrap_required: bool = False,
+    ) -> None:
         """
         Creates a HTTP auth context that uses Microsoft's Negotiate protocol
         to complete the auth process. This currently only supports the NTLM
@@ -69,37 +78,39 @@ class HTTPNegotiateAuth(AuthBase):
         self.delegate = delegate
         self.hostname_override = hostname_override
         self.wrap_required = wrap_required
-        self.contexts = {}
+        self.contexts: typing.Dict[str, typing.Any] = {}
 
-        self._regex = re.compile(r'(Kerberos|Negotiate|NTLM)\s*([^,]*),?', re.I)
+        self._regex = re.compile(r"(Kerberos|Negotiate|NTLM)\s*([^,]*),?", re.I)
 
     def __call__(self, request):
-        request.headers['Connection'] = 'Keep-Alive'
-        request.register_hook('response', self.response_hook)
+        request.headers["Connection"] = "Keep-Alive"
+        request.register_hook("response", self.response_hook)
 
         return request
 
     def response_hook(self, response, **kwargs):
         if response.status_code == 401:
-            matched_provider = self._check_auth_supported(response, ['Negotiate', 'Kerberos', 'NTLM'])
-            kwargs['_pypsrp_auth_provider'] = matched_provider
+            matched_provider = self._check_auth_supported(response, ["Negotiate", "Kerberos", "NTLM"])
+            kwargs["_pypsrp_auth_provider"] = matched_provider
 
             response = self.handle_401(response, **kwargs)
 
         return response
 
     def handle_401(self, response, **kwargs):
-        response_auth_header = kwargs.pop('_pypsrp_auth_provider')
+        response_auth_header = kwargs.pop("_pypsrp_auth_provider")
         response_auth_header_l = response_auth_header.lower()
         auth_provider = self.auth_provider
 
         if response_auth_header_l != self.auth_provider:
-            if self.auth_provider == 'negotiate':
+            if self.auth_provider == "negotiate":
                 auth_provider = response_auth_header_l
 
-            elif response_auth_header_l != 'negotiate':
-                raise ValueError("Server responded with the auth protocol '%s' which is incompatible with the "
-                                 "specified auth_provider '%s'" % (response_auth_header, auth_provider))
+            elif response_auth_header_l != "negotiate":
+                raise ValueError(
+                    "Server responded with the auth protocol '%s' which is incompatible with the "
+                    "specified auth_provider '%s'" % (response_auth_header, auth_provider)
+                )
 
         host = get_hostname(response.url)
         auth_hostname = self.hostname_override or host
@@ -115,9 +126,16 @@ class HTTPNegotiateAuth(AuthBase):
             context_req |= spnego.ContextReq.delegate
 
         spnego_options = spnego.NegotiateOptions.wrapping_winrm if self.wrap_required else 0
-        context = spnego.client(self.username, self.password, hostname=auth_hostname, service=self.service,
-                                channel_bindings=cbt, context_req=context_req, protocol=auth_provider,
-                                options=spnego_options)
+        context = spnego.client(
+            self.username,
+            self.password,
+            hostname=auth_hostname,
+            service=self.service,
+            channel_bindings=cbt,
+            context_req=context_req,
+            protocol=auth_provider,
+            options=spnego_options,
+        )
         self.contexts[host] = context
 
         out_token = context.step()
@@ -147,17 +165,19 @@ class HTTPNegotiateAuth(AuthBase):
             out_token = context.step(in_token)
 
         # This is used by the message encryption to decide the MIME protocol.
-        setattr(context, 'response_auth_header', response_auth_header_l)
+        setattr(context, "response_auth_header", response_auth_header_l)
 
         return response
 
     @staticmethod
     def _check_auth_supported(response, auth_providers):
-        auth_supported = response.headers.get('www-authenticate', '')
+        auth_supported = response.headers.get("www-authenticate", "")
         matched_providers = [p for p in auth_providers if p.upper() in auth_supported.upper()]
         if not matched_providers:
-            raise AuthenticationError("The server did not response with one of the following authentication methods "
-                                      "%s - actual: '%s'" % (", ".join(auth_providers), auth_supported))
+            raise AuthenticationError(
+                "The server did not response with one of the following authentication methods "
+                "%s - actual: '%s'" % (", ".join(auth_providers), auth_supported)
+            )
 
         return matched_providers[0]
 
@@ -165,11 +185,11 @@ class HTTPNegotiateAuth(AuthBase):
     def _set_auth_token(request, token, auth_provider):
         encoded_token = base64.b64encode(token)
         auth_header = to_bytes("%s " % auth_provider) + encoded_token
-        request.headers['Authorization'] = auth_header
+        request.headers["Authorization"] = auth_header
 
     @staticmethod
     def _get_auth_token(response, pattern):
-        auth_header = response.headers.get('www-authenticate', '')
+        auth_header = response.headers.get("www-authenticate", "")
         token_match = pattern.search(auth_header)
 
         if not token_match:
@@ -214,8 +234,10 @@ class HTTPNegotiateAuth(AuthBase):
                     cert_hash = HTTPNegotiateAuth._get_certificate_hash(cert)
                     app_data = b"tls-server-end-point:" + cert_hash
         else:
-            warning = "Requests is running with a non urllib3 backend, cannot retrieve server cert for CBT. Raw " \
-                      "type: %s" % type(response).__name__
+            warning = (
+                "Requests is running with a non urllib3 backend, cannot retrieve server cert for CBT. Raw "
+                "type: %s" % type(response).__name__
+            )
             warnings.warn(warning, NoCertificateRetrievedWarning)
 
         return app_data
@@ -243,12 +265,14 @@ class HTTPNegotiateAuth(AuthBase):
         try:
             hash_algorithm = cert.signature_hash_algorithm
         except UnsupportedAlgorithm as ex:
-            warnings.warn("Failed to get the signature algorithm from the certificate due to: %s" % str(ex),
-                          UnknownSignatureAlgorithmOID)
+            warnings.warn(
+                "Failed to get the signature algorithm from the certificate due to: %s" % str(ex),
+                UnknownSignatureAlgorithmOID,
+            )
 
         # If the cert signature algorithm is unknown, md5, or sha1 then use sha256 otherwise use the signature
         # algorithm of the cert itself.
-        if not hash_algorithm or hash_algorithm.name in ['md5', 'sha1']:
+        if not hash_algorithm or hash_algorithm.name in ["md5", "sha1"]:
             digest = hashes.Hash(hashes.SHA256(), backend)
         else:
             digest = hashes.Hash(hash_algorithm, backend)

@@ -9,23 +9,33 @@ import logging
 import os
 import shutil
 import tempfile
+import types
+import typing
 import warnings
 import xml.etree.ElementTree as ET
 
+from pypsrp._utils import get_pwsh_script, to_bytes, to_unicode
+from pypsrp.complex_objects import ComplexObject
 from pypsrp.exceptions import WinRMError
-from pypsrp.powershell import DEFAULT_CONFIGURATION_NAME, PowerShell, RunspacePool
+from pypsrp.powershell import (
+    DEFAULT_CONFIGURATION_NAME,
+    PowerShell,
+    PSDataStreams,
+    RunspacePool,
+)
 from pypsrp.serializer import Serializer
 from pypsrp.shell import Process, SignalCode, WinRS
 from pypsrp.wsman import WSMan
-from pypsrp._utils import get_pwsh_script, to_bytes, to_unicode
-
 
 log = logging.getLogger(__name__)
 
 
 class Client(object):
-
-    def __init__(self, server, **kwargs):
+    def __init__(
+        self,
+        server: str,
+        **kwargs: typing.Any,
+    ) -> None:
         """
         Creates a client object used to do the following
             spawn new cmd command/process
@@ -45,14 +55,24 @@ class Client(object):
         """
         self.wsman = WSMan(server, **kwargs)
 
-    def __enter__(self):
+    def __enter__(self) -> "Client":
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(
+        self,
+        exc_type: typing.Optional[typing.Type[BaseException]],
+        value: typing.Optional[BaseException],
+        traceback: typing.Optional[types.TracebackType],
+    ) -> None:
         self.close()
 
-    def copy(self, src, dest, configuration_name=DEFAULT_CONFIGURATION_NAME,
-             expand_variables=False):
+    def copy(
+        self,
+        src: str,
+        dest: str,
+        configuration_name: str = DEFAULT_CONFIGURATION_NAME,
+        expand_variables: bool = False,
+    ) -> str:
         """
         Copies a single file from the current host to the remote Windows host.
         This can be quite slow when it comes to large files due to the
@@ -73,14 +93,13 @@ class Client(object):
         :return: The absolute path of the file on the Windows host
         """
 
-        def read_buffer(b_path, total_size, buffer_size):
+        def read_buffer(b_path: bytes, total_size: int, buffer_size: int) -> typing.Iterator:
             offset = 0
             sha1 = hashlib.sha1()
 
-            with open(b_path, 'rb') as src_file:
+            with open(b_path, "rb") as src_file:
                 for data in iter((lambda: src_file.read(buffer_size)), b""):
-                    log.debug("Reading data of file at offset=%d with size=%d"
-                              % (offset, buffer_size))
+                    log.debug("Reading data of file at offset=%d with size=%d" % (offset, buffer_size))
                     offset += len(data)
                     sha1.update(data)
                     b64_data = base64.b64encode(data)
@@ -93,14 +112,13 @@ class Client(object):
 
                 # the file was empty, return empty buffer
                 if offset == 0:
-                    yield [u"", to_unicode(base64.b64encode(to_bytes(sha1.hexdigest())))]
+                    yield ["", to_unicode(base64.b64encode(to_bytes(sha1.hexdigest())))]
 
         if expand_variables:
             src = os.path.expanduser(os.path.expandvars(src))
         b_src = to_bytes(src)
         src_size = os.path.getsize(b_src)
-        log.info("Copying '%s' to '%s' with a total size of %d"
-                 % (src, dest, src_size))
+        log.info("Copying '%s' to '%s' with a total size of %d" % (src, dest, src_size))
 
         with RunspacePool(self.wsman, configuration_name=configuration_name) as pool:
             # Get the buffer size of each fragment to send, subtract. Adjust to size of the base64 encoded bytes. Also
@@ -110,12 +128,10 @@ class Client(object):
             log.info("Creating file reader with a buffer size of %d" % buffer_size)
             read_gen = read_buffer(b_src, src_size, buffer_size)
 
-            command = get_pwsh_script('copy.ps1')
+            command = get_pwsh_script("copy.ps1")
             log.debug("Starting to send file data to remote process")
             powershell = PowerShell(pool)
-            powershell.add_script(command) \
-                .add_argument(dest) \
-                .add_argument(expand_variables)
+            powershell.add_script(command).add_argument(dest).add_argument(expand_variables)
             powershell.invoke(input=read_gen)
             _handle_powershell_error(powershell, "Failed to copy file")
 
@@ -127,7 +143,12 @@ class Client(object):
         log.info("Completed file transfer of '%s' to '%s'" % (src, output_file))
         return output_file
 
-    def execute_cmd(self, command, encoding='437', environment=None):
+    def execute_cmd(
+        self,
+        command: str,
+        encoding: str = "437",
+        environment: typing.Optional[typing.Dict[str, str]] = None,
+    ) -> typing.Tuple[str, str, int]:
         """
         Executes a command in a cmd shell and returns the stdout/stderr/rc of
         that process. This uses the raw WinRS layer and can be used to execute
@@ -155,11 +176,15 @@ class Client(object):
             process.invoke()
             process.signal(SignalCode.CTRL_C)
 
-        return to_unicode(process.stdout, encoding), \
-            to_unicode(process.stderr, encoding), process.rc
+        rc = process.rc if process.rc is not None else -1
+        return to_unicode(process.stdout, encoding), to_unicode(process.stderr, encoding), rc
 
-    def execute_ps(self, script, configuration_name=DEFAULT_CONFIGURATION_NAME,
-                   environment=None):
+    def execute_ps(
+        self,
+        script: str,
+        configuration_name: str = DEFAULT_CONFIGURATION_NAME,
+        environment: typing.Optional[typing.Dict[str, str]] = None,
+    ) -> typing.Tuple[str, PSDataStreams, bool]:
         """
         Executes a PowerShell script in a PowerShell runspace pool. This uses
         the PSRP layer and is designed to run a PowerShell script and not a
@@ -191,28 +216,30 @@ class Client(object):
                 for env_key, env_value in environment.items():
                     # Done like this for easier testing, preserves the param order
                     log.debug("Setting env var '%s' on PS script execution" % env_key)
-                    powershell.add_cmdlet('New-Item'). \
-                        add_parameter('Path', 'env:'). \
-                        add_parameter('Name', env_key). \
-                        add_parameter('Value', env_value). \
-                        add_parameter('Force', True). \
-                        add_cmdlet('Out-Null').add_statement()
+                    powershell.add_cmdlet("New-Item").add_parameter("Path", "env:").add_parameter(
+                        "Name", env_key
+                    ).add_parameter("Value", env_value).add_parameter("Force", True).add_cmdlet(
+                        "Out-Null"
+                    ).add_statement()
 
             # so the client executes a powershell script and doesn't need to
             # deal with complex PS objects, we run the script in
             # Invoke-Expression and convert the output to a string
             # if a user wants to get the raw complex objects then they should
             # use RunspacePool and PowerShell directly
-            powershell.add_cmdlet("Invoke-Expression").add_parameter("Command",
-                                                                     script)
+            powershell.add_cmdlet("Invoke-Expression").add_parameter("Command", script)
             powershell.add_cmdlet("Out-String").add_parameter("Stream")
             powershell.invoke()
 
-        return "\n".join(powershell.output), powershell.streams, \
-               powershell.had_errors
+        return "\n".join(powershell.output), powershell.streams, powershell.had_errors
 
-    def fetch(self, src, dest, configuration_name=DEFAULT_CONFIGURATION_NAME,
-              expand_variables=False):
+    def fetch(
+        self,
+        src: str,
+        dest: str,
+        configuration_name: str = DEFAULT_CONFIGURATION_NAME,
+        expand_variables: bool = False,
+    ) -> None:
         """
         Will fetch a single file from the remote Windows host and create a
         local copy. Like copy(), this can be slow when it comes to fetching
@@ -233,11 +260,9 @@ class Client(object):
         log.info("Fetching '%s' to '%s'" % (src, dest))
 
         with RunspacePool(self.wsman, configuration_name=configuration_name) as pool:
-            script = get_pwsh_script('fetch.ps1')
+            script = get_pwsh_script("fetch.ps1")
             powershell = PowerShell(pool)
-            powershell.add_script(script) \
-                .add_argument(src) \
-                .add_argument(expand_variables)
+            powershell.add_script(script).add_argument(src).add_argument(expand_variables)
 
             log.debug("Starting remote process to output file data")
             powershell.invoke()
@@ -255,22 +280,22 @@ class Client(object):
                 sha1.update(file_bytes)
                 actual_hash = sha1.hexdigest()
 
-                log.debug("Remote Hash: %s, Local Hash: %s"
-                          % (expected_hash, actual_hash))
+                log.debug("Remote Hash: %s, Local Hash: %s" % (expected_hash, actual_hash))
                 if actual_hash != expected_hash:
-                    raise WinRMError("Failed to fetch file %s, hash mismatch\n"
-                                     "Source: %s\nFetched: %s"
-                                     % (src, expected_hash, actual_hash))
+                    raise WinRMError(
+                        "Failed to fetch file %s, hash mismatch\n"
+                        "Source: %s\nFetched: %s" % (src, expected_hash, actual_hash)
+                    )
                 shutil.copy(path, dest)
             finally:
                 os.close(temp_file)
                 os.remove(path)
 
-    def close(self):
+    def close(self) -> None:
         self.wsman.close()
 
     @staticmethod
-    def sanitise_clixml(clixml):
+    def sanitise_clixml(clixml: str) -> str:
         """
         When running a powershell script in execute_cmd (WinRS), the stderr
         stream may contain some clixml. This method will clear it up and
@@ -284,20 +309,20 @@ class Client(object):
         output = to_unicode(clixml)
         if output.startswith("#< CLIXML"):
             # Strip off the '#< CLIXML\r\n' by finding the 2nd index of '<'
-            output = output[clixml.index('<', 2):]
+            output = output[clixml.index("<", 2) :]
             element = ET.fromstring(output)
             namespace = element.tag.replace("Objs", "")[1:-1]
 
-            errors = []
+            errors: typing.List[str] = []
             for error in element.findall("{%s}S[@S='Error']" % namespace):
-                errors.append(error.text)
+                errors.append(error.text or "")
 
-            output = Serializer()._deserialize_string(u"".join(errors))
+            output = Serializer()._deserialize_string("".join(errors))
 
         return output
 
 
-def _handle_powershell_error(powershell, message):
+def _handle_powershell_error(powershell: PowerShell, message: str) -> None:
     if message and powershell.had_errors:
         errors = powershell.streams.error
         error = "\n".join([str(err) for err in errors])
