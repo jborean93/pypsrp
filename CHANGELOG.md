@@ -1,6 +1,6 @@
 # Changelog
 
-## FUTURE - TBD
+## 0.8.0 - TBD
 
 * The `CommandParameter` class now uses named keyword arguments
 * The `cmd` parameter for `Command` class is now a positional argument
