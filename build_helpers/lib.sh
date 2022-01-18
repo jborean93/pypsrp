@@ -62,10 +62,25 @@ lib::setup::python_requirements() {
         echo "::group::Installing Python Requirements"
     fi
 
-    python -m pip install --upgrade pip poetry
+    python -m pip install --upgrade pip setuptools wheel
 
     echo "Installing pypsrp"
-    poetry install -E kerberos -E credssp
+    if [ "$(expr substr $(uname -s) 1 5)" == "MINGW" ]; then
+        DIST_LINK_PATH="$( echo "${PWD}/dist" | sed -e 's/^\///' -e 's/\//\\/g' -e 's/^./\0:/' )"
+    else
+        DIST_LINK_PATH="${PWD}/dist"
+    fi
+
+    python -m pip install pypsrp \
+        --no-index \
+        --find-links "file://${DIST_LINK_PATH}" \
+        --no-build-isolation \
+        --no-dependencies \
+        --verbose
+    python -m pip install pypsrp[credssp,kerberos]
+
+    echo "Installing dev dependencies"
+    python -m pip install -r requirements-dev.txt
 
     if [ x"${GITHUB_ACTIONS}" = "xtrue" ]; then
         echo "::endgroup::"
@@ -77,8 +92,8 @@ lib::sanity::run() {
         echo "::group::Running Sanity Checks"
     fi
 
-    poetry run python -m pycodestyle \
-        pypsrp \
+    python -m pycodestyle \
+        src/pypsrp \
         --verbose \
         --show-source \
         --statistics \
@@ -98,10 +113,10 @@ lib::tests::run() {
     # This will flush out this error so the tests run without complications.
     # Illegal operation attempted on a registry key that has been marked for deletion.
     if [ -n "${PYPSRP_SERVER+set}" ]; then
-        poetry run python ./build_helpers/check-winrm.py
+        PYTHONPATH=src python ./build_helpers/check-winrm.py
     fi
 
-    poetry run python -m pytest \
+    python -m pytest \
         --verbose \
         --junitxml junit/test-results.xml \
         --cov pypsrp \

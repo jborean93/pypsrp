@@ -1,0 +1,8 @@
+include CHANGELOG.md
+include requirements-dev.txt
+exclude .coverage
+exclude .gitignore
+exclude .pre-commit-config.yaml
+recursive-include build_helpers *
+recursive-include tests *
+recursive-exclude tests *.pyc

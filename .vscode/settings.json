@@ -1,12 +1,19 @@
 {
     "editor.formatOnSave": true,
+    "editor.rulers": [
+        80,
+        120
+    ],
     "files.trimTrailingWhitespace": true,
     "editor.trimAutoWhitespace": true,
+    "python.analysis.extraPaths": [
+        "src",
+    ],
+    "python.formatting.provider": "none",
     "python.testing.pytestArgs": [
         "tests",
         "-vv"
     ],
     "python.testing.unittestEnabled": false,
-    "python.testing.nosetestsEnabled": false,
     "python.testing.pytestEnabled": true,
 }
