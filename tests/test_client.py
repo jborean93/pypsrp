@@ -95,7 +95,7 @@ class TestClient(object):
             os.remove(path)
 
         # verify the returned object is the full path
-        assert actual == u"C:\\Users\\vagrant\\Documents\\test_file"
+        assert actual == "C:\\Users\\vagrant\\Documents\\test_file"
 
     @pytest.mark.parametrize("wsman_conn", [[True, "test_client_copy_file_failure"]], indirect=True)
     def test_client_copy_file_failure(self, wsman_conn, monkeypatch, mocker):
@@ -183,12 +183,12 @@ class TestClient(object):
         actual = client.execute_cmd("dir")
         actual_args = client.execute_cmd("echo abc")
 
-        assert u"Volume in drive C" in actual[0]
-        assert actual[1] == u""
+        assert "Volume in drive C" in actual[0]
+        assert actual[1] == ""
         assert actual[2] == 0
 
-        assert actual_args[0] == u"abc\r\n"
-        assert actual_args[1] == u""
+        assert actual_args[0] == "abc\r\n"
+        assert actual_args[1] == ""
         assert actual_args[2] == 0
 
     @pytest.mark.parametrize("wsman_conn", [[True, "test_client_execute_cmd_environment"]], indirect=True)
@@ -217,11 +217,11 @@ class TestClient(object):
         client = self._get_client(wsman_conn)
 
         expected_stdout = (
-            u"winrm\nRunning\n\nStatus   Name               "
-            u"DisplayName                           \n------"
-            u"   ----               -----------             "
-            u"              \nRunning  winrm              Wi"
-            u"ndows Remote Management (WS-Manag...\n\n"
+            "winrm\nRunning\n\nStatus   Name               "
+            "DisplayName                           \n------"
+            "   ----               -----------             "
+            "              \nRunning  winrm              Wi"
+            "ndows Remote Management (WS-Manag...\n\n"
         )
         actual = client.execute_ps("$serv = Get-Service -Name winrm; $serv.Name; $serv.Status; $serv")
         assert actual[0] == expected_stdout
@@ -256,7 +256,7 @@ class TestClient(object):
 
         actual = client.execute_ps("Get-ServiceTypo -Name winrm")
 
-        assert actual[0] == u""
+        assert actual[0] == ""
         assert len(actual[1].error) == 1
         assert (
             str(actual[1].error[0]) == "The term 'Get-ServiceTypo' is not recognized as the name of a "

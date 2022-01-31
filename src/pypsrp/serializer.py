@@ -62,7 +62,7 @@ class Serializer(object):
         self.cipher: typing.Any = None
         # Finds C0, C1 and surrogate pairs in a unicode string for us to
         # encode according to the PSRP rules
-        self._serial_str = re.compile(u"[\u0000-\u001F" u"\u007F-\u009F" u"\U00010000-\U0010FFFF]")
+        self._serial_str = re.compile("[\u0000-\u001F\u007F-\u009F\U00010000-\U0010FFFF]")
 
         # to support surrogate UTF-16 pairs we need to use a UTF-16 regex
         # so we can replace the UTF-16 string representation with the actual
@@ -574,7 +574,7 @@ class Serializer(object):
             hex_char = to_unicode(binascii.hexlify(byte_char)).upper()
             hex_split = [hex_char[i : i + 4] for i in range(0, len(hex_char), 4)]
 
-            return u"".join([u"_x%s_" % i for i in hex_split])
+            return "".join(["_x%s_" % i for i in hex_split])
 
         # before running the translation we need to make sure _ before x is
         # encoded, normally _ isn't encoded except when preceding x
@@ -582,7 +582,7 @@ class Serializer(object):
 
         # The MS-PSRP docs don't state this but the _x0000_ matcher is case insensitive so we need to make sure we
         # escape _X as well as _x.
-        string_value = re.sub(u"(?i)_(x)", u"_x005F_\\1", string_value)
+        string_value = re.sub("(?i)_(x)", "_x005F_\\1", string_value)
         string_value = re.sub(self._serial_str, rplcr, string_value)
 
         return string_value

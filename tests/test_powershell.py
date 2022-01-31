@@ -485,7 +485,7 @@ class TestPSRPScenarios(object):
             ps = PowerShell(pool)
 
             # Test out Secure Strings
-            sec_string = pool.serialize(u"Hello World", ObjectMeta("SS"))
+            sec_string = pool.serialize("Hello World", ObjectMeta("SS"))
             ps.add_cmdlet("Set-Variable")
             ps.add_parameter("Name", "sec_string")
             ps.add_parameter("Value", sec_string)
@@ -501,7 +501,7 @@ class TestPSRPScenarios(object):
             ps.add_parameter("Force")
 
             # Test out Unicode and complex info
-            string_value = u"こんにちは - actual_x000A_string\nnewline: %s" % b"\xD8\x01\xDC\x37".decode("utf-16-be")
+            string_value = "こんにちは - actual_x000A_string\nnewline: %s" % b"\xD8\x01\xDC\x37".decode("utf-16-be")
             ps.add_statement().add_cmdlet("Set-Variable")
             ps.add_parameter("Name", "unicode_string")
             ps.add_parameter("Value", string_value)
@@ -531,10 +531,10 @@ class TestPSRPScenarios(object):
         pool.close()
 
         assert len(output) == 7
-        assert output[0] == u"Hello World"
-        assert output[1] == u"abc"
+        assert output[0] == "Hello World"
+        assert output[1] == "abc"
         assert output[2] == string_value
-        assert output[3] == u'hi"'
+        assert output[3] == 'hi"'
         # this result differs on whether this is mocked or not
         if type(wsman_conn.transport).__name__ == "TransportFake":
             assert output[4] == "win-nnmu24vvkj0\\vagrant"
@@ -587,9 +587,9 @@ end {
             assert len(actual) == 4
             assert str(actual[0]) == "error"
             assert isinstance(actual[0], ErrorRecord)
-            assert actual[1] == u"message 1"
+            assert actual[1] == "message 1"
             assert actual[2] == 2
-            assert actual[3] == [u"3", 3]
+            assert actual[3] == ["3", 3]
             assert ps.state == PSInvocationState.COMPLETED
             assert ps.had_errors is False
             assert ps.streams.error == []
@@ -808,7 +808,7 @@ end {
             )
             actual = ps.invoke(["1", 2, {"a": "b"}, ["a", "b"]])
 
-        assert actual == [u"1", 2, {u"a": u"b"}, [u"a", u"b"]]
+        assert actual == ["1", 2, {"a": "b"}, ["a", "b"]]
         assert str(ps.streams.debug[0]) == "Start Block"
         assert str(ps.streams.debug[1]) == "End Block"
 
@@ -844,9 +844,9 @@ end {
                 % ("a" * 30000)
             )
             actual = ps.invoke("input")
-        assert actual[0] == u"input"
-        assert actual[1] == u"a" * 20000
-        assert actual[2] == u"a" * 10000
+        assert actual[0] == "input"
+        assert actual[1] == "a" * 20000
+        assert actual[2] == "a" * 10000
 
     @pytest.mark.parametrize(
         "wsman_conn",
@@ -863,7 +863,7 @@ end {
             ps.add_cmdlet("Start-Sleep").add_parameter("Seconds", 10)
             ps.add_statement().add_script("echo hi")
             actual = ps.invoke()
-        assert actual[0] == u"hi"
+        assert actual[0] == "hi"
 
     @pytest.mark.parametrize("wsman_conn", [[True, "test_psrp_clear_commands"]], indirect=True)
     def test_psrp_clear_command(self, wsman_conn):
@@ -873,7 +873,7 @@ end {
             ps.clear_commands()
             ps.add_script("echo new")
             actual = ps.invoke()
-        assert actual[0] == u"new"
+        assert actual[0] == "new"
 
     @pytest.mark.parametrize("wsman_conn", [[True, "test_psrp_receive_failure"]], indirect=True)
     def test_psrp_receive_failure(self, wsman_conn):

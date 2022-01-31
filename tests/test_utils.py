@@ -11,13 +11,13 @@ from pypsrp._utils import (
 
 def test_unicode_to_bytes_default():
     expected = b"\x61\x62\x63"
-    actual = to_bytes(u"abc")
+    actual = to_bytes("abc")
     assert actual == expected
 
 
 def test_unicode_to_bytes_diff_encoding():
     expected = b"\x61\x00\x62\x00\x63\x00"
-    actual = to_bytes(u"abc", encoding="utf-16-le")
+    actual = to_bytes("abc", encoding="utf-16-le")
     assert actual == expected
 
 
@@ -37,25 +37,25 @@ def test_str_to_bytes():
 
 
 def test_unicode_to_unicode():
-    expected = u"abc"
-    actual = to_unicode(u"abc")
+    expected = "abc"
+    actual = to_unicode("abc")
     assert actual == expected
 
 
 def test_byte_to_unicode():
-    expected = u"abc"
+    expected = "abc"
     actual = to_unicode(b"\x61\x62\x63")
     assert actual == expected
 
 
 def test_byte_to_unicode_diff_encoding():
-    expected = u"abc"
+    expected = "abc"
     actual = to_unicode(b"\x61\x00\x62\x00\x63\x00", encoding="utf-16-le")
     assert actual == expected
 
 
 def test_str_to_unicode():
-    expected = u"a\x00b\x00c\x00"
+    expected = "a\x00b\x00c\x00"
     actual = to_unicode("a\x00b\x00c\x00", encoding="utf-16-le")
     assert actual == expected
 

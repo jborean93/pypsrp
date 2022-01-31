@@ -144,8 +144,8 @@ class TestPSHostUserInterface(object):
 
         with RunspacePool(wsman_conn, host=host) as pool:
             pool.exchange_keys()
-            mock_read_line_as_ss.return_value = pool.serialize(u"ReadLineAsSecureString response", ObjectMeta("SS"))
-            mock_ps_credential = PSCredential(username="username", password=u"password")
+            mock_read_line_as_ss.return_value = pool.serialize("ReadLineAsSecureString response", ObjectMeta("SS"))
+            mock_ps_credential = PSCredential(username="username", password="password")
             mock_prompt_credential.return_value = mock_ps_credential
 
             ps = PowerShell(pool)
