@@ -98,7 +98,7 @@ class TestPowerShellFunctional(object):
                 ps.add_cmdlet("Get-Item").add_parameter("Path", "C:\\Windows")
                 ps.add_statement()
 
-                sec_string = pool.serialize(u"super secret", ObjectMeta("SS"))
+                sec_string = pool.serialize("super secret", ObjectMeta("SS"))
                 ps.add_cmdlet("Set-Variable")
                 ps.add_parameter("Name", "password")
                 ps.add_parameter("Value", sec_string)
@@ -122,8 +122,8 @@ class TestPowerShellFunctional(object):
             assert ps.had_errors is False
             assert len(actual) == 3
             assert str(actual[0]) == "C:\\Windows"
-            assert actual[1] == u"super secret"
-            assert actual[2] == u"host secret"
+            assert actual[1] == "super secret"
+            assert actual[2] == "host secret"
             assert str(ps.streams.verbose[0]) == large_string
 
     def test_psrp_jea(self, functional_transports):

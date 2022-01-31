@@ -25,7 +25,7 @@ on:
 
 jobs:
   build:
-    name: build sdist and wheel
+    name: build library
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
@@ -35,7 +35,7 @@ jobs:
     - name: install build pre-requisites
       run: pip install build
 
-    - name: build sdist
+    - name: build sdist and wheel
       run: python -m build --sdist --wheel
 
     - uses: actions/upload-artifact@v2

@@ -137,11 +137,11 @@ class TestWinRS(object):
     @pytest.mark.parametrize("wsman_conn", [[True, "test_winrs_unicode"]], indirect=True)
     def test_winrs_unicode(self, wsman_conn):
         with WinRS(wsman_conn, codepage=65001) as shell:
-            process = Process(shell, "powershell.exe", [u"Write-Host こんにちは"])
+            process = Process(shell, "powershell.exe", ["Write-Host こんにちは"])
             process.invoke()
             process.signal(SignalCode.CTRL_C)
             assert process.rc == 0
-            assert process.stdout.decode("utf-8") == u"こんにちは\n"
+            assert process.stdout.decode("utf-8") == "こんにちは\n"
             assert process.stderr == b""
 
     @pytest.mark.parametrize(

@@ -40,7 +40,7 @@ class TestSerializer(object):
     @pytest.mark.parametrize(
         "data, expected",
         [
-            [u"a", "<S>a</S>"],
+            ["a", "<S>a</S>"],
             ["a", "<S>a</S>"],
             [1, "<I32>1</I32>"],
             [True, "<B>true</B>"],
