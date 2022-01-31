@@ -13,7 +13,7 @@
     ],
     "python.testing.pytestArgs": [
         "tests",
-        "-vv"
+        "-vv",
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,

@@ -177,27 +177,27 @@ function Reset-WinRMConfig {
     }
 
     Write-Information -MessageData "Creating HTTP listener"
-    $selector_set = @{
+    $selectorSet = @{
         Transport = "HTTP"
         Address   = "*"
     }
-    $value_set = @{
+    $valueSet = @{
         Enabled = $true
     }
-    New-WSManInstance -ResourceURI winrm/config/listener -SelectorSet $selector_set -ValueSet $value_set > $null
+    New-WSManInstance -ResourceURI winrm/config/listener -SelectorSet $selectorSet -ValueSet $valueSet > $null
 
     $certificate = New-LegacySelfSignedCert -Subject $env:COMPUTERNAME -ValidDays 1095
-    $selector_set = @{
+    $selectorSet = @{
         Transport = "HTTPS"
         Address   = "*"
     }
-    $value_set = @{
+    $valueSet = @{
         CertificateThumbprint = $certificate.Thumbprint
         Enabled               = $true
     }
 
     Write-Information -MessageData "Creating HTTPS listener"
-    New-WSManInstance -ResourceURI "winrm/config/Listener" -SelectorSet $selector_set -ValueSet $value_set > $null
+    New-WSManInstance -ResourceURI "winrm/config/Listener" -SelectorSet $selectorSet -ValueSet $valueSet > $null
 
     Write-Verbose "Enabling PowerShell Remoting"
     Enable-PSRemoting -Force > $null
@@ -211,8 +211,8 @@ function Reset-WinRMConfig {
     Write-Information -MessageData "Enabling CredSSP authentication"
     Enable-WSManCredSSP -Role Server -Force > $null
 
-    Write-Information -MessageData "Setting AllowUnencrypted to False"
-    Set-Item -Path WSMan:\localhost\Service\AllowUnencrypted -Value $false
+    Write-Information -MessageData "Setting AllowUnencrypted to True"
+    Set-Item -Path WSMan:\localhost\Service\AllowUnencrypted -Value $true
 
     Write-Information -MessageData "Configuring WinRM HTTPS firewall rule"
     New-WinRMFirewallRule -Port 5986 -Protocol HTTPS
@@ -245,40 +245,57 @@ Function New-CertificateAuthBinding {
 
     Write-Information -MessageData "Generating self signed certificate for authentication of user $Name"
     $certInfo = @{
-        Type          = "Custom"
-        Subject       = "CN=$Name"
-        TextExtension = @("2.5.29.37={text}1.3.6.1.5.5.7.3.2", "2.5.29.17={text}upn=$Name@localhost")
-        KeyUsage      = "DigitalSignature", "KeyEncipherment"
-        KeyAlgorithm  = "RSA"
-        KeyLength     = 2048
+        Type              = "Custom"
+        Subject           = "CN=$Name"
+        TextExtension     = @("2.5.29.37={text}1.3.6.1.5.5.7.3.2", "2.5.29.17={text}upn=$Name@localhost")
+        KeyUsage          = "DigitalSignature", "KeyEncipherment"
+        KeyAlgorithm      = "RSA"
+        KeyLength         = 2048
+        CertStoreLocation = "Cert:\CurrentUser\My"
     }
     $cert = New-SelfSignedCertificate @certInfo
 
-    Write-Information -MessageData "Exporting public key of cert"
-    $pem_output = @()
-    $pem_output += "-----BEGIN CERTIFICATE-----"
-    $pem_output += [System.Convert]::ToBase64String($cert.RawData) -replace ".{64}", "$&`n"
-    $pem_output += "-----END CERTIFICATE-----"
-    [System.IO.File]::WriteAllLines("$CertPath\cert.pem", $pem_output)
-
     Write-Information -MessageData "Exporting private key in a PFX file"
-    [System.IO.File]::WriteAllBytes("$CertPath\cert.pfx", $cert.Export("Pfx"))
+    $certDir = Split-Path $CertPath -Parent
+    [System.IO.File]::WriteAllBytes("$certDir\cert.pfx", $cert.Export("Pfx"))
 
     Write-Information -MessageData "Converting private key to PEM format with openssl"
-    &"C:\Program Files\OpenSSL\bin\openssl.exe" @("pkcs12", "-in", "$CertPath\cert.pfx", "-nocerts", "-nodes", "-out", "$CertPath\cert_key.pem", "-passin", "pass:", "-passout", "pass:")
+    $out = openssl.exe @(
+        "pkcs12",
+        "-in", "$certDir\cert.pfx",
+        "-nocerts",
+        "-nodes",
+        "-out", "$certDir\cert_key.pem",
+        "-passin", "pass:",
+        "-passout", "pass:"
+    ) 2>&1
+    if ($LASTEXITCODE) {
+        throw "Failed to extract key from PEM:`n$out"
+    }
+    Remove-Item -Path "$certDir\cert.pfx" -Force
+
+    # WinRM seems to be very picky about the type of cert in the trusted root and people store. Make sure this is set
+    # to the cert and not cert + key.
+    $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($cert.RawData)
+
+    Write-Information -MessageData "Exporting cert and key of user certificate"
+    $key_pem = Get-Content -Path "$certDir\cert_key.pem"
+    Remove-Item -Path "$certDir\cert_key.pem" -Force
+    [System.IO.File]::WriteAllLines($CertPath, @(
+            $key_pem
+            "-----BEGIN CERTIFICATE-----"
+            [System.Convert]::ToBase64String($cert.RawData) -replace ".{64}", "$&`n"
+            "-----END CERTIFICATE-----"
+        ))
 
     Write-Information -MessageData "Importing cert into LocalMachine\Root"
-    $store_name = [System.Security.Cryptography.X509Certificates.StoreName]::Root
-    $store_location = [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
-    $store = New-Object -TypeName System.Security.Cryptography.X509Certificates.X509Store -ArgumentList $store_name, $store_location
+    $store = Get-Item -Path Cert:\LocalMachine\Root
     $store.Open("MaxAllowed")
     $store.Add($cert)
     $store.Close()
 
     Write-Information -MessageData "Importing cert into LocalMachine\TrustedPeople"
-    $store_name = [System.Security.Cryptography.X509Certificates.StoreName]::TrustedPeople
-    $store_location = [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine
-    $store = New-Object -TypeName System.Security.Cryptography.X509Certificates.X509Store -ArgumentList $store_name, $store_location
+    $store = Get-Item -Path Cert:\LocalMachine\TrustedPeople
     $store.Open("MaxAllowed")
     $store.Add($cert)
     $store.Close()
@@ -296,31 +313,31 @@ Function New-JEAConfiguration {
         $JEAConfigPath
     )
 
-    $module_path = Join-Path -Path $env:ProgramFiles -ChildPath "WindowsPowerShell\Modules\$Name"
-    Write-Information -MessageData "Setting up JEA PowerShell module path at '$module_path'"
-    if (-not (Test-Path -Path $module_path)) {
-        New-Item -Path $module_path -ItemType Directory
+    $modulePath = Join-Path -Path $env:ProgramFiles -ChildPath "WindowsPowerShell\Modules\$Name"
+    Write-Information -MessageData "Setting up JEA PowerShell module path at '$modulePath'"
+    if (-not (Test-Path -Path $modulePath)) {
+        New-Item -Path $modulePath -ItemType Directory
     }
 
-    $functions_path = Join-Path -Path $module_path -ChildPath "$($Name)Functions.psm1"
-    if (-not (Test-Path -Path $functions_path)) {
-        New-Item -Path $functions_path -ItemType File
+    $functionsPath = Join-Path -Path $modulePath -ChildPath "$($Name)Functions.psm1"
+    if (-not (Test-Path -Path $functionsPath)) {
+        New-Item -Path $functionsPath -ItemType File
     }
 
-    $manifest_path = Join-Path -Path $module_path -ChildPath "$($Name).psd1"
-    if (-not (Test-Path -Path $manifest_path)) {
-        New-ModuleManifest -Path $manifest_path -RootModule "$($Name)Functions.psm1"
+    $manifestPath = Join-Path -Path $modulePath -ChildPath "$($Name).psd1"
+    if (-not (Test-Path -Path $manifestPath)) {
+        New-ModuleManifest -Path $manifestPath -RootModule "$($Name)Functions.psm1"
     }
 
-    $role_path = Join-Path -Path $module_path -ChildPath "RoleCapabilities"
-    if (-not (Test-Path -Path $role_path)) {
-        New-Item -Path $role_path -ItemType Directory
+    $rolePath = Join-Path -Path $modulePath -ChildPath "RoleCapabilities"
+    if (-not (Test-Path -Path $rolePath)) {
+        New-Item -Path $rolePath -ItemType Directory
     }
 
-    $jea_role_src = Join-Path -Path $JEAConfigPath -ChildPath "$($Name).psrc"
+    $jeaRoleSrc = Join-Path -Path $JEAConfigPath -ChildPath "$($Name).psrc"
 
-    Write-Information -MessageData "Copying across JEA role configuration from '$jea_role_src'"
-    Copy-Item -Path $jea_role_src -Destination $role_path
+    Write-Information -MessageData "Copying across JEA role configuration from '$jeaRoleSrc'"
+    Copy-Item -Path $jeaRoleSrc -Destination $rolePath
 
     if (Get-PSSessionConfiguration | Where-Object { $_.Name -eq $name }) {
         Write-Information -MessageData "JEA role $Name already registered, removing to ensure we start fresh"
@@ -338,7 +355,6 @@ Reset-WinRMConfig
 $localUser = New-LocalUser -Name $UserName -Password $secPassword -AccountNeverExpires -PasswordNeverExpires
 Add-LocalGroupMember -Group Administrators -Member $localUser
 
-# Cert auth is disabled in these tests due to some unknown failure
 # $thumbprint = New-CertificateAuthBinding -Name $UserName -CertPath $CertPath
 # $credBinding = @{
 #     Path       = "WSMan:\localhost\ClientCertificate"
@@ -356,4 +372,37 @@ Register-PSSessionConfiguration -Path "$PSScriptRoot\JEARoleSettings.pssc" -Name
 Restart-Service -Name winrm
 
 Write-Information -MessageData "Testing WinRM connection"
-Invoke-Command -ComputerName localhost -ScriptBlock { whoami.exe /all } -Credential $userCredential
+$invokeParams = @{
+    ComputerName  = 'localhost'
+    ScriptBlock   = { whoami.exe }
+    SessionOption = (New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck)
+}
+Invoke-Command @invokeParams -Credential $userCredential
+
+# Write-Information -MessageData "Testing WinRM connection with certificates"
+# Invoke-Command @invokeParams -CertificateThumbprint $thumbprint
+
+Write-Information -MessageData "Installing OpenSSH service"
+choco.exe install -y openssh --pre --no-progress --params '"/SSHServerFeature"'
+
+$sshDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath("~/.ssh")
+if (-not (Test-Path -Path $sshDir)) {
+    $null = New-Item -Path $sshDir -ItemType Directory
+}
+ssh-keygen -o -a 100 -t ed25519 -f (Join-Path $sshDir id_ed25519) -q -N '""'
+Copy-Item -Path "$sshDir\id_ed25519.pub" -Destination C:\ProgramData\ssh\administrators_authorized_keys -Force
+icacls.exe "C:\ProgramData\ssh\administrators_authorized_keys" /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
+
+$pwshPath = (Get-Command -Name pwsh.exe).Path
+$fsObj = New-Object -ComObject Scripting.FileSystemObject
+$pwshShortPath = $fsObj.GetFile($pwshPath).ShortPath
+$subSystemLine = "Match all`r`nSubsystem powershell $pwshShortPath -sshs -NoLogo"
+Add-Content -Path C:\ProgramData\ssh\sshd_config -Value $subSystemLine -Encoding ASCII
+Add-Content -Path C:\ProgramData\ssh\sshd_config -Value "PubkeyAuthentication yes" -Encoding ASCII
+Restart-Service -Name sshd -Force
+
+Write-Information -MessageData "Testing SSH connection"
+ssh -o IdentityFile="$sshDir\id_ed25519" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null localhost whoami
+if ($LASTEXITCODE) {
+    throw "SSH test failed with $LASTEXITCODE"
+}

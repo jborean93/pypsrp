@@ -82,6 +82,13 @@ jobs:
         name: artifact
         path: ./dist
 
+    - name: Remove extra modules to speed up PowerShell startup module due to slow WinRM issue
+      if: startsWith(matrix.os, 'windows')
+      shell: bash
+      run: |
+        rm -rf "/c/Program Files/WindowsPowerShell/Modules/AWSPowerShell"
+        rm -rf "/c/Program Files/WindowsPowerShell/Modules/Microsoft.Graph*"
+
     - name: Extract OS name
       shell: bash
       run: |
@@ -94,7 +101,7 @@ jobs:
         if [ "$(expr substr $(uname -s) 1 5)" == "MINGW" ]; then
             build_helpers/run-ci.sh
         else
-            sudo -E build_helpers/run-ci.sh
+            sudo --preserve-env --preserve-env=PATH build_helpers/run-ci.sh
         fi
       env:
         PYTEST_ADDOPTS: --color=yes

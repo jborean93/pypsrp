@@ -107,7 +107,7 @@ class TestPSHostUserInterface(object):
         mock_write1 = mocker.MagicMock(return_value=None)
         mock_write2 = mocker.MagicMock(return_value=None)
         mock_write_line1 = mocker.MagicMock(return_value=None)
-        mock_write_line2 = mocker.MagicMock(return_value=None)
+        mock_write_line = mocker.MagicMock(return_value=None)
         mock_write_line3 = mocker.MagicMock(return_value=None)
         mock_write_error = mocker.MagicMock(return_value=None)
         mock_write_debug = mocker.MagicMock(return_value=None)
@@ -128,7 +128,7 @@ class TestPSHostUserInterface(object):
         host_ui.Write1 = mock_write1
         host_ui.Write2 = mock_write2
         host_ui.WriteLine1 = mock_write_line1
-        host_ui.WriteLine2 = mock_write_line2
+        host_ui.WriteLine2 = mock_write_line
         host_ui.WriteLine3 = mock_write_line3
         host_ui.WriteErrorLine = mock_write_error
         host_ui.WriteDebugLine = mock_write_debug
@@ -203,10 +203,10 @@ $host.UI.PromptForChoice("PromptForChoice caption", "PromptForChoice message", @
         assert isinstance(mock_write_line1.call_args[0][0], RunspacePool)
         assert isinstance(mock_write_line1.call_args[0][1], PowerShell)
 
-        assert mock_write_line2.call_count == 1
-        assert isinstance(mock_write_line2.call_args[0][0], RunspacePool)
-        assert isinstance(mock_write_line2.call_args[0][1], PowerShell)
-        assert mock_write_line2.call_args[0][2] == "WriteLine2"
+        assert mock_write_line.call_count == 1
+        assert isinstance(mock_write_line.call_args[0][0], RunspacePool)
+        assert isinstance(mock_write_line.call_args[0][1], PowerShell)
+        assert mock_write_line.call_args[0][2] == "WriteLine2"
 
         assert mock_write_line3.call_count == 1
         assert isinstance(mock_write_line3.call_args[0][0], RunspacePool)
