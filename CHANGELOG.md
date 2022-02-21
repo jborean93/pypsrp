@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.1 - TBD
+## 0.8.1 - 2022-02-22
 
 * Bump `requests-credssp` minimumt to new version to support newer encryption format and simpler dependencies
 
