@@ -22,15 +22,6 @@ class WinRMEncryption(object):
         self.context = context
         self.protocol = protocol
 
-        self._wrap: typing.Callable[[bytes], typing.Tuple[bytes, int]]
-        self._unwrap: typing.Callable[[bytes], bytes]
-        if protocol == self.CREDSSP:
-            self._wrap = self._wrap_credssp
-            self._unwrap = self._unwrap_credssp
-        else:
-            self._wrap = self._wrap_spnego
-            self._unwrap = self._unwrap_spnego
-
     def wrap_message(self, message: bytes) -> typing.Tuple[str, bytes]:
         log.debug("Wrapping message")
         if self.protocol == self.CREDSSP and len(message) > self.SIXTEEN_KB:
@@ -68,7 +59,12 @@ class WinRMEncryption(object):
             payload = re.sub(to_bytes(r"--\s*%s--\r\n$") % to_bytes(boundary), b"", payload)
 
             wrapped_data = payload.replace(b"\tContent-Type: application/octet-stream\r\n", b"")
-            unwrapped_data = self._unwrap(wrapped_data)
+            header_length = struct.unpack("<i", wrapped_data[:4])[0]
+            header = wrapped_data[4 : 4 + header_length]
+            enc_wrapped_data = wrapped_data[4 + header_length :]
+
+            unwrapped_data = self.context.unwrap_winrm(header, enc_wrapped_data)
+
             actual_length = len(unwrapped_data)
 
             log.debug("Actual unwrapped length: %d, expected unwrapped length: %d" % (actual_length, expected_length))
@@ -83,7 +79,9 @@ class WinRMEncryption(object):
         return message
 
     def _wrap_message(self, message: bytes) -> bytes:
-        wrapped_data, padding_length = self._wrap(message)
+        header, wrapped_data, padding_length = self.context.wrap_winrm(message)
+        wrapped_data = struct.pack("<i", len(header)) + header + wrapped_data
+
         msg_length = str(len(message) + padding_length)
 
         payload = "\r\n".join(
@@ -97,68 +95,3 @@ class WinRMEncryption(object):
             ]
         )
         return to_bytes(payload) + wrapped_data
-
-    def _wrap_spnego(self, data: bytes) -> typing.Tuple[bytes, int]:
-        header, wrapped_data, padding_length = self.context.wrap_winrm(data)
-
-        return struct.pack("<i", len(header)) + header + wrapped_data, padding_length
-
-    def _wrap_credssp(self, data: bytes) -> typing.Tuple[bytes, int]:
-        wrapped_data = self.context.wrap(data)
-        cipher_negotiated = self.context.tls_connection.get_cipher_name()
-        trailer_length = self._credssp_trailer(len(data), cipher_negotiated)
-
-        return struct.pack("<i", trailer_length) + wrapped_data, 0
-
-    def _unwrap_spnego(self, data: bytes) -> bytes:
-        header_length = struct.unpack("<i", data[:4])[0]
-        header = data[4 : 4 + header_length]
-        wrapped_data = data[4 + header_length :]
-
-        data = self.context.unwrap_winrm(header, wrapped_data)
-
-        return data
-
-    def _unwrap_credssp(self, data: bytes) -> bytes:
-        wrapped_data = data[4:]
-        data = self.context.unwrap(wrapped_data)
-
-        return data
-
-    def _credssp_trailer(
-        self,
-        msg_len: int,
-        cipher_suite: str,
-    ) -> int:
-        # On Windows this is derived from SecPkgContext_StreamSizes, this is
-        # not available on other platforms so we need to calculate it manually
-        log.debug(
-            "Attempting to get CredSSP trailer length for msg of length %d with cipher %s" % (msg_len, cipher_suite)
-        )
-
-        if re.match(r"^.*-GCM-[\w\d]*$", cipher_suite):
-            # GCM has a fixed length of 16 bytes
-            trailer_length = 16
-        else:
-            # For other cipher suites, trailer size == len(hmac) + len(padding)
-            # the padding it the length required by the chosen block cipher
-            hash_algorithm = cipher_suite.split("-")[-1]
-
-            # while there are other algorithms, SChannel doesn't support them
-            # as of yet so we just keep to this list
-            hash_length = {"MD5": 16, "SHA": 20, "SHA256": 32, "SHA384": 48}.get(hash_algorithm, 0)
-
-            pre_pad_length = msg_len + hash_length
-            if "RC4" in cipher_suite:
-                # RC4 is a stream cipher so no padding would be added
-                padding_length = 0
-            elif "DES" in cipher_suite or "3DES" in cipher_suite:
-                # 3DES is a 64 bit block cipher
-                padding_length = 8 - (pre_pad_length % 8)
-            else:
-                # AES is a 128 bit block cipher
-                padding_length = 16 - (pre_pad_length % 16)
-
-            trailer_length = (pre_pad_length + padding_length) - msg_len
-
-        return trailer_length

@@ -44,10 +44,6 @@ module = "requests_credssp"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "spnego.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
 module = "xmldiff"
 ignore_missing_imports = true
 

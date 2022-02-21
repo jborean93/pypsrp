@@ -127,19 +127,7 @@ pip install pypsrp[credssp]
 ```
 
 If that fails you may need to update pip and setuptools to a newer version
-`pip install -U pip setuptools`, otherwise the following system package may be
-required;
-
-```bash
-# For Debian/Ubuntu
-apt-get install gcc python-dev
-
-# For RHEL/Centos
-yum install gcc python-devel
-
-# For Fedora
-dnf install gcc python-devel
-```
+`pip install -U pip setuptools`.
 
 
 ## How to Use
