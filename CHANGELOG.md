@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1 - TBD
+
+* Bump `requests-credssp` minimumt to new version to support newer encryption format and simpler dependencies
+
+
 ## 0.8.0 - 2022-02-01
 
 * The `CommandParameter` class now uses named keyword arguments
