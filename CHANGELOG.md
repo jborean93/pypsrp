@@ -1,8 +1,27 @@
 # Changelog
 
+## 1.0.0b1 - TBD
+
+### Breaking changes
+
+* There should be no breaking changes in this release as the `pypsrp` namespace will continue to work as it had.
+* The `pypsrp` namespace is going to be deprecated going forward and all work moving to the stuff in the `psrp` namespace.
+
+### Features
+
+* Added the `psrp` namespace which includes a sync and asyncio runspace pools and powershell pipelines
+* This also includes a new set of connection types such as:
+  * `psrp.NamedPipeInfo` - asyncio only connection for named pipes such as the management pipe pwsh creates
+  * `psrp.ProcessInfo` - connection to start a new pwsh pwsh process locally
+  * `psrp.SSHInfo` - asyncio only SSH connection for remote pwsh communication
+  * `psrp.WinPSSSHInfo` - asyncio only SSH connection for remote Windows PowerShell communication
+  * `psrp.WSManInfo` - connection for WSMan based remote targets
+* Also includes a base connection type class for Out of Process connections to help building your own
+
+
 ## 0.8.1 - 2022-02-22
 
-* Bump `requests-credssp` minimumt to new version to support newer encryption format and simpler dependencies
+* Bump `requests-credssp` minimum to new version to support newer encryption format and simpler dependencies
 
 
 ## 0.8.0 - 2022-02-01

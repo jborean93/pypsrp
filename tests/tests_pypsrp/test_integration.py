@@ -133,12 +133,12 @@ class TestPowerShellFunctional(object):
                 wsman_path = "WSMan:\\localhost\\Service\\AllowUnencrypted"
                 ps.add_cmdlet("Get-Item").add_parameter("Path", wsman_path)
                 ps.add_statement()
-                ps.add_cmdlet("Set-Item").add_parameters({"Path": wsman_path, "Value": "True"})
+                ps.add_cmdlet("Set-Item").add_parameters({"Path": wsman_path, "Value": "False"})
                 actual = ps.invoke()
 
             assert ps.had_errors is True
             assert len(actual) == 1
-            assert actual[0].property_sets[0].adapted_properties["Value"] == "false"
+            assert actual[0].property_sets[0].adapted_properties["Value"] == "true"
             assert (
                 str(ps.streams.error[0]) == "The term 'Set-Item' is not recognized as the name of a "
                 "cmdlet, function, script file, or operable program. Check "

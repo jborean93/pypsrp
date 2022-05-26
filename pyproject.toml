@@ -36,6 +36,30 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
+module = "psrp.*"
+disallow_untyped_decorators = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+warn_return_any = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = "psrp._compat"
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = "psrp._connection.named_pipe"
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = "psrp._connection._win32"
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = "asyncssh.*"
+implicit_reexport = true  # asyncssh does not explicitly export these symbols
+
+[[tool.mypy.overrides]]
 module = "requests.packages.urllib3.*"
 ignore_missing_imports = true
 
@@ -48,6 +72,7 @@ module = "xmldiff"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 testpaths = "tests"
 junit_family = "xunit2"
 
@@ -63,10 +88,10 @@ deps =
     -r{toxinidir}/requirements-dev.txt
 
 commands =
-    python -m pytest -v --cov pypsrp --cov-report term-missing
+    python -m pytest tests/tests_psrp -v --cov psrp --cov-report term-missing
 
 passenv =
-    PSRP_*
+    PYPSRP_*
 
 [testenv:lint]
 commands =
