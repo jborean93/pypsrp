@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0b2 - TBD
+
+* Ensure the outgoing send buffer won't get too small to fit extra fragments
+
 ## 1.0.0b1 - 2022-05-27
 
 ### Breaking changes
