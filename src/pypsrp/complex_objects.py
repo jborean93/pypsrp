@@ -139,7 +139,7 @@ class Enum(ComplexObject):
         self.value = kwargs.get("value")
 
     @property  # type: ignore[override]
-    def _to_string(self) -> str:  # type: ignore[override]
+    def _to_string(self) -> str:
         try:
             return self._string_map[self.value or 0]
         except KeyError as err:
@@ -378,7 +378,7 @@ class RemoteStreamOptions(Enum):
         )
 
     @property  # type: ignore[override]
-    def _to_string(self) -> str:  # type: ignore[override]
+    def _to_string(self) -> str:
         if self.value == 15:
             return "AddInvocationInfo"
 
@@ -1149,7 +1149,7 @@ class CommandType(Enum):
         super(CommandType, self).__init__("System.Management.Automation.CommandTypes", {}, **kwargs)
 
     @property  # type: ignore[override]
-    def _to_string(self) -> str:  # type: ignore[override]
+    def _to_string(self) -> str:
         if self.value == 0x01FF:
             return "All"
 

@@ -1,11 +1,11 @@
 asyncssh
-black
+black == 22.10.0
 build
 gssapi ; sys_platform != 'win32'
 krb5 ; sys_platform != 'win32'
 httpx[socks]
-isort
-mypy == 0.950
+isort == 5.10.1
+mypy == 0.982
 pre-commit
 psutil
 pytest

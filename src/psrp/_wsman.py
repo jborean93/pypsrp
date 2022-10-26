@@ -114,7 +114,7 @@ class _WSManEventRegistry(type):
         if action.value not in cls.__registry:
             cls.__registry[action.value] = cls
 
-    def __call__(  # type: ignore[override]
+    def __call__(
         cls,
         data: ElementTree.Element,
     ) -> t.Any:
