@@ -878,7 +878,7 @@ class _TransportHTTP(object):
 
         # get the env requests settings
         session.trust_env = True
-        settings = session.merge_environment_settings(  # type: ignore[no-untyped-call] # Not in types-requests
+        settings = session.merge_environment_settings(
             url=self.endpoint, proxies={}, stream=None, verify=None, cert=None
         )
 
