@@ -217,7 +217,11 @@ class _ConnectionBase:
             return None
 
         data_buffer += psrp_payload.data
-        if buffer and len(data_buffer) < fragment_size:
+
+        # If the buffer still has room for more fragments then keep it in the
+        # buffer and wait until the next round. Pad it a bit more to make it
+        # more worthwhile to actually fragment.
+        if buffer and (len(data_buffer) + 100) < fragment_size:
             return None
 
         # No longer need the buffer for now
