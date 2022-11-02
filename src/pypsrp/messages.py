@@ -205,7 +205,21 @@ class Message(object):
             # try to deserialize using our known objects, if that fails then
             # we want to get a generic object at least but raise a warning
             try:
-                message_data = serializer.deserialize(message_data)
+                if "Microsoft.Exchange" in message_data:
+                    #try to output the complete results of the Exchange Powershell
+                    props_data = message_data[message_data.find('<Props'):message_data.rfind('</Props>')+8]
+                    from xml.dom import minidom
+                    dom = minidom.parseString(props_data)   
+                    data_s = dom.getElementsByTagName("S")
+                    temp_data = ""
+                    for data_i in data_s:
+                        if data_i.firstChild and len(data_i.getAttribute('N'))>0:
+                            key = data_i.getAttribute('N')          
+                            value = data_i.firstChild.data
+                            temp_data += '{:32s}: {}\r\n'.format(key,value)
+                    message_data = temp_data
+                else:
+                    message_data = serializer.deserialize(message_data)
             except SerializationError as err:
                 warnings.warn(
                     "Failed to deserialize msg, trying to deserialize as generic complex object: %s" % str(err)
