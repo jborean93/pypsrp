@@ -255,6 +255,11 @@ class WSManConnectionData:
                 password=self.certificate_key_password,
             )
 
+            # Needed for cert auth on TLS 1.3, unfortunately is a Python 3.8
+            # only feature.
+            if hasattr(self.tls, "post_handshake_auth"):
+                self.tls.post_handshake_auth = True
+
         encryption = self.encryption.lower()
         if encryption == "always":
             if self.auth == "basic" or self.auth == "certificate":
@@ -305,7 +310,7 @@ class AsyncResponseStream(httpx.AsyncByteStream):
 
     async def aclose(self) -> None:
         if hasattr(self._stream, "aclose"):
-            await self._stream.aclose()  # type: ignore[attr-defined] # hasattr check above
+            await self._stream.aclose()
 
 
 class SyncResponseStream(httpx.SyncByteStream):
@@ -317,7 +322,7 @@ class SyncResponseStream(httpx.SyncByteStream):
 
     def close(self) -> None:
         if hasattr(self._stream, "close"):
-            self._stream.close()  # type: ignore[attr-defined] # hasattr check above
+            self._stream.close()
 
 
 class AsyncResponseData(httpx.AsyncByteStream):
@@ -603,7 +608,7 @@ class AsyncWSManTransport(httpx.AsyncBaseTransport):
                 status_code=response.status,
                 headers=headers,
                 stream=AsyncResponseData(data),
-                extensions=response.extensions,
+                extensions=t.cast(t.Dict[str, t.Any], response.extensions),
             )
 
         else:
@@ -611,7 +616,7 @@ class AsyncWSManTransport(httpx.AsyncBaseTransport):
                 status_code=response.status,
                 headers=headers,
                 stream=AsyncResponseStream(response.stream),  # type: ignore[arg-type] # Here it will be async
-                extensions=response.extensions,
+                extensions=t.cast(t.Dict[str, t.Any], response.extensions),
             )
 
 
@@ -876,7 +881,7 @@ class SyncWSManTransport(httpx.BaseTransport):
                 status_code=response.status,
                 headers=headers,
                 stream=SyncResponseData(data),
-                extensions=response.extensions,
+                extensions=t.cast(t.Dict[str, t.Any], response.extensions),
             )
 
         else:
@@ -884,7 +889,7 @@ class SyncWSManTransport(httpx.BaseTransport):
                 status_code=response.status,
                 headers=headers,
                 stream=SyncResponseStream(response.stream),  # type: ignore[arg-type] # Here it will be async
-                extensions=response.extensions,
+                extensions=t.cast(t.Dict[str, t.Any], response.extensions),
             )
 
 

@@ -14,7 +14,6 @@ import typing as t
 import psutil
 from psrpcore import ClientRunspacePool
 
-from psrp._compat import asyncio_get_running_loop
 from psrp._connection.connection import AsyncEventCallable, ConnectionInfo
 from psrp._connection.out_of_proc import AsyncOutOfProcConnection
 from psrp._exceptions import PSRPError
@@ -139,7 +138,7 @@ class NamedPipeInfo(ConnectionInfo):
         log.info("Creating Named Pipe connection to '%s'", name)
 
         if os.name == "nt":
-            loop = asyncio_get_running_loop()
+            loop = asyncio.get_event_loop()
             if not isinstance(loop, asyncio.ProactorEventLoop):  # type: ignore[attr-defined] # Win specific
                 raise PSRPError("Windows named pipe needs to be running under the ProactorEventLoop")
 

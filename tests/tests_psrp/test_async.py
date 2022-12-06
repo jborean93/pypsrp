@@ -14,7 +14,6 @@ import psrp
 import psrp._connection.wsman
 import psrp._winrs
 import psrp._wsman
-from psrp._compat import asyncio_create_task
 from psrp._connection.out_of_proc import ps_data_packet, ps_guid_packet
 
 
@@ -124,7 +123,7 @@ async def test_open_runspace_with_failure() -> None:
         await outgoing.get()
         await incoming.put(b"Raw error message from target\n")
 
-    task = asyncio_create_task(put_on_recv())
+    task = asyncio.create_task(put_on_recv())
 
     rp = psrp.AsyncRunspacePool(conn)
 
@@ -1810,7 +1809,7 @@ async def test_out_of_proc_remote_failure():
 
     incoming = asyncio.Queue()
     outgoing = asyncio.Queue()
-    task = asyncio_create_task(server_task(incoming, outgoing))
+    task = asyncio.create_task(server_task(incoming, outgoing))
 
     connection = CustomOutOfProcInfo(incoming, outgoing)
     async with psrp.AsyncRunspacePool(connection) as rp:

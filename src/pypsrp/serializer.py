@@ -615,7 +615,7 @@ class Serializer(object):
         element: ET.Element,
         metadata: ObjectMeta,
     ) -> typing.Any:
-        obj = metadata.object()  # type: ignore[misc] # Caller always sets object
+        obj = metadata.object()
         self.obj[element.attrib["RefId"]] = obj
 
         to_string_value = element.find("ToString")
@@ -669,7 +669,7 @@ class Serializer(object):
         element: ET.Element,
         metadata: ObjectMeta,
     ) -> typing.Any:
-        obj = metadata.object()  # type: ignore[misc] # Caller always sets object
+        obj = metadata.object()
         self.obj[element.attrib["RefId"]] = obj
 
         for obj_property in element:
