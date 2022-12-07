@@ -110,7 +110,10 @@ class WSManFault(PSRPError, metaclass=_WSManFaultRegistry):
     def message(self) -> str:
         error_details = []
         if self.code:
-            error_details.append("Code: %s" % self.code)
+            if isinstance(self.code, enum.Enum):
+                error_details.append("Code: %s %s" % (int(self.code), self.code.name))
+            else:
+                error_details.append("Code: %s" % int(self.code))
 
         if self.machine:
             error_details.append("Machine: %s" % self.machine)

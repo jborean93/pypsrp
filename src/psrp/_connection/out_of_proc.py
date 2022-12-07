@@ -20,7 +20,6 @@ from psrpcore.types import (
     RunspacePoolStateMsg,
 )
 
-from psrp._compat import asyncio_create_task
 from psrp._connection.connection import (
     AsyncConnection,
     AsyncEventCallable,
@@ -417,7 +416,7 @@ class AsyncOutOfProcConnection(AsyncConnection):
     async def create(
         self,
     ) -> None:
-        self.__listen_task = asyncio_create_task(self._listen())
+        self.__listen_task = asyncio.create_task(self._listen())
 
         await self.send()
 

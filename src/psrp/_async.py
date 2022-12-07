@@ -53,7 +53,7 @@ from psrpcore.types import (
     WarningRecord,
 )
 
-from ._compat import SupportsIndex, asyncio_create_task, iscoroutinefunction
+from ._compat import SupportsIndex, iscoroutinefunction
 from ._connection.connection import AsyncConnection, ConnectionInfo
 from ._exceptions import (
     PipelineFailed,
@@ -1028,7 +1028,7 @@ class AsyncPipeline(t.Generic[PipelineType]):
             self._stream_output = AsyncPSDataCollection[t.Any]()
 
         task_ready = asyncio.Event()
-        task = asyncio_create_task(self._pipelines_task(task_ready, completed=completed))
+        task = asyncio.create_task(self._pipelines_task(task_ready, completed=completed))
         await task_ready.wait()
 
         connection = await self.runspace_pool._get_connection()
@@ -1141,7 +1141,7 @@ class AsyncPipeline(t.Generic[PipelineType]):
             self._stream_output = AsyncPSDataCollection[t.Any]()
 
         task_ready = asyncio.Event()
-        task = asyncio_create_task(self._pipelines_task(task_ready, completed=completed))
+        task = asyncio.create_task(self._pipelines_task(task_ready, completed=completed))
         await task_ready.wait()
 
         try:
@@ -1253,7 +1253,7 @@ class AsyncPipeline(t.Generic[PipelineType]):
 
         # The signal call blocks until an Ack but stop_async should just send
         # the signal and return a task that waits for the ack.
-        task = asyncio_create_task(inner_stop())
+        task = asyncio.create_task(inner_stop())
         return task
 
     async def _event_received(

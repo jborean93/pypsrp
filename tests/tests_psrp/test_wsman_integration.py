@@ -1,5 +1,6 @@
 import os
 import pathlib
+import sys
 import typing as t
 
 import pytest
@@ -38,6 +39,8 @@ def get_certificate_credential() -> str:
     cred_path = os.environ.get("PYPSRP_CERT_PATH", None)
     if not cred_path:
         pytest.skip("WSMan certificate integration test requires PYPSRP_CERT_PATH to be defined")
+    elif sys.version_info[:2] < (3, 8):
+        pytest.skip("Cert auth over TLS 1.3 requires Python 3.8 or newer")
 
     return cred_path
 

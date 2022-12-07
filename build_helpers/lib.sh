@@ -51,8 +51,7 @@ lib::setup::windows_requirements() {
         -CertPath "${PYPSRP_CERT_PATH}" \
         -InformationAction Continue
 
-    # FIXME: For some reason cert auth is failing and the connection is dropped.
-    # Tried disabling TLS 1.3 and HTTP2 but that doesn't work. Needs further
+    # FIXME: For some reason cert auth is failing with a 401. Needs further
     # investigation.
     unset PYPSRP_CERT_PATH
 }

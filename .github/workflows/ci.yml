@@ -28,9 +28,7 @@ jobs:
     name: build library
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-
-    - uses: actions/setup-python@v2
+    - uses: actions/checkout@v3
 
     - name: install build pre-requisites
       run: pip install build
@@ -38,7 +36,7 @@ jobs:
     - name: build sdist and wheel
       run: python -m build --sdist --wheel
 
-    - uses: actions/upload-artifact@v2
+    - uses: actions/upload-artifact@v3
       with:
         name: artifact
         path: ./dist/*
@@ -56,11 +54,11 @@ jobs:
         - ubuntu-latest
         - windows-latest
         python-version:
-        - 3.6
         - 3.7
         - 3.8
         - 3.9
         - '3.10'
+        - '3.11'
         python-arch:
         - x86
         - x64
@@ -68,16 +66,18 @@ jobs:
         exclude:
         - os: ubuntu-latest
           python-arch: x86
+        - os: windows-latest  # lxml has no wheel for win-cp311
+          python-version: '3.11'
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
-    - uses: actions/setup-python@v2
+    - uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
         architecture: ${{ matrix.python-arch }}
 
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: artifact
         path: ./dist
@@ -87,12 +87,22 @@ jobs:
       shell: bash
       run: |
         rm -rf "/c/Program Files/WindowsPowerShell/Modules/AWSPowerShell"
-        rm -rf "/c/Program Files/WindowsPowerShell/Modules/Microsoft.Graph*"
+        rm -rf "/c/Program Files/WindowsPowerShell/Modules/DockerMsftProvider"
+        rm -rf "/c/Program Files/WindowsPowerShell/Modules/ImageHelpers"
+        rm -rf "/c/Program Files/WindowsPowerShell/Modules/MarkdownPS"
+        rm -rf "/c/Program Files/WindowsPowerShell/Modules/Microsoft."*
+        rm -rf "/c/Program Files/WindowsPowerShell/Modules/PSWindowsUpdate"
+        rm -rf "/c/Program Files/WindowsPowerShell/Modules/SqlServer"
+        rm -rf "/c/Program Files/WindowsPowerShell/Modules/VSSetup"
+        rm -rf "/c/Modules/"*
+
+        ls -al "/c/Program Files/WindowsPowerShell/Modules"
 
     - name: Extract OS name
       shell: bash
       run: |
-        echo "##[set-output name=name;]$( echo '${{ matrix.os }}' | tr '-' ' ' | awk '{print $1}' )"
+        echo NAME=$( echo '${{ matrix.os }}' | tr '-' ' ' | awk '{print $1}' )
+        echo "name=${NAME}" >> $GITHUB_OUTPUT
       id: os
 
     - name: Test
@@ -108,21 +118,21 @@ jobs:
 
     - name: Upload Test Results
       if: always()
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: Unit Test Results (${{ matrix.os }} ${{ matrix.python-version }} ${{ matrix.python-arch }})
         path: ./junit/test-results.xml
 
     - name: Upload Coverage Results
       if: always()
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: Coverage Results (${{ matrix.os }} ${{ matrix.python-version }} ${{ matrix.python-arch }})
         path: ./coverage.xml
 
     - name: Upload Coverage to codecov
       if: always()
-      uses: codecov/codecov-action@v2
+      uses: codecov/codecov-action@v3
       with:
         files: ./coverage.xml
         flags: ${{ steps.os.outputs.name }},py${{ matrix.python-version }},${{ matrix.python-arch }}
@@ -134,9 +144,7 @@ jobs:
 
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/setup-python@v2
-
-    - uses: actions/download-artifact@v2
+    - uses: actions/download-artifact@v3
       with:
         name: artifact
         path: ./dist

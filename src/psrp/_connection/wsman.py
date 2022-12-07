@@ -25,7 +25,7 @@ from psrpcore.types import (
     RunspacePoolStateMsg,
 )
 
-from psrp._compat import Literal, asyncio_create_task
+from psrp._compat import Literal
 from psrp._connection.connection import (
     AsyncConnection,
     AsyncEventCallable,
@@ -1029,7 +1029,7 @@ class AsyncWSManConnection(AsyncConnection):
         pipeline_id: t.Optional[uuid.UUID] = None,
     ) -> None:
         started = asyncio.Event()
-        task = asyncio_create_task(self._listen(started, pipeline_id))
+        task = asyncio.create_task(self._listen(started, pipeline_id))
         self._listener_tasks[pipeline_id] = task
         await started.wait()
 

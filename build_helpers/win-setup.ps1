@@ -171,11 +171,6 @@ function Reset-WinRMConfig {
     Write-Verbose "Removing all existing WinRM listeners"
     Get-ChildItem -LiteralPath WSMan:\localhost\Listener | Remove-Item -Force -Recurse
 
-    if (-not $CertificateThumbprint) {
-        Write-Verbose "Removing all existing certificate in the personal store"
-        Remove-Item -Path Cert:\LocalMachine\My\* -Force -Recurse
-    }
-
     Write-Information -MessageData "Creating HTTP listener"
     $selectorSet = @{
         Transport = "HTTP"
@@ -245,12 +240,12 @@ Function New-CertificateAuthBinding {
 
     Write-Information -MessageData "Generating self signed certificate for authentication of user $Name"
     $certInfo = @{
-        Type              = "Custom"
         Subject           = "CN=$Name"
-        TextExtension     = @("2.5.29.37={text}1.3.6.1.5.5.7.3.2", "2.5.29.17={text}upn=$Name@localhost")
         KeyUsage          = "DigitalSignature", "KeyEncipherment"
         KeyAlgorithm      = "RSA"
         KeyLength         = 2048
+        TextExtension     = @("2.5.29.37={text}1.3.6.1.5.5.7.3.2", "2.5.29.17={text}upn=$Name@localhost")
+        Type              = "Custom"
         CertStoreLocation = "Cert:\CurrentUser\My"
     }
     $cert = New-SelfSignedCertificate @certInfo
@@ -300,7 +295,7 @@ Function New-CertificateAuthBinding {
     $store.Add($cert)
     $store.Close()
 
-    $cert.Thumbprint
+    $cert
 }
 
 Function New-JEAConfiguration {
@@ -347,6 +342,7 @@ Function New-JEAConfiguration {
 
 $secPassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
 $userCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $env:COMPUTERNAME\$UserName, $secPassword
+$userCertCredential = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $UserName, $secPassword
 
 Enable-PSRemoting -Force
 Start-Service -Name WinRM
@@ -355,16 +351,19 @@ Reset-WinRMConfig
 $localUser = New-LocalUser -Name $UserName -Password $secPassword -AccountNeverExpires -PasswordNeverExpires
 Add-LocalGroupMember -Group Administrators -Member $localUser
 
-# $thumbprint = New-CertificateAuthBinding -Name $UserName -CertPath $CertPath
-# $credBinding = @{
-#     Path       = "WSMan:\localhost\ClientCertificate"
-#     Subject    = "$UserName@localhost"
-#     URI        = "*"
-#     Issuer     = $thumbprint
-#     Credential = $userCredential
-#     Force      = $true
-# }
-# New-Item @credBinding
+$clientCertificate = New-CertificateAuthBinding -Name $UserName -CertPath $CertPath
+$certChain = [Security.Cryptography.X509Certificates.X509Chain]::new()
+[void]$certChain.Build($clientCertificate)
+
+$credBinding = @{
+    Path       = "WSMan:\localhost\ClientCertificate"
+    Subject    = "$UserName@localhost"
+    URI        = "*"
+    Issuer     = $certChain.ChainElements.Certificate[-1].Thumbprint
+    Credential = $userCertCredential
+    Force      = $true
+}
+New-Item @credBinding
 
 New-JEAConfiguration -Name JEARole -JEAConfigPath $PSScriptRoot
 Register-PSSessionConfiguration -Path "$PSScriptRoot\JEARoleSettings.pssc" -Name JEARole -Force
@@ -406,3 +405,10 @@ ssh -o IdentityFile="$sshDir\id_ed25519" -o StrictHostKeyChecking=no -o UserKnow
 if ($LASTEXITCODE) {
     throw "SSH test failed with $LASTEXITCODE"
 }
+
+# Schannel doesn't like certs that aren't self signed in the root store
+# https://learn.microsoft.com/en-us/windows-server/security/tls/what-s-new-in-tls-ssl-schannel-ssp-overview#BKMK_TrustedIssuers
+# Write-Information -MessageData "Migrating signed certs from the root store to intermediate store"
+# Get-ChildItem Cert:\LocalMachine\Root -Recurse |
+#     Where-Object { $_.Issuer -ne $_.Subject } |
+#     Move-Item -Destination Cert:\LocalMachine\CA

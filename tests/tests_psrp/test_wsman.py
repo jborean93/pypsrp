@@ -27,7 +27,7 @@ def test_raise_native_wsman_fault():
     assert exc.value.code == psrp.WSManFaultCode.UNKNOWN
     assert exc.value.machine is None
     assert exc.value.message == (
-        "Received a WSManFault message. (Code: WSManFaultCode.UNKNOWN, "
+        "Received a WSManFault message. (Code: 2150891519 UNKNOWN, "
         "Reason: The WS-Management service cannot process a SOAP header "
         "in the request that is marked as mustUnderstand by the client. "
         " This could be caused by the use of a version of the protocol "
@@ -66,7 +66,7 @@ def test_raise_native_wsman_fault_no_reason():
 
     assert exc.value.code == psrp.WSManFaultCode.UNKNOWN
     assert exc.value.machine is None
-    assert exc.value.message == "Received a WSManFault message. (Code: WSManFaultCode.UNKNOWN)"
+    assert exc.value.message == "Received a WSManFault message. (Code: 2150891519 UNKNOWN)"
     assert exc.value.provider is None
     assert exc.value.provider_fault is None
     assert exc.value.provider_path is None
