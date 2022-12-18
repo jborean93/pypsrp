@@ -352,12 +352,15 @@ class AsyncWSManTransport(httpx.AsyncBaseTransport):
         self,
         url: httpx.URL,
         connection_info: WSManConnectionData,
+        auth_context: t.Optional[spnego.ContextProxy] = None,
     ) -> None:
         self._connection = httpcore.AsyncHTTPConnection(
             httpcore.Origin(url.raw_scheme, url.raw_host, url.port or 5985),
             ssl_context=connection_info.tls,
         )
 
+        self._url = url
+        self._connection_info = connection_info
         self._protocol = connection_info.auth
         self._auth_header = {
             "negotiate": "Negotiate",
@@ -365,7 +368,8 @@ class AsyncWSManTransport(httpx.AsyncBaseTransport):
             "kerberos": "Kerberos",
             "credssp": "CredSSP",
         }[self._protocol]
-        self._context: t.Optional[spnego.ContextProxy] = None
+        self._context_setup = False
+        self._context = auth_context
         self._username = connection_info.username
         self._password = connection_info.password
         self._encrypt = connection_info.message_encryption
@@ -389,11 +393,18 @@ class AsyncWSManTransport(httpx.AsyncBaseTransport):
     ) -> None:
         await self._connection.__aexit__()  # pragma: no cover # Seems like httpx doesn't call this
 
+    def copy(self) -> "AsyncWSManTransport":
+        return AsyncWSManTransport(
+            self._url,
+            self._connection_info,
+            auth_context=self._context.new_context() if self._context else None,
+        )
+
     async def handle_async_request(
         self,
         request: httpx.Request,
     ) -> httpx.Response:
-        if not self._context:
+        if not self._context_setup:
             auth_resp = await self._handle_async_auth(request)
 
             # If we didn't encrypt then the response from the auth phase contains our actual response. Also pass along
@@ -482,40 +493,46 @@ class AsyncWSManTransport(httpx.AsyncBaseTransport):
 
     async def _http11_send_request_headers_started(self, info: t.Dict[str, t.Any]) -> None:
         # The first request needs the context to be set up and the first token added as a header
-        if self._context:
+        if self._context_setup:
             return
 
-        auth_kwargs: t.Dict[str, t.Any] = {
-            "username": self._username,
-            "password": self._password,
-            "hostname": self._hostname_override,
-            "service": self._service,
-            "context_req": spnego.ContextReq.default,
-            "options": spnego.NegotiateOptions.none,
-        }
+        if self._context:
+            self._context.channel_bindings = self._channel_bindings
+        else:
+            auth_kwargs: t.Dict[str, t.Any] = {
+                "username": self._username,
+                "password": self._password,
+                "hostname": self._hostname_override,
+                "service": self._service,
+                "context_req": spnego.ContextReq.default,
+                "options": spnego.NegotiateOptions.none,
+            }
 
-        if self._protocol == "credssp":
-            if self._credssp_ssl_context:
-                auth_kwargs["credssp_tls_context"] = spnego.tls.CredSSPTLSContext(self._credssp_ssl_context)
+            if self._protocol == "credssp":
+                if self._credssp_ssl_context:
+                    auth_kwargs["credssp_tls_context"] = spnego.tls.CredSSPTLSContext(self._credssp_ssl_context)
 
-            if self._credssp_auth_mechanism != "negotiate":
-                sub_auth = spnego.client(protocol=self._credssp_auth_mechanism, **auth_kwargs)
-                auth_kwargs["credssp_negotiate_context"] = sub_auth
+                if self._credssp_auth_mechanism != "negotiate":
+                    sub_auth = spnego.client(protocol=self._credssp_auth_mechanism, **auth_kwargs)
+                    auth_kwargs["credssp_negotiate_context"] = sub_auth
 
-            if self._credssp_minimum_version is not None:
-                auth_kwargs["credssp_min_protocol"] = self._credssp_minimum_version
+                if self._credssp_minimum_version is not None:
+                    auth_kwargs["credssp_min_protocol"] = self._credssp_minimum_version
 
-        elif self._delegate:
-            auth_kwargs["context_req"] |= spnego.ContextReq.delegate
+            elif self._delegate:
+                auth_kwargs["context_req"] |= spnego.ContextReq.delegate
 
-        if self._encrypt:
-            auth_kwargs["options"] |= spnego.NegotiateOptions.wrapping_winrm
+            if self._encrypt:
+                auth_kwargs["options"] |= spnego.NegotiateOptions.wrapping_winrm
 
-        self._context = spnego.client(
-            channel_bindings=self._channel_bindings,
-            protocol=self._protocol,
-            **auth_kwargs,
-        )
+            self._context = spnego.client(
+                channel_bindings=self._channel_bindings,
+                protocol=self._protocol,
+                **auth_kwargs,
+            )
+
+        self._context_setup = True
+
         token = self._context.step() or b""
         encoded_token = base64.b64encode(token).decode()
         auth_value = f"{self._auth_header} {encoded_token}"
@@ -625,12 +642,15 @@ class SyncWSManTransport(httpx.BaseTransport):
         self,
         url: httpx.URL,
         connection_info: WSManConnectionData,
+        auth_context: t.Optional[spnego.ContextProxy] = None,
     ) -> None:
         self._connection = httpcore.HTTPConnection(
             httpcore.Origin(url.raw_scheme, url.raw_host, url.port or 5985),
             ssl_context=connection_info.tls,
         )
 
+        self._url = url
+        self._connection_info = connection_info
         self._protocol = connection_info.auth
         self._auth_header = {
             "negotiate": "Negotiate",
@@ -638,7 +658,8 @@ class SyncWSManTransport(httpx.BaseTransport):
             "kerberos": "Kerberos",
             "credssp": "CredSSP",
         }[self._protocol]
-        self._context: t.Optional[spnego.ContextProxy] = None
+        self._context_setup = False
+        self._context = auth_context
         self._username = connection_info.username
         self._password = connection_info.password
         self._encrypt = connection_info.message_encryption
@@ -662,11 +683,18 @@ class SyncWSManTransport(httpx.BaseTransport):
     ) -> None:
         self._connection.__exit__()  # pragma: no cover # Seems like httpx doesn't call this
 
+    def copy(self) -> "SyncWSManTransport":
+        return SyncWSManTransport(
+            self._url,
+            self._connection_info,
+            auth_context=self._context.new_context() if self._context else None,
+        )
+
     def handle_request(
         self,
         request: httpx.Request,
     ) -> httpx.Response:
-        if not self._context:
+        if not self._context_setup:
             auth_resp = self._handle_sync_auth(request)
 
             # If we didn't encrypt then the response from the auth phase contains our actual response. Also pass along
@@ -755,40 +783,46 @@ class SyncWSManTransport(httpx.BaseTransport):
 
     def _http11_send_request_headers_started(self, info: t.Dict[str, t.Any]) -> None:
         # The first request needs the context to be set up and the first token added as a header
-        if self._context:
+        if self._context_setup:
             return
 
-        auth_kwargs: t.Dict[str, t.Any] = {
-            "username": self._username,
-            "password": self._password,
-            "hostname": self._hostname_override,
-            "service": self._service,
-            "context_req": spnego.ContextReq.default,
-            "options": spnego.NegotiateOptions.none,
-        }
+        if self._context:
+            self._context.channel_bindings = self._channel_bindings
+        else:
+            auth_kwargs: t.Dict[str, t.Any] = {
+                "username": self._username,
+                "password": self._password,
+                "hostname": self._hostname_override,
+                "service": self._service,
+                "context_req": spnego.ContextReq.default,
+                "options": spnego.NegotiateOptions.none,
+            }
 
-        if self._protocol == "credssp":
-            if self._credssp_ssl_context:
-                auth_kwargs["credssp_tls_context"] = spnego.tls.CredSSPTLSContext(self._credssp_ssl_context)
+            if self._protocol == "credssp":
+                if self._credssp_ssl_context:
+                    auth_kwargs["credssp_tls_context"] = spnego.tls.CredSSPTLSContext(self._credssp_ssl_context)
 
-            if self._credssp_auth_mechanism != "negotiate":
-                sub_auth = spnego.client(protocol=self._credssp_auth_mechanism, **auth_kwargs)
-                auth_kwargs["credssp_negotiate_context"] = sub_auth
+                if self._credssp_auth_mechanism != "negotiate":
+                    sub_auth = spnego.client(protocol=self._credssp_auth_mechanism, **auth_kwargs)
+                    auth_kwargs["credssp_negotiate_context"] = sub_auth
 
-            if self._credssp_minimum_version is not None:
-                auth_kwargs["credssp_min_protocol"] = self._credssp_minimum_version
+                if self._credssp_minimum_version is not None:
+                    auth_kwargs["credssp_min_protocol"] = self._credssp_minimum_version
 
-        elif self._delegate:
-            auth_kwargs["context_req"] |= spnego.ContextReq.delegate
+            elif self._delegate:
+                auth_kwargs["context_req"] |= spnego.ContextReq.delegate
 
-        if self._encrypt:
-            auth_kwargs["options"] |= spnego.NegotiateOptions.wrapping_winrm
+            if self._encrypt:
+                auth_kwargs["options"] |= spnego.NegotiateOptions.wrapping_winrm
 
-        self._context = spnego.client(
-            channel_bindings=self._channel_bindings,
-            protocol=self._protocol,
-            **auth_kwargs,
-        )
+            self._context = spnego.client(
+                channel_bindings=self._channel_bindings,
+                protocol=self._protocol,
+                **auth_kwargs,
+            )
+
+        self._context_setup = True
+
         token = self._context.step() or b""
         encoded_token = base64.b64encode(token).decode()
         auth_value = f"{self._auth_header} {encoded_token}"
@@ -897,17 +931,19 @@ class AsyncWSManHTTP:
     def __init__(
         self,
         connection_info: WSManConnectionData,
+        transport: t.Optional[httpx.AsyncBaseTransport] = None,
     ) -> None:
         self.connection_uri = httpx.URL(connection_info.connection_uri)
 
-        transport: t.Optional[httpx.AsyncBaseTransport] = None
+        self._connection_info = connection_info
+        self._transport = transport
         auth_handler: t.Optional[httpx.Auth] = None
 
         if connection_info.auth == "basic":
             auth_handler = httpx.BasicAuth(connection_info.username or "", connection_info.password or "")
 
-        elif connection_info.auth in ["credssp", "kerberos", "negotiate", "ntlm"]:
-            transport = AsyncWSManTransport(self.connection_uri, connection_info)
+        elif not self._transport and connection_info.auth in ["credssp", "kerberos", "negotiate", "ntlm"]:
+            self._transport = AsyncWSManTransport(self.connection_uri, connection_info)
 
         self._http = httpx.AsyncClient(
             headers=connection_info._get_default_headers(),
@@ -916,7 +952,7 @@ class AsyncWSManHTTP:
                 connect=connection_info.connection_timeout,
                 read=connection_info.read_timeout,
             ),
-            transport=transport,
+            transport=self._transport,
             auth=auth_handler,
             verify=connection_info.tls,
         )
@@ -932,6 +968,13 @@ class AsyncWSManHTTP:
         **kwargs: t.Any,
     ) -> None:
         await self.close()
+
+    def copy(self) -> "AsyncWSManHTTP":
+        transport = None
+        if isinstance(self._transport, AsyncWSManTransport):
+            transport = self._transport.copy()
+
+        return AsyncWSManHTTP(self._connection_info, transport=transport)
 
     async def post(
         self,
@@ -1002,17 +1045,19 @@ class SyncWSManHTTP:
     def __init__(
         self,
         connection_info: WSManConnectionData,
+        transport: t.Optional[httpx.BaseTransport] = None,
     ) -> None:
         self.connection_uri = httpx.URL(connection_info.connection_uri)
 
-        transport: t.Optional[httpx.BaseTransport] = None
+        self._connection_info = connection_info
+        self._transport = transport
         auth_handler: t.Optional[httpx.Auth] = None
 
         if connection_info.auth == "basic":
             auth_handler = httpx.BasicAuth(connection_info.username or "", connection_info.password or "")
 
-        elif connection_info.auth in ["credssp", "kerberos", "negotiate", "ntlm"]:
-            transport = SyncWSManTransport(self.connection_uri, connection_info)
+        elif not transport and connection_info.auth in ["credssp", "kerberos", "negotiate", "ntlm"]:
+            self._transport = SyncWSManTransport(self.connection_uri, connection_info)
 
         self._http = httpx.Client(
             headers=connection_info._get_default_headers(),
@@ -1021,7 +1066,7 @@ class SyncWSManHTTP:
                 connect=connection_info.connection_timeout,
                 read=connection_info.read_timeout,
             ),
-            transport=transport,
+            transport=self._transport,
             auth=auth_handler,
             verify=connection_info.tls,
         )
@@ -1037,6 +1082,13 @@ class SyncWSManHTTP:
         **kwargs: t.Any,
     ) -> None:
         self.close()
+
+    def copy(self) -> "SyncWSManHTTP":
+        transport = None
+        if isinstance(self._transport, SyncWSManTransport):
+            transport = self._transport.copy()
+
+        return SyncWSManHTTP(self._connection_info, transport=transport)
 
     def post(
         self,

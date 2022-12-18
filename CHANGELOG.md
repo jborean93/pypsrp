@@ -5,6 +5,7 @@
 * Ensure the outgoing send buffer won't get too small to fit extra fragments
 * Fix up certificate authentication over TLS 1.3 connections - Python 3.8 only
 * Bump minimum Python version to 3.7
+* Cache Kerberos credentials to speed up re-authentication when starting a new WSMan connection on another thread
 
 ## 1.0.0b1 - 2022-05-27
 

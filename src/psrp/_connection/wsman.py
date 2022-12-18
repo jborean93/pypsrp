@@ -684,7 +684,7 @@ class SyncWSManConnection(SyncConnection):
         if pipeline_id:
             command_id = self._pipeline_lookup[pipeline_id]
 
-        with SyncWSManHTTP(self._info.connection_info) as conn:
+        with self._connection.copy() as conn:
             try:
                 while True:
                     self._shell.receive("stdout", command_id=command_id)
@@ -1042,7 +1042,7 @@ class AsyncWSManConnection(AsyncConnection):
         if pipeline_id:
             command_id = self._pipeline_lookup[pipeline_id]
 
-        async with AsyncWSManHTTP(self._info.connection_info) as conn:
+        async with self._connection.copy() as conn:
             try:
                 while True:
                     self._shell.receive("stdout", command_id=command_id)
