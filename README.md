@@ -304,6 +304,93 @@ async def invoke_ps(conn: psrp.ConnectionInfo, script: str) -> None:
 Uses the high level API to execute a PowerShell script and print out any errors that are returned.
 
 
+### Authenticating with Exchange Online
+
+This shows you how to connect against Exchange Online with the Python [MSAL library](https://github.com/AzureAD/microsoft-authentication-library-for-python).
+
+```python
+import hashlib
+
+import msal
+import psrp
+
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    NoEncryption,
+    PrivateFormat,
+)
+from cryptography.hazmat.primitives.serialization.pkcs12 import (
+    load_key_and_certificates,
+)
+
+def get_msal_token(
+    organization: str,
+    client_id: str,
+    pfx_path: str,
+    pfx_password: str | None,
+) -> str:
+    private_key, main_cert, add_certs = load_key_and_certificates(
+        pfx,
+        pfx_password.encode("utf-8") if pfx_password else None,
+        None
+    )
+    assert private_key is not None
+    assert main_cert is not None
+    key = private_key.private_bytes(
+        Encoding.PEM,
+        PrivateFormat.PKCS8,
+        NoEncryption(),
+    ).decode()
+
+    cert_thumbprint = hashlib.sha1()
+    cert_thumbprint.update(main_cert.public_bytes(Encoding.DER))
+
+    app = msal.ConfidentialClientApplication(
+        authority=f"https://login.microsoftonline.com/{organization}",
+        client_id=client_id,
+        client_credential={
+            "private_key": key,
+            "thumbprint": cert_thumbprint.hexdigest().upper(),
+        },
+    )
+
+    result = app.acquire_token_for_client(scopes=[
+        "https://outlook.office365.com/.default"
+    ])
+    if err := result.get("error", None):
+        msg = f"Failed to get MSAL token {err} - {result['error_description']}"
+        raise Exception(msg)
+
+    return f"{result['token_type']} {result['access_token']}"
+
+
+def main() -> None:
+    tenant_id = "00000000-0000-0000-0000-000000000000"
+
+    # This is the ID of the Application Role to authenticate as
+    client_id = "00000000-0000-0000-0000-000000000000"
+
+    msal_token = get_msal_token(
+        "test.onmicrosoft.com",
+        client_id,
+        "exchange.pfx",
+        "cert-password"
+    )
+
+    conn_info = psrp.WSManInfo(
+        server="https://outlook.office365.com/PowerShell-LiveId?BasicAuthToOAuthConversion=true",
+        auth="basic",
+        username=f"OAuthUser@{tenant_id}",
+        password=msal_token,
+        configuration_name="Microsoft.Exchange",
+    )
+
+    with psrp.SyncRunspacePool(conn_info) = rp:
+        ps = psrp.SyncPowerShell(rp)
+        ps.add_command("Get-Mailbox")
+        print(ps.invoke())
+```
+
 ## Logging
 
 This library takes advantage of the Python logging configuration and messages are logged to the following named loggers
