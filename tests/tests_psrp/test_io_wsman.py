@@ -189,6 +189,7 @@ def test_connection_with_cert_auth(keypair: pathlib.Path) -> None:
 
     assert headers == {
         "Accept-Encoding": "identity",
+        "Content-Type": "application/soap+xml;charset=UTF-8",
         "User-Agent": "Python PSRP Client",
         "Authorization": "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual",
     }
@@ -221,6 +222,7 @@ def test_connection_with_cert_auth_separate_key(keypair: pathlib.Path, tmpdir: p
 
     assert headers == {
         "Accept-Encoding": "identity",
+        "Content-Type": "application/soap+xml;charset=UTF-8",
         "User-Agent": "Python PSRP Client",
         "Authorization": "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual",
     }
@@ -265,6 +267,7 @@ def test_connection_with_cert_auth_separate_password_protected_key(
 
     assert headers == {
         "Accept-Encoding": "identity",
+        "Content-Type": "application/soap+xml;charset=UTF-8",
         "User-Agent": "Python PSRP Client",
         "Authorization": "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual",
     }
