@@ -6,6 +6,9 @@
 * Fix up certificate authentication over TLS 1.3 connections - Python 3.8 only
 * Bump minimum Python version to 3.7
 * Cache Kerberos credentials to speed up re-authentication when starting a new WSMan connection on another thread
+* Fix deadlock when receiving certain WSManFault errors outside of a close operation
+* Fix invalid selector error when connecting to Exchange Online by re-using proper cookies
+* Fix connection info URI builder when targeting the default HTTP and HTTPS port 80/443
 
 ## 1.0.0b1 - 2022-05-27
 

@@ -476,8 +476,8 @@ class SyncWSManConnection(SyncConnection):
         pipeline_id: t.Optional[uuid.UUID] = None,
     ) -> None:
         if pipeline_id and pipeline_id in self._listener_tasks:
-            self.signal(pipeline_id, signal_code=SignalCode.TERMINATE)
             pipeline_task = self._listener_tasks.pop(pipeline_id)
+            self.signal(pipeline_id, signal_code=SignalCode.TERMINATE)
             pipeline_task.join()
             del self._pipeline_lookup[pipeline_id]
 
@@ -635,9 +635,15 @@ class SyncWSManConnection(SyncConnection):
             idle_str = f"PT{self._info.idle_timeout}S"
             ElementTree.SubElement(disconnect, "{%s}IdleTimeout" % rsp).text = idle_str
 
+        listener_tasks = self._listener_tasks.values()
+        self._listener_tasks = {}
+
         self._shell.wsman.disconnect(self._shell.resource_uri, disconnect, selector_set=self._shell.selector_set)
         resp = self._connection.post(self._shell.data_to_send())
         self._shell.receive_data(resp)
+
+        for task in listener_tasks:
+            task.join()
 
         pool = self.get_runspace_pool()
         for pipeline_id, pipe in pool.pipeline_table.items():
@@ -654,9 +660,6 @@ class SyncWSManConnection(SyncConnection):
                 pipeline_id=pipeline_id,
             )
             self.process_response(disconnected_event)
-
-        for pid in list(self._listener_tasks.keys()):
-            self._listener_tasks.pop(pid).join()
 
     def reconnect(self) -> None:
         self._shell.wsman.reconnect(self._shell.resource_uri, selector_set=self._shell.selector_set)
@@ -704,8 +707,12 @@ class SyncWSManConnection(SyncConnection):
                         ServiceStreamDisconnected,
                         ShellDisconnected,
                     ):
-                        # Received when the shell or pipeline has been closed
-                        break
+                        if pipeline_id not in self._listener_tasks:
+                            # Received when the shell or pipeline has been closed
+                            break
+
+                        else:
+                            raise
 
                     stream_data = event.streams.get("stdout", [])
                     for psrp_data in stream_data:
@@ -839,8 +846,9 @@ class AsyncWSManConnection(AsyncConnection):
         pipeline_id: t.Optional[uuid.UUID] = None,
     ) -> None:
         if pipeline_id and pipeline_id in self._listener_tasks:
-            await self.signal(pipeline_id, signal_code=SignalCode.TERMINATE)
             pipeline_task = self._listener_tasks.pop(pipeline_id)
+
+            await self.signal(pipeline_id, signal_code=SignalCode.TERMINATE)
             await pipeline_task
             del self._pipeline_lookup[pipeline_id]
 
@@ -994,9 +1002,13 @@ class AsyncWSManConnection(AsyncConnection):
             idle_str = f"PT{self._info.idle_timeout}S"
             ElementTree.SubElement(disconnect, "{%s}IdleTimeout" % rsp).text = idle_str
 
+        listener_tasks = self._listener_tasks
+        self._listener_tasks = {}
         self._shell.wsman.disconnect(self._shell.resource_uri, disconnect, selector_set=self._shell.selector_set)
         resp = await self._connection.post(self._shell.data_to_send())
         self._shell.receive_data(resp)
+
+        await asyncio.gather(*listener_tasks.values())
 
         pool = self.get_runspace_pool()
         for pipeline_id, pipe in pool.pipeline_table.items():
@@ -1013,9 +1025,6 @@ class AsyncWSManConnection(AsyncConnection):
                 pipeline_id=pipeline_id,
             )
             await self.process_response(disconnected_event)
-
-        await asyncio.gather(*self._listener_tasks.values())
-        self._listener_tasks = {}
 
     async def reconnect(self) -> None:
         self._shell.wsman.reconnect(self._shell.resource_uri, selector_set=self._shell.selector_set)
@@ -1062,8 +1071,12 @@ class AsyncWSManConnection(AsyncConnection):
                         ServiceStreamDisconnected,
                         ShellDisconnected,
                     ) as e:
-                        # Received when the shell or pipeline has been closed
-                        break
+                        if pipeline_id not in self._listener_tasks:
+                            # Received when the shell or pipeline has been closed
+                            break
+
+                        else:
+                            raise
 
                     stream_data = event.streams.get("stdout", [])
                     for psrp_data in stream_data:

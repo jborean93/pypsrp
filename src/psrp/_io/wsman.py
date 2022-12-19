@@ -218,6 +218,7 @@ class WSManConnectionData:
 
         if raw_url.is_absolute_url:
             object.__setattr__(self, "connection_uri", server)
+            scheme = raw_url.scheme
         else:
 
             try:
@@ -291,6 +292,7 @@ class WSManConnectionData:
         # support. https://tools.ietf.org/html/rfc7231#section-5.3.4
         headers: t.Dict[str, str] = {
             "Accept-Encoding": "identity",
+            "Content-Type": "application/soap+xml;charset=UTF-8",
             "User-Agent": "Python PSRP Client",
         }
 
@@ -355,7 +357,11 @@ class AsyncWSManTransport(httpx.AsyncBaseTransport):
         auth_context: t.Optional[spnego.ContextProxy] = None,
     ) -> None:
         self._connection = httpcore.AsyncHTTPConnection(
-            httpcore.Origin(url.raw_scheme, url.raw_host, url.port or 5985),
+            httpcore.Origin(
+                url.raw_scheme,
+                url.raw_host,
+                url.port or (80 if url.raw_scheme == b"http" else 443),
+            ),
             ssl_context=connection_info.tls,
         )
 
@@ -645,7 +651,11 @@ class SyncWSManTransport(httpx.BaseTransport):
         auth_context: t.Optional[spnego.ContextProxy] = None,
     ) -> None:
         self._connection = httpcore.HTTPConnection(
-            httpcore.Origin(url.raw_scheme, url.raw_host, url.port or 5985),
+            httpcore.Origin(
+                url.raw_scheme,
+                url.raw_host,
+                url.port or (80 if url.raw_scheme == b"http" else 443),
+            ),
             ssl_context=connection_info.tls,
         )
 
@@ -932,6 +942,7 @@ class AsyncWSManHTTP:
         self,
         connection_info: WSManConnectionData,
         transport: t.Optional[httpx.AsyncBaseTransport] = None,
+        wsman_cookies: t.Optional[httpx.Cookies] = None,
     ) -> None:
         self.connection_uri = httpx.URL(connection_info.connection_uri)
 
@@ -946,6 +957,7 @@ class AsyncWSManHTTP:
             self._transport = AsyncWSManTransport(self.connection_uri, connection_info)
 
         self._http = httpx.AsyncClient(
+            cookies=wsman_cookies,
             headers=connection_info._get_default_headers(),
             timeout=httpx.Timeout(
                 max(connection_info.connection_timeout, connection_info.read_timeout),
@@ -974,7 +986,11 @@ class AsyncWSManHTTP:
         if isinstance(self._transport, AsyncWSManTransport):
             transport = self._transport.copy()
 
-        return AsyncWSManHTTP(self._connection_info, transport=transport)
+        return AsyncWSManHTTP(
+            self._connection_info,
+            transport=transport,
+            wsman_cookies=self._http.cookies,
+        )
 
     async def post(
         self,
@@ -1004,12 +1020,14 @@ class AsyncWSManHTTP:
             ext = {"trace": trace}
 
         async with self._conn_lock:
+            headers = {}
+            if self._http.cookies:
+                headers["Cookie"] = "; ".join([f"{c}={v}" for c, v in self._http.cookies.items()])
+
             response = await self._http.post(
                 self.connection_uri,
                 content=data,
-                headers={
-                    "Content-Type": "application/soap+xml;charset=UTF-8",
-                },
+                headers=headers,
                 extensions=ext,
             )
 
@@ -1046,6 +1064,7 @@ class SyncWSManHTTP:
         self,
         connection_info: WSManConnectionData,
         transport: t.Optional[httpx.BaseTransport] = None,
+        wsman_cookies: t.Optional[httpx.Cookies] = None,
     ) -> None:
         self.connection_uri = httpx.URL(connection_info.connection_uri)
 
@@ -1060,6 +1079,7 @@ class SyncWSManHTTP:
             self._transport = SyncWSManTransport(self.connection_uri, connection_info)
 
         self._http = httpx.Client(
+            cookies=wsman_cookies,
             headers=connection_info._get_default_headers(),
             timeout=httpx.Timeout(
                 max(connection_info.connection_timeout, connection_info.read_timeout),
@@ -1088,7 +1108,11 @@ class SyncWSManHTTP:
         if isinstance(self._transport, SyncWSManTransport):
             transport = self._transport.copy()
 
-        return SyncWSManHTTP(self._connection_info, transport=transport)
+        return SyncWSManHTTP(
+            self._connection_info,
+            transport=transport,
+            wsman_cookies=self._http.cookies,
+        )
 
     def post(
         self,
@@ -1118,12 +1142,14 @@ class SyncWSManHTTP:
             ext = {"trace": trace}
 
         with self._conn_lock:
+            headers = {}
+            if self._http.cookies:
+                headers["Cookie"] = "; ".join([f"{c}={v}" for c, v in self._http.cookies.items()])
+
             response = self._http.post(
                 self.connection_uri,
                 content=data,
-                headers={
-                    "Content-Type": "application/soap+xml;charset=UTF-8",
-                },
+                headers=headers,
                 extensions=ext,
             )
 
