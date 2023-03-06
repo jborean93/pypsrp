@@ -65,7 +65,7 @@ def gen_rsa_keypair(public_exponent, key_size, backend):
 
     public_numbers = rsa.RSAPublicNumbers(e, n)
     numbers = rsa.RSAPrivateNumbers(p, q, d, dmp1, dmq1, iqmp, public_numbers)
-    key = default_backend().load_rsa_private_numbers(numbers)
+    key = numbers.private_key()
 
     return key
 

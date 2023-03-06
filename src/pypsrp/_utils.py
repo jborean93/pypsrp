@@ -107,7 +107,6 @@ def get_pwsh_script(name: str) -> str:
     block_comment = False
     new_lines = []
     for line in script.splitlines():
-
         line = line.strip()
         if block_comment:
             block_comment = not line.endswith("#>")
