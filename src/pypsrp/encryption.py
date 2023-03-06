@@ -10,7 +10,6 @@ log = logging.getLogger(__name__)
 
 
 class WinRMEncryption(object):
-
     SIXTEEN_KB = 16384
     MIME_BOUNDARY = "--Encrypted Boundary"
     CREDSSP = "application/HTTP-CredSSP-session-encrypted"

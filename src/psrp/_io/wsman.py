@@ -220,7 +220,6 @@ class WSManConnectionData:
             object.__setattr__(self, "connection_uri", server)
             scheme = raw_url.scheme
         else:
-
             try:
                 address = ipaddress.IPv6Address(server)
             except ipaddress.AddressValueError:
@@ -435,7 +434,7 @@ class AsyncWSManTransport(httpx.AsyncBaseTransport):
     ) -> httpx.Response:
         headers = request.headers.copy()
         stream: t.Union[bytes, httpx.AsyncByteStream, httpx.SyncByteStream] = request.stream
-        ext = request.extensions.copy()
+        ext = t.cast(dict, request.extensions).copy()
         if "trace" in ext:
             trace_func = functools.partial(self.trace, trace=ext["trace"])
             ext["trace"] = trace_func
@@ -729,7 +728,7 @@ class SyncWSManTransport(httpx.BaseTransport):
     ) -> httpx.Response:
         headers = request.headers.copy()
         stream: t.Union[bytes, httpx.AsyncByteStream, httpx.SyncByteStream] = request.stream
-        ext = request.extensions.copy()
+        ext = t.cast(dict, request.extensions).copy()
         if "trace" in ext:
             trace_func = functools.partial(self.trace, trace=ext["trace"])
             ext["trace"] = trace_func

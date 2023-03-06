@@ -45,7 +45,6 @@ class TestEnum(object):
 
 
 class TestHostInfo(object):
-
     HOST_XML = """<Obj RefId="0">
             <MS>
                 <Obj N="_hostDefaultData" RefId="1">
@@ -239,7 +238,6 @@ class TestRemoteStreamOptions(object):
 
 
 class TestPipeline(object):
-
     PIPE_SINGLE = """<Obj RefId="0">
         <MS>
             <B N="IsNested">false</B>
@@ -772,7 +770,6 @@ class TestPipelineResultTypes(object):
 
 
 class TestBufferCell(object):
-
     BUFFER_CELL = """<Obj RefId="0">
     <Props>
         <C N="character">65</C>
@@ -822,7 +819,6 @@ class TestBufferCell(object):
 
 
 class TestArray(object):
-
     SINGLE_ARRAY = """<Obj RefId="0">
     <MS>
         <Obj N="mae" RefId="1">
