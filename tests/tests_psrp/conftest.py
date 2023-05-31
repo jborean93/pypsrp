@@ -125,20 +125,3 @@ def psrp_named_pipe() -> t.Iterator[psrp.ConnectionInfo]:
 
     finally:
         proc.terminate()
-
-
-@pytest.fixture()
-def event_loop():
-    # Older Python versions on Windows use a event loop policy that doesn't
-    # support subprocesses. Will need to use the ProactorEventLoop to test out
-    # those scenarios on the older versions.
-    # https://github.com/pytest-dev/pytest-asyncio/issues/227
-    if sys.platform == "win32" and sys.version_info < (3, 8):
-        loop = asyncio.ProactorEventLoop()
-    else:
-        loop = asyncio.get_event_loop_policy().get_event_loop()
-
-    try:
-        yield loop
-    finally:
-        loop.close()

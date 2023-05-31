@@ -36,15 +36,6 @@ class ProcessInfo(ConnectionInfo):
     `-Version` entry is cruical to not running in version 2.0 compatibility
     mode.
 
-    When using Python 3.6 or 3.7 on Windows the ``ProactorEventLoop`` event
-    loop must be used to create an asyncio subprocess. This can be done by
-    settings.
-
-    Example:
-        To set the ``ProactorEventLoop`` event loop on Windows do::
-
-            asycnio.set_event_loop_policy(asyncio.ProactorEventLoop())
-
     Args:
         executable: The executable to run, defaults to `pwsh`.
         arguments: A list of arguments to run, when the executable is `pwsh`

@@ -53,7 +53,6 @@ from psrpcore.types import (
     WarningRecord,
 )
 
-from ._compat import SupportsIndex
 from ._connection.connection import ConnectionInfo, SyncConnection
 from ._exceptions import (
     PipelineFailed,
@@ -156,7 +155,7 @@ class SyncPSDataCollection(t.Generic[T], t.List[T]):
 
     def insert(
         self,
-        index: SupportsIndex,
+        index: t.SupportsIndex,
         value: T,
     ) -> None:
         if self.completed:

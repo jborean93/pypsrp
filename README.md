@@ -31,7 +31,7 @@ To support Kerberos the `kerberos` extras package must be installed.
 
 See `How to Install` for more details
 
-* CPython 3.7+
+* CPython 3.8+
 * [cryptography](https://github.com/pyca/cryptography)
 * [psrpcore](https://github.com/jborean93/psrpcore)
 * [pyspnego](https://github.com/jborean93/pyspnego)

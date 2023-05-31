@@ -53,7 +53,6 @@ from psrpcore.types import (
     WarningRecord,
 )
 
-from ._compat import SupportsIndex, iscoroutinefunction
 from ._connection.connection import AsyncConnection, ConnectionInfo
 from ._exceptions import (
     PipelineFailed,
@@ -156,7 +155,7 @@ class AsyncPSDataCollection(t.Generic[T], t.List[T]):
 
     def insert(
         self,
-        index: SupportsIndex,
+        index: t.SupportsIndex,
         value: T,
     ) -> None:
         if self.completed:
@@ -848,7 +847,7 @@ class AsyncRunspacePool:
 
         error_record = None
         try:
-            if iscoroutinefunction(func):
+            if asyncio.iscoroutinefunction(func):
                 return_value = await func()
             else:
                 return_value = func()

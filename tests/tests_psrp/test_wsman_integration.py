@@ -13,7 +13,6 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 import psrp
-from psrp._compat import Literal
 
 
 def get_server() -> str:
@@ -39,14 +38,12 @@ def get_certificate_credential() -> str:
     cred_path = os.environ.get("PYPSRP_CERT_PATH", None)
     if not cred_path:
         pytest.skip("WSMan certificate integration test requires PYPSRP_CERT_PATH to be defined")
-    elif sys.version_info[:2] < (3, 8):
-        pytest.skip("Cert auth over TLS 1.3 requires Python 3.8 or newer")
 
     return cred_path
 
 
 @pytest.mark.parametrize("scheme", ["http", "https"])
-def test_wsman_basic_sync(scheme: Literal["http", "https"]) -> None:
+def test_wsman_basic_sync(scheme: t.Literal["http", "https"]) -> None:
     username, password = get_username_password()
     if "\\" in username:
         username = username.split("\\")[1]
@@ -71,7 +68,7 @@ def test_wsman_basic_sync(scheme: Literal["http", "https"]) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scheme", ["http", "https"])
-async def test_wsman_basic_async(scheme: Literal["http", "https"]) -> None:
+async def test_wsman_basic_async(scheme: t.Literal["http", "https"]) -> None:
     username, password = get_username_password()
     if "\\" in username:
         username = username.split("\\")[1]
@@ -204,7 +201,7 @@ async def test_wsman_cert_async(input_type: str, tmpdir: pathlib.Path) -> None:
 
 
 @pytest.mark.parametrize("scheme", ["http", "https"])
-def test_wsman_ntlm_sync(scheme: Literal["http", "https"]) -> None:
+def test_wsman_ntlm_sync(scheme: t.Literal["http", "https"]) -> None:
     username, password = get_username_password()
     connection = psrp.WSManInfo(
         server=get_server(),
@@ -226,7 +223,7 @@ def test_wsman_ntlm_sync(scheme: Literal["http", "https"]) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scheme", ["http", "https"])
-async def test_wsman_ntlm_async(scheme: Literal["http", "https"]) -> None:
+async def test_wsman_ntlm_async(scheme: t.Literal["http", "https"]) -> None:
     username, password = get_username_password()
     connection = psrp.WSManInfo(
         server=get_server(),
@@ -247,7 +244,7 @@ async def test_wsman_ntlm_async(scheme: Literal["http", "https"]) -> None:
 
 
 @pytest.mark.parametrize("scheme", ["http", "https"])
-def test_wsman_credssp_sync(scheme: Literal["http", "https"]) -> None:
+def test_wsman_credssp_sync(scheme: t.Literal["http", "https"]) -> None:
     username, password = get_username_password()
     connection = psrp.WSManInfo(
         server=get_server(),
@@ -268,7 +265,7 @@ def test_wsman_credssp_sync(scheme: Literal["http", "https"]) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scheme", ["http", "https"])
-async def test_wsman_credssp_async(scheme: Literal["http", "https"]) -> None:
+async def test_wsman_credssp_async(scheme: t.Literal["http", "https"]) -> None:
     username, password = get_username_password()
     connection = psrp.WSManInfo(
         server=get_server(),
@@ -288,7 +285,7 @@ async def test_wsman_credssp_async(scheme: Literal["http", "https"]) -> None:
 
 
 @pytest.mark.parametrize("scheme", ["http", "https"])
-def test_wsman_credssp__with_subauth_and_tls_sync(scheme: Literal["http", "https"]) -> None:
+def test_wsman_credssp__with_subauth_and_tls_sync(scheme: t.Literal["http", "https"]) -> None:
     username, password = get_username_password()
     connection = psrp.WSManInfo(
         server=get_server(),
@@ -312,7 +309,7 @@ def test_wsman_credssp__with_subauth_and_tls_sync(scheme: Literal["http", "https
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scheme", ["http", "https"])
-async def test_wsman_credssp_with_subauth_and_tls_async(scheme: Literal["http", "https"]) -> None:
+async def test_wsman_credssp_with_subauth_and_tls_async(scheme: t.Literal["http", "https"]) -> None:
     username, password = get_username_password()
     connection = psrp.WSManInfo(
         server=get_server(),

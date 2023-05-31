@@ -2,9 +2,10 @@
 
 ## 1.0.0b2 - TBD
 
+* Bump minimum Python version to 3.8
+* Use setuptools with `pyproject.toml` as the project definition
 * Ensure the outgoing send buffer won't get too small to fit extra fragments
-* Fix up certificate authentication over TLS 1.3 connections - Python 3.8 only
-* Bump minimum Python version to 3.7
+* Fix up certificate authentication over TLS 1.3 connections
 * Cache Kerberos credentials to speed up re-authentication when starting a new WSMan connection on another thread
 * Fix deadlock when receiving certain WSManFault errors outside of a close operation
 * Fix invalid selector error when connecting to Exchange Online by re-using proper cookies

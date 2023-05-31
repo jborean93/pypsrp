@@ -91,13 +91,14 @@ lib::setup::python_requirements() {
         DIST_LINK_PATH="${PWD}/dist"
     fi
 
-    python -m pip install pypsrp \
-        --no-index \
+
+    # Getting the version is important so that pip prioritises our local dist
+    python -m pip install build
+    PSRP_VERSION="$( python -c "import build.util; print(build.util.project_wheel_metadata('.').get('Version'))" )"
+
+    python -m pip install pypsrp[credssp,kerberos,named_pipe,ssh]=="${PSRP_VERSION}" \
         --find-links "file://${DIST_LINK_PATH}" \
-        --no-build-isolation \
-        --no-dependencies \
         --verbose
-    python -m pip install pypsrp[credssp,kerberos,named_pipe,socks,ssh]
 
     echo "Installing dev dependencies"
     python -m pip install -r requirements-dev.txt
