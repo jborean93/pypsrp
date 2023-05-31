@@ -25,7 +25,6 @@ from psrpcore.types import (
     RunspacePoolStateMsg,
 )
 
-from psrp._compat import Literal
 from psrp._connection.connection import (
     AsyncConnection,
     AsyncEventCallable,
@@ -194,14 +193,6 @@ class WSManInfo(ConnectionInfo):
     create the initial SSLContext using that method and make the required
     changes on that instead of starting from scratch.
 
-    Asyncio on Windows can have problems with closing the vent loop. Using the
-    ``ProactorEventLoop`` event loop may solve some of those issues.
-
-    Example:
-        To set the ``ProactorEventLoop`` event loop on Windows do::
-
-            asycnio.set_event_loop_policy(asyncio.ProactorEventLoop())
-
     Args:
         server: The server/hostname/IP/URI to use for connecting to the target.
             The full URI can be passed in here or just the hostname portion. If
@@ -296,16 +287,16 @@ class WSManInfo(ConnectionInfo):
         self,
         server: str,
         *,
-        scheme: t.Optional[Literal["http", "https"]] = None,
+        scheme: t.Optional[t.Literal["http", "https"]] = None,
         port: int = -1,  # Depends on the scheme (5985 if http else 5096)
         path: str = "wsman",
-        encryption: Literal["always", "auto", "never"] = "auto",
+        encryption: t.Literal["always", "auto", "never"] = "auto",
         ssl_context: t.Optional[ssl.SSLContext] = None,
         verify: t.Union[str, bool] = True,
         connection_timeout: float = 30.0,
         read_timeout: float = 30.0,
         # Authentication
-        auth: Literal["basic", "certificate", "credssp", "kerberos", "negotiate", "ntlm"] = "negotiate",
+        auth: t.Literal["basic", "certificate", "credssp", "kerberos", "negotiate", "ntlm"] = "negotiate",
         username: t.Optional[str] = None,
         password: t.Optional[str] = None,
         # Cert auth
@@ -319,7 +310,7 @@ class WSManInfo(ConnectionInfo):
         negotiate_send_cbt: bool = True,
         # CredSSP
         credssp_ssl_context: t.Optional[ssl.SSLContext] = None,
-        credssp_auth_mechanism: Literal["kerberos", "negotiate", "ntlm"] = "negotiate",
+        credssp_auth_mechanism: t.Literal["kerberos", "negotiate", "ntlm"] = "negotiate",
         credssp_minimum_version: t.Optional[int] = None,
         # PSRP/WinRM Protocol
         max_envelope_size: t.Optional[int] = None,

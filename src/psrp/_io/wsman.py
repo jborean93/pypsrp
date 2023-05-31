@@ -24,7 +24,6 @@ from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 
-from psrp._compat import Literal
 from psrp._exceptions import WSManHTTPError
 
 log = logging.getLogger(__name__)
@@ -175,10 +174,10 @@ class WSManConnectionData:
     tls: ssl.SSLContext = dataclasses.field(init=False)
 
     server: dataclasses.InitVar[str]
-    scheme: dataclasses.InitVar[t.Optional[Literal["http", "https"]]] = None
+    scheme: dataclasses.InitVar[t.Optional[t.Literal["http", "https"]]] = None
     port: dataclasses.InitVar[int] = -1  # Default is 5985 with http and 5986 with https
     path: dataclasses.InitVar[str] = "wsman"
-    encryption: Literal["always", "auto", "never"] = "auto"
+    encryption: t.Literal["always", "auto", "never"] = "auto"
     ssl_context: t.Optional[ssl.SSLContext] = None
     verify: dataclasses.InitVar[t.Union[str, bool]] = True
 
@@ -186,7 +185,7 @@ class WSManConnectionData:
     read_timeout: float = 30.0
 
     # Authentication
-    auth: Literal["basic", "certificate", "credssp", "kerberos", "negotiate", "ntlm"] = "negotiate"
+    auth: t.Literal["basic", "certificate", "credssp", "kerberos", "negotiate", "ntlm"] = "negotiate"
     username: t.Optional[str] = None
     password: t.Optional[str] = dataclasses.field(repr=False, default=None)
     # Cert auth
@@ -200,7 +199,7 @@ class WSManConnectionData:
     negotiate_send_cbt: bool = True
     # CredSSP
     credssp_ssl_context: t.Optional[ssl.SSLContext] = None
-    credssp_auth_mechanism: Literal["kerberos", "negotiate", "ntlm"] = "negotiate"
+    credssp_auth_mechanism: t.Literal["kerberos", "negotiate", "ntlm"] = "negotiate"
     credssp_minimum_version: t.Optional[int] = None
 
     # FUTURE: reconnection settings
@@ -255,10 +254,9 @@ class WSManConnectionData:
                 password=self.certificate_key_password,
             )
 
-            # Needed for cert auth on TLS 1.3, unfortunately is a Python 3.8
-            # only feature.
-            if hasattr(self.tls, "post_handshake_auth"):
-                self.tls.post_handshake_auth = True
+            # Needed for cert auth on TLS 1.3 as WSMan requests the cert after
+            # the TLS handshake.
+            self.tls.post_handshake_auth = True
 
         encryption = self.encryption.lower()
         if encryption == "always":

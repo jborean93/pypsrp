@@ -1,6 +1,66 @@
 [build-system]
-requires = ["setuptools>=42.0.0"]
+requires = [
+    "setuptools >= 61.0.0",  # Support for setuptools config in pyproject.toml
+]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "pypsrp"
+version = "1.0.0b2"
+description = "PowerShell Remoting Protocol and WinRM for Python"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {file = "LICENSE"}
+authors = [
+    { name = "Jordan Borean", email = "jborean93@gmail.com" }
+]
+keywords = ["winrm", "psrp", "winrs", "windows", "powershell"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11"
+]
+dependencies = [
+    "cryptography",
+    "httpcore < 1.0.0",
+    "httpx < 1.0.0",
+    "psrpcore >= 0.1.2",
+    "pyspnego >= 0.7.0, < 1.0.0",
+    "requests >= 2.9.1"  # Old pypsrp namespace
+]
+
+[project.urls]
+homepage = "https://github.com/jborean93/pypsrp"
+
+[project.optional-dependencies]
+credssp = [
+    "requests-credssp >= 2.0.0"
+]
+kerberos = [
+    "pyspnego[kerberos]"
+]
+named_pipe = [
+    "psutil"
+]
+ssh = [
+    "asyncssh"
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+psrp = ["py.typed"]
+"psrp._pwsh" = ["*.ps1"]
+pypsrp = ["py.typed"]
+"pypsrp.pwsh_scripts" = ["*.ps1"]
 
 [tool.black]
 line-length = 120
@@ -42,10 +102,6 @@ disallow_untyped_defs = true
 check_untyped_defs = true
 warn_return_any = true
 warn_unreachable = true
-
-[[tool.mypy.overrides]]
-module = "psrp._compat"
-warn_unused_ignores = false
 
 [[tool.mypy.overrides]]
 module = "psrp._connection.named_pipe"

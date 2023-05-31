@@ -18,7 +18,6 @@ from cryptography.hazmat.primitives.serialization import (
     load_pem_private_key,
 )
 
-from psrp._compat import Literal
 from psrp._io import wsman
 
 WrapWinRMResult = collections.namedtuple("WrapWinRMResult", ["header", "data", "padding_length"])
@@ -170,8 +169,8 @@ def test_connection_info_encryption_always_with_invalid_auth():
     ],
 )
 def test_connection_info_message_encryption(
-    scheme: Literal["http", "https"],
-    encryption: Literal["always", "auto", "never"],
+    scheme: t.Literal["http", "https"],
+    encryption: t.Literal["always", "auto", "never"],
     expected: bool,
 ) -> None:
     actual = wsman.WSManConnectionData("server", scheme=scheme, auth="ntlm", encryption=encryption)

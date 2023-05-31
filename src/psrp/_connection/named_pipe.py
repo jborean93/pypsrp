@@ -92,15 +92,6 @@ class NamedPipeInfo(ConnectionInfo):
     an integer for the name it will be configured to connect to the PowerShell
     host pipe of that process rather than an explicit pipe/socket name.
 
-    When using Python 3.6 or 3.7 on Windows the ``ProactorEventLoop`` event
-    loop must be used to create an asyncio pipe connection. This can be done by
-    setting.
-
-    Example:
-        To set the ``ProactorEventLoop`` event loop on Windows do::
-
-            asycnio.set_event_loop_policy(asyncio.ProactorEventLoop())
-
     Args:
         name: The pipe name or PowerShell process id to connect to.
     """
@@ -188,7 +179,4 @@ class AsyncNamedPipeConnection(AsyncOutOfProcConnection):
     async def stop(self) -> None:
         log.debug("Stopping Named Pipe connection")
         self._writer.close()
-        # FUTURE: Call directly once 3.7 is the minimum.
-        wait_closed = getattr(self._writer, "wait_closed", None)
-        if wait_closed:  # pragma: no cover
-            await wait_closed()
+        await self._writer.wait_closed()
