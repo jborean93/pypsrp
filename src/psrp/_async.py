@@ -1041,7 +1041,7 @@ class AsyncPipeline(t.Generic[PipelineType]):
 
     async def invoke(
         self,
-        input_data: t.Optional[t.Union[t.Iterable, t.AsyncIterable]] = None,
+        input_data: t.Optional[t.Union[t.Iterable[t.Any], t.AsyncIterable[t.Any]]] = None,
         output_stream: t.Optional[AsyncPSDataCollection[t.Any]] = None,
         buffer_input: bool = True,
     ) -> t.List[t.Any]:
@@ -1093,7 +1093,7 @@ class AsyncPipeline(t.Generic[PipelineType]):
 
     async def invoke_async(
         self,
-        input_data: t.Optional[t.Union[t.Iterable, t.AsyncIterable]] = None,
+        input_data: t.Optional[t.Union[t.Iterable[t.Any], t.AsyncIterable[t.Any]]] = None,
         output_stream: t.Optional[AsyncPSDataCollection[t.Any]] = None,
         completed: t.Optional[t.Callable[[], t.Awaitable[None]]] = None,
         buffer_input: bool = True,
@@ -1158,8 +1158,8 @@ class AsyncPipeline(t.Generic[PipelineType]):
             log.debug("Sending pipeline input - %s", self._pipeline.pipeline_id)
 
             async def input_gen(
-                input_data: t.Union[t.Iterable, t.AsyncIterable],
-            ) -> t.AsyncIterator:
+                input_data: t.Union[t.Iterable[t.Any], t.AsyncIterable[t.Any]],
+            ) -> t.AsyncIterator[t.Any]:
                 if isinstance(input_data, t.Iterable):
                     for data in input_data:
                         yield data
@@ -1581,7 +1581,7 @@ class AsyncPowerShell(AsyncPipeline[ClientPowerShell]):
 
     async def invoke_async(
         self,
-        input_data: t.Optional[t.Union[t.Iterable, t.AsyncIterable]] = None,
+        input_data: t.Optional[t.Union[t.Iterable[t.Any], t.AsyncIterable[t.Any]]] = None,
         output_stream: t.Optional[AsyncPSDataCollection[t.Any]] = None,
         completed: t.Optional[t.Callable[[], t.Awaitable[None]]] = None,
         buffer_input: bool = True,
