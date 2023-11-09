@@ -1091,7 +1091,7 @@ class SyncPipeline(t.Generic[PipelineType]):
 
     def invoke(
         self,
-        input_data: t.Optional[t.Iterable] = None,
+        input_data: t.Optional[t.Iterable[t.Any]] = None,
         output_stream: t.Optional[SyncPSDataCollection[t.Any]] = None,
         buffer_input: bool = True,
     ) -> t.List[t.Any]:
@@ -1142,7 +1142,7 @@ class SyncPipeline(t.Generic[PipelineType]):
 
     def invoke_async(
         self,
-        input_data: t.Optional[t.Iterable] = None,
+        input_data: t.Optional[t.Iterable[t.Any]] = None,
         output_stream: t.Optional[SyncPSDataCollection[t.Any]] = None,
         completed: t.Optional[t.Callable[[], None]] = None,
         buffer_input: bool = True,
