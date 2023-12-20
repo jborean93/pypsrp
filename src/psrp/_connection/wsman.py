@@ -1,14 +1,18 @@
-# -*- coding: utf-8 -*-
-# Copyright: (c) 2022, Jordan Borean (@jborean93) <jborean93@gmail.com>
+# Copyright: (c) 2023, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
+
+from __future__ import annotations
 
 import asyncio
 import base64
+import collections.abc
 import contextlib
+import ipaddress
 import logging
 import ssl
 import threading
 import typing as t
+import urllib.parse
 import uuid
 import xml.etree.ElementTree as ElementTree
 
@@ -43,69 +47,60 @@ from psrp._exceptions import (
     ShellDisconnected,
     UnexpectedSelectors,
 )
-from psrp._io.wsman import AsyncWSManHTTP, SyncWSManHTTP, WSManConnectionData
-from psrp._winrs import WinRS, enumerate_winrs, receive_winrs_enumeration
-from psrp._wsman import (
-    NAMESPACES,
-    CommandResponseEvent,
-    CommandState,
-    OptionSet,
-    ReceiveResponseEvent,
-    SignalCode,
-    WSMan,
-)
+
+from .. import _wsman as wsman
 
 log = logging.getLogger(__name__)
 
 PS_RESOURCE_PREFIX = "http://schemas.microsoft.com/powershell"
 
 
+def _build_url(
+    server: str,
+    *,
+    scheme: str | None = None,
+    port: int | None = None,
+    path: str | None = None,
+) -> tuple[str, bool, str]:
+    url_split = urllib.parse.urlsplit(server)
+
+    if url_split.scheme and url_split.netloc:
+        return server, url_split.scheme == "https", url_split.netloc.split(":")[0]
+
+    else:
+        # Wrap IPv6 server inside [].
+        try:
+            address = ipaddress.IPv6Address(server)
+        except ipaddress.AddressValueError:
+            pass
+        else:
+            server = f"[{address.compressed}]"
+
+        if not scheme:
+            scheme = "https" if port in [443, 5986] else "http"
+
+        if port is None:
+            port = 5985 if scheme == "http" else 5986
+
+        if path is None:
+            path = "wsman" if port in [5985, 5986] else ""
+
+        return f"{scheme}://{server}:{port}/{path}", scheme == "https", server
+
+
 def _process_enumeration_response(
-    connection_info: "WSManInfo",
-    shell: WinRS,
+    connection_info: WSManInfo,
+    shell: wsman.WinRS,
     data: bytes,
 ) -> EnumerationRunspaceResult:
-    shell.wsman
-    cmd_enumeration = shell.wsman.receive_data(data)
     pipelines = [
         EnumerationPipelineResult(pid=c.command_id, state=c.state)
-        for c in receive_winrs_enumeration(shell.wsman, cmd_enumeration)[1]
+        for c in wsman.WinRS.receive_winrs_enumeration(shell.wsman, data)[1]
     ]
 
-    shell_id = shell.shell_id
-    config_name = shell.resource_uri[len(PS_RESOURCE_PREFIX) + 1 :]
-
-    new_connection_info = WSManInfo(
-        connection_info.connection_info.connection_uri,
-        encryption=connection_info.connection_info.encryption,
-        ssl_context=connection_info.connection_info.tls,
-        connection_timeout=connection_info.connection_info.connection_timeout,
-        read_timeout=connection_info.connection_info.read_timeout,
-        auth=connection_info.connection_info.auth,
-        username=connection_info.connection_info.username,
-        password=connection_info.connection_info.password,
-        certificate_pem=connection_info.connection_info.certificate_pem,
-        certificate_key_pem=connection_info.connection_info.certificate_key_pem,
-        certificate_key_password=connection_info.connection_info.certificate_key_password,
-        negotiate_service=connection_info.connection_info.negotiate_service,
-        negotiate_hostname=connection_info.connection_info.negotiate_hostname,
-        negotiate_send_cbt=connection_info.connection_info.negotiate_send_cbt,
-        credssp_ssl_context=connection_info.connection_info.credssp_ssl_context,
-        credssp_auth_mechanism=connection_info.connection_info.credssp_auth_mechanism,
-        credssp_minimum_version=connection_info.connection_info.credssp_minimum_version,
-        max_envelope_size=connection_info.max_envelope_size,
-        operation_timeout=connection_info.operation_timeout,
-        locale=connection_info.locale,
-        data_locale=connection_info.data_locale,
-        configuration_name=config_name,
-        # TODO: Get these values from rsp:IdletimeOut and rsp:BufferMode
-        buffer_mode=connection_info.buffer_mode,
-        idle_timeout=connection_info.idle_timeout,
-    )
-    new_connection_info._shell = shell
     return EnumerationRunspaceResult(
-        connection_info=new_connection_info,
-        rpid=shell_id,
+        connection_info=connection_info._copy_with_shell(shell),
+        rpid=shell.shell_id,
         state=shell.state,
         pipelines=pipelines,
     )
@@ -113,7 +108,7 @@ def _process_enumeration_response(
 
 def _get_fragment_size(
     pool: ClientRunspacePool,
-) -> t.Optional[int]:
+) -> int | None:
     """Calculates the fragment size based on the protocol version defaults."""
     if not pool.their_capability:
         return None
@@ -124,7 +119,7 @@ def _get_fragment_size(
     else:  # pragma: no cover
         max_envelope_size = 153600
 
-    # The fragment size also needs to include the WSMan envelope itself. This
+    # The fragment size also needs to include the WSManClient envelope itself. This
     # is the rough size with some padding.
     max_byte_size = max_envelope_size - 2048
 
@@ -135,10 +130,10 @@ def _get_fragment_size(
 
 
 class WSManInfo(ConnectionInfo):
-    """WSMan Connection Info.
+    """WSManClient Connection Info.
 
     This is a connection info class used to describe how a Runspace Pool will
-    connect to the server using the WSMan/WinRM connection type.
+    connect to the server using the WSManClient/WinRM connection type.
 
     The default TLS context used for HTTPS connections is based on the result
     of:
@@ -230,9 +225,6 @@ class WSManInfo(ConnectionInfo):
         negotiate_hostname: Override the hostname used in the Kerberos SPN.
             Defaults to `None` which uses the HTTP request hostname.
         negotiate_delegate: Delegate the Kerberos ticket to the peer.
-        negotiate_send_cbt: Bind the channel binding token to the NTLM or
-            Kerberos auth token. Defaults to `True` but can be set to `False`
-            to disable CBT.
         credssp_ssl_context: Control the TLS context and settings that are used
             when negotiating CredSSP. By default only TLS 1.2+ is allowed with
             no server certificate verification.
@@ -245,34 +237,17 @@ class WSManInfo(ConnectionInfo):
         max_envelope_size: Override the maximum envelope size used to fragment
             each PSRP packet. The default will be set based on the OS defaults
             of the target protocol version.
-        operation_timeout: The timeout to set on a WSMan operation. This should
+        operation_timeout: The timeout to set on a WSManClient operation. This should
             be less than read_timeout. This option typically doesn't need to be
             set.
-        locale: The locale value to set on the WSMan connection. This specifies
+        locale: The locale value to set on the WSManClient connection. This specifies
             the language in which the client wants response text to be
             translated. The value should be in the format described by RFC 3066,
             with the default being `en-US`.
-        data_locale: The data locale value to set on each WSMan request. This
+        data_locale: The data locale value to set on each WSManClient request. This
             specifies the format in which numerical data is presented in the
             response text. The value should be in the format described by RFC
             3066, which the default being the value of locale.
-        configuration_name: The PSRP configuration name to use for the
-            connection.
-        buffer_mode: The buffering mode to use when the session is disconnected.
-            If undefined the default is based on the session configuration set
-            on the server.
-        idle_timeout: The disconnection idle time out value to use. If
-            undefined the default is based on the session configuration set on
-            the server.
-
-    Attributes:
-        connection_info: The WSMan connection settings.
-        max_envelope_size: The maximum envelope size used to fragment each PSRP
-            packet.
-        operation_timeout: The timeout to set on a WSMan operation. This should
-            be less than read_timeout.
-        locale: The configured locale culture.
-        data_locale: The configured data locale culture
         configuration_name: The PSRP configuration name to use for the
             connection.
         buffer_mode: The buffering mode to use when the session is disconnected.
@@ -287,143 +262,307 @@ class WSManInfo(ConnectionInfo):
         self,
         server: str,
         *,
-        scheme: t.Optional[t.Literal["http", "https"]] = None,
-        port: int = -1,  # Depends on the scheme (5985 if http else 5096)
-        path: str = "wsman",
-        encryption: t.Literal["always", "auto", "never"] = "auto",
-        ssl_context: t.Optional[ssl.SSLContext] = None,
-        verify: t.Union[str, bool] = True,
+        scheme: t.Literal["http", "https"] | None = None,
+        port: int | None = None,
+        path: str | None = None,
+        encryption: bool | t.Literal["always", "auto", "never"] = "auto",
+        ssl_context: ssl.SSLContext | None = None,
+        verify: bool | str = True,
         connection_timeout: float = 30.0,
         read_timeout: float = 30.0,
         # Authentication
-        auth: t.Literal["basic", "certificate", "credssp", "kerberos", "negotiate", "ntlm"] = "negotiate",
-        username: t.Optional[str] = None,
-        password: t.Optional[str] = None,
+        auth: wsman.WSManAuthProvider
+        | t.Literal["basic", "certificate", "credssp", "kerberos", "negotiate", "ntlm"] = "negotiate",
+        username: str | None = None,
+        password: str | None = None,
         # Cert auth
-        certificate_pem: t.Optional[str] = None,
-        certificate_key_pem: t.Optional[str] = None,
-        certificate_key_password: t.Optional[str] = None,
+        certificate_pem: str | None = None,
+        certificate_key_pem: str | None = None,
+        certificate_key_password: str | None = None,
         # SPNEGO
         negotiate_service: str = "http",
-        negotiate_hostname: t.Optional[str] = None,
+        negotiate_hostname: str | None = None,
         negotiate_delegate: bool = False,
-        negotiate_send_cbt: bool = True,
         # CredSSP
-        credssp_ssl_context: t.Optional[ssl.SSLContext] = None,
+        credssp_ssl_context: ssl.SSLContext | None = None,
         credssp_auth_mechanism: t.Literal["kerberos", "negotiate", "ntlm"] = "negotiate",
-        credssp_minimum_version: t.Optional[int] = None,
+        credssp_minimum_version: int | None = None,
         # PSRP/WinRM Protocol
-        max_envelope_size: t.Optional[int] = None,
+        max_envelope_size: int | None = None,
         operation_timeout: int = 20,
         locale: str = "en-US",
-        data_locale: t.Optional[str] = None,
+        data_locale: str | None = None,
         configuration_name: str = "Microsoft.PowerShell",
         buffer_mode: OutputBufferingMode = OutputBufferingMode.NONE,
-        idle_timeout: t.Optional[int] = None,
+        idle_timeout: int | None = None,
     ) -> None:
-        self.connection_info = WSManConnectionData(
-            server,
-            scheme=scheme,
-            port=port,
-            path=path,
-            encryption=encryption,
-            ssl_context=ssl_context,
-            verify=verify,
-            connection_timeout=connection_timeout,
-            read_timeout=read_timeout,
-            auth=auth,
-            username=username,
-            password=password,
-            certificate_pem=certificate_pem,
-            certificate_key_pem=certificate_key_pem,
-            certificate_key_password=certificate_key_password,
-            negotiate_service=negotiate_service,
-            negotiate_hostname=negotiate_hostname,
-            negotiate_delegate=negotiate_delegate,
-            negotiate_send_cbt=negotiate_send_cbt,
-            credssp_ssl_context=credssp_ssl_context,
-            credssp_auth_mechanism=credssp_auth_mechanism,
-            credssp_minimum_version=credssp_minimum_version,
-        )
-        self.max_envelope_size = max_envelope_size
-        self.operation_timeout = operation_timeout
-        self.locale = locale
-        self.data_locale = data_locale
-        self.configuration_name = configuration_name
-        self.buffer_mode = buffer_mode
-        self.idle_timeout = idle_timeout
+        self._connection_uri, is_tls, hostname = _build_url(server, scheme=scheme, port=port, path=path)
+        self._connection_timeout = connection_timeout
+        self._read_timeout = read_timeout
+
+        self._ssl_context: ssl.SSLContext | None = None
+        if is_tls:
+            if ssl_context:
+                self._ssl_context = ssl_context
+            else:
+                self._ssl_context = wsman.create_ssl_context(
+                    verify=verify,
+                    certfile=certificate_pem,
+                    keyfile=certificate_key_pem,
+                    password=certificate_key_password,
+                )
+
+        self._max_envelope_size = max_envelope_size
+        self._operation_timeout = operation_timeout
+        self._locale = locale
+        self._data_locale = data_locale
+        self._configuration_name = configuration_name
+        self._buffer_mode = buffer_mode
+        self._idle_timeout = idle_timeout
+
+        self._auth_provider: wsman.WSManAuthProvider
+        if isinstance(auth, wsman.WSManAuthProvider):
+            self._auth_provider = auth
+
+        elif auth == "basic":
+            self._auth_provider = wsman.WSManBasicAuth(
+                username=username or "",
+                password=password or "",
+            )
+
+        elif auth == "certificate":
+            if not is_tls:
+                raise ValueError("Auth protocol certificate can only be used with a https connection")
+
+            elif not certificate_pem:
+                raise ValueError("Auth protocol certificate requires the certificate_pem value to be specified")
+
+            self._auth_provider = wsman.WSManCertificateAuth()
+
+        elif auth in ["kerberos", "negotiate", "ntlm"]:
+            self._auth_provider = wsman.WSManNegotiateAuth(
+                username=username,
+                password=password,
+                hostname=negotiate_hostname or hostname,
+                service=negotiate_service,
+                delegate=negotiate_delegate,
+                protocol=auth,
+            )
+
+        elif auth == "credssp":
+            if not username or not password:
+                raise ValueError("Auth protocol credssp requires a username and password to be provided")
+
+            self._auth_provider = wsman.WSManCredSSPAuth(
+                username=username,
+                password=password,
+                hostname=negotiate_hostname or hostname,
+                service=negotiate_service,
+                min_protocol=credssp_minimum_version,
+                tls_context=credssp_ssl_context,
+                negotiate_protocol=credssp_auth_mechanism,
+            )
+
+        else:
+            raise ValueError(
+                f"Invalid auth protocol '{auth}', must be basic, certificate, kerberos, negotiate, ntlm, or credssp"
+            )
+
+        self._message_encryption: bool
+        if isinstance(encryption, bool):
+            self._message_encryption = encryption
+
+        elif encryption == "always":
+            self._message_encryption = True
+
+        elif encryption == "auto":
+            self._message_encryption = not is_tls
+
+        elif encryption == "never":
+            self._message_encryption = False
+
+        else:
+            raise ValueError(f"Invalid encryption value '{encryption}', must be always, auto, or never")
+
+        if self._message_encryption and not isinstance(self._auth_provider, wsman.WSManEncryptionProvider):
+            msg = "".join(
+                [
+                    f"Message encryption has been enabled but authentication provider '{type(self._auth_provider)} ",
+                    "does not support message encryption. Either use a https endpoint, set encryption='never', or ",
+                    "use a different authentication provider which supports message encryption",
+                ]
+            )
+            raise ValueError(msg)
 
         # Used by enumerate as it contains the required selectors.
-        self._shell: t.Optional[WinRS] = None
+        self._shell: wsman.WinRS | None = None
+
+    @property
+    def connection_uri(self) -> str:
+        """The WSMan connection URI that will be used."""
+        return self._connection_uri
+
+    @property
+    def max_envelope_size(self) -> int | None:
+        """The maximum enveloper size used to fragment each PSRP packet."""
+        return self._max_envelope_size
+
+    @property
+    def operation_timeout(self) -> int:
+        """The timeout, in seconds, to set on a WSMan operation."""
+        return self._operation_timeout
+
+    @property
+    def locale(self) -> str:
+        """The configured locale culutre."""
+        return self._locale
+
+    @property
+    def data_locale(self) -> str | None:
+        """The configured data locale culture."""
+        return self._data_locale
+
+    @property
+    def configuration_name(self) -> str | None:
+        """The PSRP configuration name to use for the connection."""
+        return self._configuration_name
+
+    @property
+    def buffer_mode(self) -> OutputBufferingMode:
+        """The buffering mode to use when the session is disconnected."""
+        return self._buffer_mode
+
+    @property
+    def idle_timeout(self) -> int | None:
+        """The disconnection idle timeout value to use."""
+        return self._idle_timeout
 
     def create_sync(
         self,
         pool: ClientRunspacePool,
         callback: SyncEventCallable,
     ) -> "SyncConnection":
-        return SyncWSManConnection(pool, callback, self, self._new_winrs_shell(pool))
+        return SyncWSManConnection(
+            pool,
+            callback,
+            self.buffer_mode,
+            self.idle_timeout,
+            self.max_envelope_size,
+            self._new_winrs_shell(pool),
+            self._new_sync_connection(),
+        )
 
     async def create_async(
         self,
         pool: ClientRunspacePool,
         callback: AsyncEventCallable,
     ) -> "AsyncConnection":
-        return AsyncWSManConnection(pool, callback, self, self._new_winrs_shell(pool))
+        return AsyncWSManConnection(
+            pool,
+            callback,
+            self.buffer_mode,
+            self.idle_timeout,
+            self.max_envelope_size,
+            self._new_winrs_shell(pool),
+            self._new_async_connection(),
+        )
 
-    def enumerate_sync(self) -> t.Iterator["EnumerationRunspaceResult"]:
-        connection = SyncWSManHTTP(self.connection_info)
-        wsman = WSMan(self.connection_info.connection_uri)
+    def enumerate_sync(self) -> collections.abc.Iterator[EnumerationRunspaceResult]:
+        with self._new_sync_connection() as connection:
+            client = wsman.WSManClient(self.connection_uri)
 
-        enumerate_winrs(wsman)
-        resp = connection.post(wsman.data_to_send())
-        shell_enumeration = wsman.receive_data(resp)
+            wsman.WinRS.enumerate_winrs(client)
+            resp = connection.wsman_post(client.data_to_send())
 
-        shells = receive_winrs_enumeration(wsman, shell_enumeration)[0]
-        for shell in shells:
-            if not shell.resource_uri.startswith(f"{PS_RESOURCE_PREFIX}/"):
-                continue
+            shells = wsman.WinRS.receive_winrs_enumeration(client, resp)[0]
+            for shell in shells:
+                if not shell.resource_uri.startswith(f"{PS_RESOURCE_PREFIX}/"):
+                    continue
 
-            enumerate_winrs(
-                wsman,
-                resource_uri="http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command",
-                selector_filter=shell.selector_set,
-            )
-            resp = connection.post(wsman.data_to_send())
-            yield _process_enumeration_response(self, shell, resp)
+                wsman.WinRS.enumerate_winrs(
+                    client,
+                    resource_uri="http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command",
+                    selector_filter=shell.selector_set,
+                )
+                resp = connection.wsman_post(client.data_to_send())
+                yield _process_enumeration_response(self, shell, resp)
 
-    async def enumerate_async(self) -> t.AsyncIterator["EnumerationRunspaceResult"]:
-        connection = AsyncWSManHTTP(self.connection_info)
-        wsman = WSMan(self.connection_info.connection_uri)
+    async def enumerate_async(self) -> collections.abc.AsyncIterator[EnumerationRunspaceResult]:
+        async with self._new_async_connection() as connection:
+            client = wsman.WSManClient(self.connection_uri)
 
-        enumerate_winrs(wsman)
-        resp = await connection.post(wsman.data_to_send())
-        shell_enumeration = wsman.receive_data(resp)
+            wsman.WinRS.enumerate_winrs(client)
+            resp = await connection.wsman_post(client.data_to_send())
 
-        shells = receive_winrs_enumeration(wsman, shell_enumeration)[0]
-        for shell in shells:
-            if not shell.resource_uri.startswith(f"{PS_RESOURCE_PREFIX}/"):
-                continue
+            shells = wsman.WinRS.receive_winrs_enumeration(client, resp)[0]
+            for shell in shells:
+                if not shell.resource_uri.startswith(f"{PS_RESOURCE_PREFIX}/"):
+                    continue
 
-            enumerate_winrs(
-                wsman,
-                resource_uri="http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command",
-                selector_filter=shell.selector_set,
-            )
-            resp = await connection.post(wsman.data_to_send())
-            yield _process_enumeration_response(self, shell, resp)
+                wsman.WinRS.enumerate_winrs(
+                    client,
+                    resource_uri="http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command",
+                    selector_filter=shell.selector_set,
+                )
+                resp = await connection.wsman_post(client.data_to_send())
+                yield _process_enumeration_response(self, shell, resp)
+
+    def _copy_with_shell(
+        self,
+        shell: wsman.WinRS,
+    ) -> WSManInfo:
+        config_name = shell.resource_uri[len(PS_RESOURCE_PREFIX) + 1 :]
+
+        info = WSManInfo(
+            self.connection_uri,
+            ssl_context=self._ssl_context,
+            encryption=self._message_encryption,
+            connection_timeout=self._connection_timeout,
+            read_timeout=self._read_timeout,
+            auth=self._auth_provider.copy(),
+            max_envelope_size=self.max_envelope_size,
+            operation_timeout=self.operation_timeout,
+            locale=self.locale,
+            data_locale=self.data_locale,
+            configuration_name=config_name,
+            # TODO: Get these values from rsp:IdletimeOut and rsp:BufferMode
+            buffer_mode=self.buffer_mode,
+            idle_timeout=self.idle_timeout,
+        )
+        info._shell = shell
+
+        return info
+
+    def _new_async_connection(self) -> wsman.AsyncWSManHTTP:
+        return wsman.AsyncWSManHTTP(
+            auth_provider=self._auth_provider,
+            connect_timeout=self._connection_timeout,
+            encrypt=self._message_encryption,
+            ssl_context=self._ssl_context,
+            url=self.connection_uri,
+        )
+
+    def _new_sync_connection(self) -> wsman.SyncWSManHTTP:
+        return wsman.SyncWSManHTTP(
+            auth_provider=self._auth_provider,
+            connect_timeout=self._connection_timeout,
+            encrypt=self._message_encryption,
+            ssl_context=self._ssl_context,
+            url=self.connection_uri,
+        )
 
     def _new_winrs_shell(
         self,
         pool: ClientRunspacePool,
-    ) -> WinRS:
-        wsman = WSMan(
-            self.connection_info.connection_uri,
+    ) -> wsman.WinRS:
+        client = wsman.WSManClient(
+            self.connection_uri,
             operation_timeout=self.operation_timeout,
             locale=self.locale,
             data_locale=self.data_locale,
         )
-        return self._shell or WinRS(
-            wsman,
+        return self._shell or wsman.WinRS(
+            client,
             f"{PS_RESOURCE_PREFIX}/{self.configuration_name}",
             shell_id=str(pool.runspace_pool_id).upper(),
             input_streams="stdin pr",
@@ -432,31 +571,35 @@ class WSManInfo(ConnectionInfo):
 
 
 class SyncWSManConnection(SyncConnection):
-    """Sync Connection for WSMan."""
+    """Sync Connection for WSManClient."""
 
     def __init__(
         self,
         pool: ClientRunspacePool,
         callback: SyncEventCallable,
-        info: WSManInfo,
-        shell: WinRS,
+        buffer_mode: OutputBufferingMode,
+        idle_timeout: int | None,
+        max_envelope_size: int | None,
+        shell: wsman.WinRS,
+        connection: wsman.SyncWSManHTTP,
     ) -> None:
         super().__init__(pool, callback)
 
-        self._info = info
-        self._connection = SyncWSManHTTP(self._info.connection_info)
-
-        self._listener_tasks: t.Dict[t.Optional[uuid.UUID], threading.Thread] = {}
-        self._stopped_pipelines: t.List[uuid.UUID] = []
+        self._buffer_mode = buffer_mode
+        self._connection = connection
+        self._idle_timeout = idle_timeout
+        self._listener_tasks: dict[uuid.UUID | None, threading.Thread] = {}
+        self._max_envelope_size = max_envelope_size
+        self._stopped_pipelines: list[uuid.UUID] = []
         self._shell = shell
-        self._pipeline_lookup: t.Dict[uuid.UUID, uuid.UUID] = {}
+        self._pipeline_lookup: dict[uuid.UUID, uuid.UUID] = {}
 
     def get_fragment_size(self) -> int:
-        if not self._info.max_envelope_size:
-            self._info.max_envelope_size = _get_fragment_size(self.get_runspace_pool())
+        if not self._max_envelope_size:
+            self._max_envelope_size = _get_fragment_size(self.get_runspace_pool())
 
-        if self._info.max_envelope_size:
-            return self._info.max_envelope_size
+        if self._max_envelope_size:
+            return self._max_envelope_size
         else:
             # Pre Win 8/2012 the default was 153600. This is the allowed base64
             # size based on that default.
@@ -464,18 +607,18 @@ class SyncWSManConnection(SyncConnection):
 
     def close(
         self,
-        pipeline_id: t.Optional[uuid.UUID] = None,
+        pipeline_id: uuid.UUID | None = None,
     ) -> None:
         if pipeline_id and pipeline_id in self._listener_tasks:
             pipeline_task = self._listener_tasks.pop(pipeline_id)
-            self.signal(pipeline_id, signal_code=SignalCode.TERMINATE)
+            self.signal(pipeline_id, signal_code=wsman.SignalCode.TERMINATE)
             pipeline_task.join()
             del self._pipeline_lookup[pipeline_id]
 
         elif not pipeline_id:
             # Closing the shell will implicitly stop the pipelines, mark them
             # as stopped so the listener updates the client correctly if needed.
-            listener_tasks: t.List[threading.Thread] = []
+            listener_tasks: list[threading.Thread] = []
             for pid in list(self._listener_tasks.keys()):
                 listener_tasks.append(self._listener_tasks.pop(pid))
 
@@ -485,10 +628,10 @@ class SyncWSManConnection(SyncConnection):
                 self._stopped_pipelines.append(pid)
 
             self._shell.close()
-            resp = self._connection.post(self._shell.data_to_send())
+            resp = self._connection.wsman_post(self._shell.data_to_send())
             self._shell.receive_data(resp)
 
-            # Ugly hack but WSMan does not send a RnuspacePool state change response on our receive listener so this
+            # Ugly hack but WSManClient does not send a RnuspacePool state change response on our receive listener so this
             # does it manually to align with the other connection types.
             pool = self.get_runspace_pool()
             if pool.state != RunspacePoolState.Broken:
@@ -512,8 +655,8 @@ class SyncWSManConnection(SyncConnection):
     ) -> None:
         payload = t.cast(PSRPPayload, self.next_payload())
         self._shell.command("", args=[base64.b64encode(payload.data).decode()], command_id=pipeline_id)
-        resp = self._connection.post(self._shell.data_to_send())
-        command_resp = t.cast(CommandResponseEvent, self._shell.receive_data(resp))
+        resp = self._connection.wsman_post(self._shell.data_to_send())
+        command_resp = t.cast(wsman.CommandResponseEvent, self._shell.receive_data(resp))
 
         # On older Windows hosts (Win 7) the pipeline id specified in the request isn't actually used. Will need to
         # create a mapping table to ensure that the returned command id is used if our pipeline_id is requested.
@@ -527,11 +670,11 @@ class SyncWSManConnection(SyncConnection):
 
         open_content = ElementTree.Element("creationXml", xmlns=PS_RESOURCE_PREFIX)
         open_content.text = base64.b64encode(payload.data).decode()
-        options = OptionSet()
+        options = wsman.OptionSet()
         options.add_option("protocolversion", str(pool.our_capability.protocolversion), {"MustComply": "true"})
         self._shell.open(options, open_content)
 
-        resp = self._connection.post(self._shell.data_to_send())
+        resp = self._connection.wsman_post(self._shell.data_to_send())
         self._shell.receive_data(resp)
 
         self._create_listener()
@@ -551,26 +694,26 @@ class SyncWSManConnection(SyncConnection):
     def _listener_send(
         self,
         payload: PSRPPayload,
-        connection: SyncWSManHTTP,
+        connection: wsman.SyncWSManHTTP,
     ) -> None:
         stream = "stdin" if payload.stream_type == StreamType.default else "pr"
-        command_id: t.Optional[uuid.UUID] = None
+        command_id: uuid.UUID | None = None
         if payload.pipeline_id:
             command_id = self._pipeline_lookup[payload.pipeline_id]
 
         self._shell.send(stream, payload.data, command_id=command_id)
-        resp = connection.post(self._shell.data_to_send())
+        resp = connection.wsman_post(self._shell.data_to_send())
         self._shell.receive_data(resp)
 
     def signal(
         self,
         pipeline_id: uuid.UUID,
-        signal_code: SignalCode = SignalCode.PS_CRTL_C,
+        signal_code: wsman.SignalCode = wsman.SignalCode.PS_CRTL_C,
     ) -> None:
         self._stopped_pipelines.append(pipeline_id)
 
         self._shell.signal(signal_code, self._pipeline_lookup[pipeline_id])
-        resp = self._connection.post(self._shell.data_to_send())
+        resp = self._connection.wsman_post(self._shell.data_to_send())
 
         # Older Win hosts raise this error when terminating a pipeline, just ignore it.
         with contextlib.suppress(OperationAborted):
@@ -578,9 +721,9 @@ class SyncWSManConnection(SyncConnection):
 
     def connect(
         self,
-        pipeline_id: t.Optional[uuid.UUID] = None,
+        pipeline_id: uuid.UUID | None = None,
     ) -> None:
-        rsp = NAMESPACES["rsp"]
+        rsp = wsman.NAMESPACES["rsp"]
         connect = ElementTree.Element("{%s}Connect" % rsp)
         if pipeline_id:
             connect.attrib["CommandId"] = str(pipeline_id).upper()
@@ -590,7 +733,7 @@ class SyncWSManConnection(SyncConnection):
             pool = self.get_runspace_pool()
             payload = t.cast(PSRPPayload, self.next_payload())
 
-            options = OptionSet()
+            options = wsman.OptionSet()
             options.add_option("protocolversion", str(pool.our_capability.protocolversion), {"MustComply": "true"})
 
             open_content = ElementTree.SubElement(connect, "connectXml", xmlns=PS_RESOURCE_PREFIX)
@@ -599,14 +742,14 @@ class SyncWSManConnection(SyncConnection):
         self._shell.wsman.connect(
             self._shell.resource_uri, connect, option_set=options, selector_set=self._shell.selector_set
         )
-        resp = self._connection.post(self._shell.data_to_send())
+        resp = self._connection.wsman_post(self._shell.data_to_send())
         event = self._shell.wsman.receive_data(resp)
 
         if pipeline_id:
             self._pipeline_lookup[pipeline_id] = pipeline_id
         else:
             response_xml = t.cast(
-                ElementTree.Element, event.body.find("rsp:ConnectResponse/pwsh:connectResponseXml", NAMESPACES)
+                ElementTree.Element, event.body.find("rsp:ConnectResponse/pwsh:connectResponseXml", wsman.NAMESPACES)
             )
 
             psrp_resp = PSRPPayload(base64.b64decode(response_xml.text or ""), StreamType.default, None)
@@ -615,22 +758,22 @@ class SyncWSManConnection(SyncConnection):
         self._create_listener(pipeline_id=pipeline_id)
 
     def disconnect(self) -> None:
-        rsp = NAMESPACES["rsp"]
+        rsp = wsman.NAMESPACES["rsp"]
 
         disconnect = ElementTree.Element("{%s}Disconnect" % rsp)
-        if self._info.buffer_mode != OutputBufferingMode.NONE:
-            buffer_mode_str = "Block" if self._info.buffer_mode == OutputBufferingMode.BLOCK else "Drop"
+        if self._buffer_mode != OutputBufferingMode.NONE:
+            buffer_mode_str = "Block" if self._buffer_mode == OutputBufferingMode.BLOCK else "Drop"
             ElementTree.SubElement(disconnect, "{%s}BufferMode" % rsp).text = buffer_mode_str
 
-        if self._info.idle_timeout:
-            idle_str = f"PT{self._info.idle_timeout}S"
+        if self._idle_timeout:
+            idle_str = f"PT{self._idle_timeout}S"
             ElementTree.SubElement(disconnect, "{%s}IdleTimeout" % rsp).text = idle_str
 
         listener_tasks = self._listener_tasks.values()
         self._listener_tasks = {}
 
         self._shell.wsman.disconnect(self._shell.resource_uri, disconnect, selector_set=self._shell.selector_set)
-        resp = self._connection.post(self._shell.data_to_send())
+        resp = self._connection.wsman_post(self._shell.data_to_send())
         self._shell.receive_data(resp)
 
         for task in listener_tasks:
@@ -654,27 +797,27 @@ class SyncWSManConnection(SyncConnection):
 
     def reconnect(self) -> None:
         self._shell.wsman.reconnect(self._shell.resource_uri, selector_set=self._shell.selector_set)
-        resp = self._connection.post(self._shell.data_to_send())
+        resp = self._connection.wsman_post(self._shell.data_to_send())
         self._shell.receive_data(resp)
 
         self._create_listener()
 
     def _create_listener(
         self,
-        pipeline_id: t.Optional[uuid.UUID] = None,
+        pipeline_id: uuid.UUID | None = None,
     ) -> None:
         started = threading.Event()
         task = threading.Thread(target=self._listen, args=(started, pipeline_id))
         self._listener_tasks[pipeline_id] = task
         task.start()
-        started.wait()
+        # started.wait()
 
     def _listen(
         self,
         started: threading.Event,
-        pipeline_id: t.Optional[uuid.UUID] = None,
+        pipeline_id: uuid.UUID | None = None,
     ) -> None:
-        command_id: t.Optional[uuid.UUID] = None
+        command_id: uuid.UUID | None = None
         if pipeline_id:
             command_id = self._pipeline_lookup[pipeline_id]
 
@@ -682,10 +825,11 @@ class SyncWSManConnection(SyncConnection):
             try:
                 while True:
                     self._shell.receive("stdout", command_id=command_id)
-                    resp = conn.post(self._shell.data_to_send(), data_sent=None if started.is_set() else started)
+                    # resp = conn.wsman_post(self._shell.data_to_send(), data_sent=None if started.is_set() else started)
+                    resp = conn.wsman_post(self._shell.data_to_send())
 
                     try:
-                        event = t.cast(ReceiveResponseEvent, self._shell.receive_data(resp))
+                        event = t.cast(wsman.ReceiveResponseEvent, self._shell.receive_data(resp))
 
                     except OperationTimedOut:
                         # Occurs when there has been no output after the OperationTimeout set, just repeat the request
@@ -709,7 +853,7 @@ class SyncWSManConnection(SyncConnection):
                     for psrp_data in stream_data:
                         msg = PSRPPayload(psrp_data, StreamType.default, pipeline_id)
 
-                        payload: t.Optional[PSRPPayload] = None
+                        payload: PSRPPayload | None = None
                         data_available = self.process_response(msg)
                         if data_available:
                             payload = self.next_payload()
@@ -718,11 +862,11 @@ class SyncWSManConnection(SyncConnection):
                             self._listener_send(payload, self._connection)
 
                     # If the command is done then we've got nothing left to do here.
-                    if event.command_state == CommandState.DONE:
+                    if event.command_state == wsman.CommandState.DONE:
                         break
 
             except Exception as e:
-                log.exception("WSMan listener encountered unhandled exception")
+                log.exception("WSManClient listener encountered unhandled exception")
                 started.set()
 
                 if pipeline_id:
@@ -750,13 +894,13 @@ class SyncWSManConnection(SyncConnection):
     def _stop_pipeline(
         self,
         pipeline_id: uuid.UUID,
-        exception: t.Optional[Exception] = None,
+        exception: Exception | None = None,
     ) -> None:
         pool = self.get_runspace_pool()
         pipe = pool.pipeline_table[pipeline_id]
 
         pipe.state = PSInvocationState.Stopped
-        error_record: t.Optional[ErrorRecord] = None
+        error_record: ErrorRecord | None = None
         if exception:
             error_record = ErrorRecord(
                 Exception=NETException(Message=str(exception)),
@@ -777,12 +921,12 @@ class SyncWSManConnection(SyncConnection):
 
     def _break_runspace(
         self,
-        exception: t.Optional[Exception] = None,
+        exception: Exception | None = None,
     ) -> None:
         pool = self.get_runspace_pool()
 
         pool.state = RunspacePoolState.Broken
-        error_record: t.Optional[ErrorRecord] = None
+        error_record: ErrorRecord | None = None
         if exception:
             error_record = ErrorRecord(
                 Exception=NETException(Message=str(exception)),
@@ -802,31 +946,35 @@ class SyncWSManConnection(SyncConnection):
 
 
 class AsyncWSManConnection(AsyncConnection):
-    """Async Connection for WSMan."""
+    """Async Connection for WSManClient."""
 
     def __init__(
         self,
         pool: ClientRunspacePool,
         callback: AsyncEventCallable,
-        info: WSManInfo,
-        shell: WinRS,
+        buffer_mode: OutputBufferingMode,
+        idle_timeout: int | None,
+        max_envelope_size: int | None,
+        shell: wsman.WinRS,
+        connection: wsman.AsyncWSManHTTP,
     ) -> None:
         super().__init__(pool, callback)
 
-        self._info = info
-        self._connection = AsyncWSManHTTP(info.connection_info)
-
-        self._listener_tasks: t.Dict[t.Optional[uuid.UUID], asyncio.Task] = {}
-        self._stopped_pipelines: t.List[uuid.UUID] = []
+        self._buffer_mode = buffer_mode
+        self._connection = connection
+        self._idle_timeout = idle_timeout
+        self._listener_tasks: dict[uuid.UUID | None, asyncio.Task] = {}
+        self._max_envelope_size = max_envelope_size
+        self._stopped_pipelines: list[uuid.UUID] = []
         self._shell = shell
-        self._pipeline_lookup: t.Dict[uuid.UUID, uuid.UUID] = {}
+        self._pipeline_lookup: dict[uuid.UUID, uuid.UUID] = {}
 
     def get_fragment_size(self) -> int:
-        if not self._info.max_envelope_size:
-            self._info.max_envelope_size = _get_fragment_size(self.get_runspace_pool())
+        if not self._max_envelope_size:
+            self._max_envelope_size = _get_fragment_size(self.get_runspace_pool())
 
-        if self._info.max_envelope_size:
-            return self._info.max_envelope_size
+        if self._max_envelope_size:
+            return self._max_envelope_size
         else:
             # Pre Win 8/2012 the default was 153600. This is the allowed base64
             # size based on that default.
@@ -834,19 +982,19 @@ class AsyncWSManConnection(AsyncConnection):
 
     async def close(
         self,
-        pipeline_id: t.Optional[uuid.UUID] = None,
+        pipeline_id: uuid.UUID | None = None,
     ) -> None:
         if pipeline_id and pipeline_id in self._listener_tasks:
             pipeline_task = self._listener_tasks.pop(pipeline_id)
 
-            await self.signal(pipeline_id, signal_code=SignalCode.TERMINATE)
+            await self.signal(pipeline_id, signal_code=wsman.SignalCode.TERMINATE)
             await pipeline_task
             del self._pipeline_lookup[pipeline_id]
 
         elif not pipeline_id:
             # Closing the shell will implicitly stop the pipelines, mark them
             # as stopped so the listener updates the client correctly if needed.
-            listener_tasks: t.List[asyncio.Task] = []
+            listener_tasks: list[asyncio.Task] = []
             for pid in list(self._listener_tasks.keys()):
                 listener_tasks.append(self._listener_tasks.pop(pid))
 
@@ -856,10 +1004,10 @@ class AsyncWSManConnection(AsyncConnection):
                 self._stopped_pipelines.append(pid)
 
             self._shell.close()
-            resp = await self._connection.post(self._shell.data_to_send())
+            resp = await self._connection.wsman_post(self._shell.data_to_send())
             self._shell.receive_data(resp)
 
-            # Ugly hack but WSMan does not send a RnuspacePool state change response on our receive listener so this
+            # Ugly hack but WSManClient does not send a RnuspacePool state change response on our receive listener so this
             # does it manually to align with the other connection types.
             pool = self.get_runspace_pool()
             pool.state = RunspacePoolState.Closed
@@ -872,7 +1020,7 @@ class AsyncWSManConnection(AsyncConnection):
 
             # Wait for the listener task(s) to complete and remove the RunspacePool from our internal table.
             await asyncio.gather(*listener_tasks)
-            await self._connection.close()
+            await self._connection.aclose()
 
     async def command(
         self,
@@ -880,8 +1028,8 @@ class AsyncWSManConnection(AsyncConnection):
     ) -> None:
         payload = t.cast(PSRPPayload, self.next_payload())
         self._shell.command("", args=[base64.b64encode(payload.data).decode()], command_id=pipeline_id)
-        resp = await self._connection.post(self._shell.data_to_send())
-        command_resp = t.cast(CommandResponseEvent, self._shell.receive_data(resp))
+        resp = await self._connection.wsman_post(self._shell.data_to_send())
+        command_resp = t.cast(wsman.CommandResponseEvent, self._shell.receive_data(resp))
 
         # On older Windows hosts (Win 7) the pipeline id specified in the request isn't actually used. Will need to
         # create a mapping table to ensure that the returned command id is used if our pipeline_id is requested.
@@ -895,11 +1043,11 @@ class AsyncWSManConnection(AsyncConnection):
 
         open_content = ElementTree.Element("creationXml", xmlns=PS_RESOURCE_PREFIX)
         open_content.text = base64.b64encode(payload.data).decode()
-        options = OptionSet()
+        options = wsman.OptionSet()
         options.add_option("protocolversion", str(pool.our_capability.protocolversion), {"MustComply": "true"})
         self._shell.open(options, open_content)
 
-        resp = await self._connection.post(self._shell.data_to_send())
+        resp = await self._connection.wsman_post(self._shell.data_to_send())
         self._shell.receive_data(resp)
 
         await self._create_listener()
@@ -918,26 +1066,26 @@ class AsyncWSManConnection(AsyncConnection):
     async def _listener_send(
         self,
         payload: PSRPPayload,
-        connection: AsyncWSManHTTP,
+        connection: wsman.AsyncWSManHTTP,
     ) -> None:
         stream = "stdin" if payload.stream_type == StreamType.default else "pr"
-        command_id: t.Optional[uuid.UUID] = None
+        command_id: uuid.UUID | None = None
         if payload.pipeline_id:
             command_id = self._pipeline_lookup[payload.pipeline_id]
 
         self._shell.send(stream, payload.data, command_id=command_id)
-        resp = await connection.post(self._shell.data_to_send())
+        resp = await connection.wsman_post(self._shell.data_to_send())
         self._shell.receive_data(resp)
 
     async def signal(
         self,
         pipeline_id: uuid.UUID,
-        signal_code: SignalCode = SignalCode.PS_CRTL_C,
+        signal_code: wsman.SignalCode = wsman.SignalCode.PS_CRTL_C,
     ) -> None:
         self._stopped_pipelines.append(pipeline_id)
 
         self._shell.signal(signal_code, self._pipeline_lookup[pipeline_id])
-        resp = await self._connection.post(self._shell.data_to_send())
+        resp = await self._connection.wsman_post(self._shell.data_to_send())
 
         # Older Win hosts raise this error when terminating a pipeline, just ignore it.
         with contextlib.suppress(OperationAborted):
@@ -945,9 +1093,9 @@ class AsyncWSManConnection(AsyncConnection):
 
     async def connect(
         self,
-        pipeline_id: t.Optional[uuid.UUID] = None,
+        pipeline_id: uuid.UUID | None = None,
     ) -> None:
-        rsp = NAMESPACES["rsp"]
+        rsp = wsman.NAMESPACES["rsp"]
         connect = ElementTree.Element("{%s}Connect" % rsp)
         if pipeline_id:
             connect.attrib["CommandId"] = str(pipeline_id).upper()
@@ -957,7 +1105,7 @@ class AsyncWSManConnection(AsyncConnection):
             pool = self.get_runspace_pool()
             payload = t.cast(PSRPPayload, self.next_payload())
 
-            options = OptionSet()
+            options = wsman.OptionSet()
             options.add_option("protocolversion", str(pool.our_capability.protocolversion), {"MustComply": "true"})
 
             open_content = ElementTree.SubElement(connect, "connectXml", xmlns=PS_RESOURCE_PREFIX)
@@ -966,14 +1114,14 @@ class AsyncWSManConnection(AsyncConnection):
         self._shell.wsman.connect(
             self._shell.resource_uri, connect, option_set=options, selector_set=self._shell.selector_set
         )
-        resp = await self._connection.post(self._shell.data_to_send())
+        resp = await self._connection.wsman_post(self._shell.data_to_send())
         event = self._shell.wsman.receive_data(resp)
 
         if pipeline_id:
             self._pipeline_lookup[pipeline_id] = pipeline_id
         else:
             response_xml = t.cast(
-                ElementTree.Element, event.body.find("rsp:ConnectResponse/pwsh:connectResponseXml", NAMESPACES)
+                ElementTree.Element, event.body.find("rsp:ConnectResponse/pwsh:connectResponseXml", wsman.NAMESPACES)
             )
 
             psrp_resp = PSRPPayload(base64.b64decode(response_xml.text or ""), StreamType.default, None)
@@ -982,21 +1130,21 @@ class AsyncWSManConnection(AsyncConnection):
         await self._create_listener(pipeline_id=pipeline_id)
 
     async def disconnect(self) -> None:
-        rsp = NAMESPACES["rsp"]
+        rsp = wsman.NAMESPACES["rsp"]
 
         disconnect = ElementTree.Element("{%s}Disconnect" % rsp)
-        if self._info.buffer_mode != OutputBufferingMode.NONE:
-            buffer_mode_str = "Block" if self._info.buffer_mode == OutputBufferingMode.BLOCK else "Drop"
+        if self._buffer_mode != OutputBufferingMode.NONE:
+            buffer_mode_str = "Block" if self._buffer_mode == OutputBufferingMode.BLOCK else "Drop"
             ElementTree.SubElement(disconnect, "{%s}BufferMode" % rsp).text = buffer_mode_str
 
-        if self._info.idle_timeout:
-            idle_str = f"PT{self._info.idle_timeout}S"
+        if self._idle_timeout:
+            idle_str = f"PT{self._idle_timeout}S"
             ElementTree.SubElement(disconnect, "{%s}IdleTimeout" % rsp).text = idle_str
 
         listener_tasks = self._listener_tasks
         self._listener_tasks = {}
         self._shell.wsman.disconnect(self._shell.resource_uri, disconnect, selector_set=self._shell.selector_set)
-        resp = await self._connection.post(self._shell.data_to_send())
+        resp = await self._connection.wsman_post(self._shell.data_to_send())
         self._shell.receive_data(resp)
 
         await asyncio.gather(*listener_tasks.values())
@@ -1019,26 +1167,26 @@ class AsyncWSManConnection(AsyncConnection):
 
     async def reconnect(self) -> None:
         self._shell.wsman.reconnect(self._shell.resource_uri, selector_set=self._shell.selector_set)
-        resp = await self._connection.post(self._shell.data_to_send())
+        resp = await self._connection.wsman_post(self._shell.data_to_send())
         self._shell.receive_data(resp)
 
         await self._create_listener()
 
     async def _create_listener(
         self,
-        pipeline_id: t.Optional[uuid.UUID] = None,
+        pipeline_id: uuid.UUID | None = None,
     ) -> None:
         started = asyncio.Event()
         task = asyncio.create_task(self._listen(started, pipeline_id))
         self._listener_tasks[pipeline_id] = task
-        await started.wait()
+        # await started.wait()
 
     async def _listen(
         self,
         started: asyncio.Event,
-        pipeline_id: t.Optional[uuid.UUID] = None,
+        pipeline_id: uuid.UUID | None = None,
     ) -> None:
-        command_id: t.Optional[uuid.UUID] = None
+        command_id: uuid.UUID | None = None
         if pipeline_id:
             command_id = self._pipeline_lookup[pipeline_id]
 
@@ -1046,10 +1194,13 @@ class AsyncWSManConnection(AsyncConnection):
             try:
                 while True:
                     self._shell.receive("stdout", command_id=command_id)
-                    resp = await conn.post(self._shell.data_to_send(), data_sent=None if started.is_set() else started)
+                    # resp = await conn.wsman_post(
+                    #     self._shell.data_to_send(), data_sent=None if started.is_set() else started
+                    # )
+                    resp = await conn.wsman_post(self._shell.data_to_send())
 
                     try:
-                        event = t.cast(ReceiveResponseEvent, self._shell.receive_data(resp))
+                        event = t.cast(wsman.ReceiveResponseEvent, self._shell.receive_data(resp))
 
                     except OperationTimedOut:
                         # Occurs when there has been no output after the OperationTimeout set, just repeat the request
@@ -1073,7 +1224,7 @@ class AsyncWSManConnection(AsyncConnection):
                     for psrp_data in stream_data:
                         msg = PSRPPayload(psrp_data, StreamType.default, pipeline_id)
 
-                        payload: t.Optional[PSRPPayload] = None
+                        payload: PSRPPayload | None = None
                         data_available = await self.process_response(msg)
                         if data_available:
                             payload = self.next_payload()
@@ -1082,11 +1233,11 @@ class AsyncWSManConnection(AsyncConnection):
                             await self._listener_send(payload, self._connection)
 
                     # If the command is done then we've got nothing left to do here.
-                    if pipeline_id and event.command_state == CommandState.DONE:
+                    if pipeline_id and event.command_state == wsman.CommandState.DONE:
                         break
 
             except Exception as e:
-                log.exception("WSMan listener encountered unhandled exception")
+                log.exception("WSManClient listener encountered unhandled exception")
                 started.set()
 
                 if pipeline_id:
@@ -1114,13 +1265,13 @@ class AsyncWSManConnection(AsyncConnection):
     async def _stop_pipeline(
         self,
         pipeline_id: uuid.UUID,
-        exception: t.Optional[Exception] = None,
+        exception: Exception | None = None,
     ) -> None:
         pool = self.get_runspace_pool()
         pipe = pool.pipeline_table[pipeline_id]
 
         pipe.state = PSInvocationState.Stopped
-        error_record: t.Optional[ErrorRecord] = None
+        error_record: ErrorRecord | None = None
         if exception:
             error_record = ErrorRecord(
                 Exception=NETException(Message=str(exception)),
@@ -1141,12 +1292,12 @@ class AsyncWSManConnection(AsyncConnection):
 
     async def _break_runspace(
         self,
-        exception: t.Optional[Exception] = None,
+        exception: Exception | None = None,
     ) -> None:
         pool = self.get_runspace_pool()
 
         pool.state = RunspacePoolState.Broken
-        error_record: t.Optional[ErrorRecord] = None
+        error_record: ErrorRecord | None = None
         if exception:
             error_record = ErrorRecord(
                 Exception=NETException(Message=str(exception)),

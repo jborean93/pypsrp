@@ -1,19 +1,20 @@
-# -*- coding: utf-8 -*-
-# Copyright: (c) 2022, Jordan Borean (@jborean93) <jborean93@gmail.com>
+# Copyright: (c) 2023, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
+
+from __future__ import annotations
 
 import base64
 import typing as t
 import uuid
 import xml.etree.ElementTree as ElementTree
 
-from psrp._wsman import (
+from psrp._wsman._client import (
     NAMESPACES,
     CreateResponseEvent,
     OptionSet,
     SelectorSet,
     SignalCode,
-    WSMan,
+    WSManClient,
     WSManEvent,
 )
 
@@ -23,74 +24,21 @@ class CommandInfo(t.NamedTuple):
     state: str
 
 
-def enumerate_winrs(
-    wsman: WSMan,
-    resource_uri: str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell",
-    selector_filter: t.Optional[SelectorSet] = None,
-) -> str:
-    wsen = NAMESPACES["wsen"]
-    wsmn = NAMESPACES["wsman"]
-
-    enum_msg = ElementTree.Element("{%s}Enumerate" % wsen)
-    ElementTree.SubElement(enum_msg, "{%s}OptimizeEnumeration" % wsmn)
-    ElementTree.SubElement(enum_msg, "{%s}MaxElements" % wsmn).text = "32000"
-
-    if selector_filter:
-        filter = ElementTree.SubElement(
-            enum_msg, "{%s}Filter" % wsmn, Dialect="http://schemas.dmtf.org/wbem/wsman/1/wsman/SelectorFilter"
-        )
-        filter.append(selector_filter.pack())
-
-    return wsman.enumerate(resource_uri, enum_msg)
-
-
-def receive_winrs_enumeration(
-    wsman: WSMan,
-    event: WSManEvent,
-) -> t.Tuple[t.List["WinRS"], t.List[CommandInfo]]:
-    shells: t.List[WinRS] = []
-    commands: t.List[CommandInfo] = []
-
-    items: t.Optional[ElementTree.Element] = event.body.find(
-        "wsen:EnumerateResponse/wsman:Items", namespaces=NAMESPACES
-    )
-    if items is not None:
-        for raw in items:
-            if raw.tag == "{%s}Shell" % NAMESPACES["rsp"]:
-                profile_loaded = False
-                raw_profile_loaded = raw.find("rsp:ProfileLoaded", NAMESPACES)
-                if raw_profile_loaded is not None:
-                    profile_loaded = (raw_profile_loaded.text or "").lower() == "yes"
-
-                shell = WinRS(wsman, no_profile=not profile_loaded)
-                shell._parse_shell_create(raw, base_element="")
-                shell.selector_set = SelectorSet()
-                shell.selector_set.add_option("ShellId", str(shell.shell_id).upper())
-                shells.append(shell)
-
-            else:
-                command_id = t.cast(ElementTree.Element, raw.find("rsp:CommandId", namespaces=NAMESPACES))
-                command_state = t.cast(ElementTree.Element, raw.find("rsp:CommandState", namespaces=NAMESPACES))
-                commands.append(CommandInfo(command_id=uuid.UUID(command_id.text), state=command_state.text or ""))
-
-    return shells, commands
-
-
 class WinRS:
     def __init__(
         self,
-        wsman: WSMan,
+        wsman: WSManClient,
         resource_uri: str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/cmd",
-        shell_id: t.Optional[str] = None,
+        shell_id: str | None = None,
         input_streams: str = "stdin",
         output_streams: str = "stdout stderr",
-        codepage: t.Optional[int] = None,
-        environment: t.Optional[t.Dict[str, str]] = None,
-        idle_time_out: t.Optional[int] = None,
-        lifetime: t.Optional[int] = None,
-        name: t.Optional[str] = None,
-        no_profile: t.Optional[bool] = None,
-        working_directory: t.Optional[str] = None,
+        codepage: int | None = None,
+        environment: dict[str, str] | None = None,
+        idle_time_out: int | None = None,
+        lifetime: int | None = None,
+        name: str | None = None,
+        no_profile: bool | None = None,
+        working_directory: str | None = None,
     ):
         self.wsman = wsman
         self.resource_uri = resource_uri
@@ -105,16 +53,73 @@ class WinRS:
         self.no_profile = no_profile
         self.process_id = -1
         self.working_directory = working_directory
-        self.owner: t.Optional[str] = None
-        self.client_ip: t.Optional[str] = None
-        self.shell_run_time: t.Optional[str] = None
-        self.shell_inactivity: t.Optional[str] = None
+        self.owner: str | None = None
+        self.client_ip: str | None = None
+        self.shell_run_time: str | None = None
+        self.shell_inactivity: str | None = None
         self.state = ""
-        self.selector_set: t.Optional[SelectorSet] = None
+        self.selector_set: SelectorSet | None = None
+
+    @classmethod
+    def enumerate_winrs(
+        cls,
+        wsman: WSManClient,
+        resource_uri: str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell",
+        selector_filter: SelectorSet | None = None,
+    ) -> str:
+        wsen = NAMESPACES["wsen"]
+        wsmn = NAMESPACES["wsman"]
+
+        enum_msg = ElementTree.Element("{%s}Enumerate" % wsen)
+        ElementTree.SubElement(enum_msg, "{%s}OptimizeEnumeration" % wsmn)
+        ElementTree.SubElement(enum_msg, "{%s}MaxElements" % wsmn).text = "32000"
+
+        if selector_filter:
+            filter = ElementTree.SubElement(
+                enum_msg, "{%s}Filter" % wsmn, Dialect="http://schemas.dmtf.org/wbem/wsman/1/wsman/SelectorFilter"
+            )
+            filter.append(selector_filter.pack())
+
+        return wsman.enumerate(resource_uri, enum_msg)
+
+    @classmethod
+    def receive_winrs_enumeration(
+        cls,
+        wsman: WSManClient,
+        data: bytes,
+    ) -> tuple[list[WinRS], list[CommandInfo]]:
+        cmd_enumeration = wsman.receive_data(data)
+
+        shells: list[WinRS] = []
+        commands: list[CommandInfo] = []
+
+        items: ElementTree.Element | None = cmd_enumeration.body.find(
+            "wsen:EnumerateResponse/wsman:Items", namespaces=NAMESPACES
+        )
+        if items is not None:
+            for raw in items:
+                if raw.tag == "{%s}Shell" % NAMESPACES["rsp"]:
+                    profile_loaded = False
+                    raw_profile_loaded = raw.find("rsp:ProfileLoaded", NAMESPACES)
+                    if raw_profile_loaded is not None:
+                        profile_loaded = (raw_profile_loaded.text or "").lower() == "yes"
+
+                    shell = WinRS(wsman, no_profile=not profile_loaded)
+                    shell._parse_shell_create(raw, base_element="")
+                    shell.selector_set = SelectorSet()
+                    shell.selector_set.add_option("ShellId", str(shell.shell_id).upper())
+                    shells.append(shell)
+
+                else:
+                    command_id = t.cast(ElementTree.Element, raw.find("rsp:CommandId", namespaces=NAMESPACES))
+                    command_state = t.cast(ElementTree.Element, raw.find("rsp:CommandState", namespaces=NAMESPACES))
+                    commands.append(CommandInfo(command_id=uuid.UUID(command_id.text), state=command_state.text or ""))
+
+        return shells, commands
 
     def data_to_send(
         self,
-        amount: t.Optional[int] = None,
+        amount: int | None = None,
     ) -> bytes:
         return self.wsman.data_to_send(amount=amount)
 
@@ -132,9 +137,9 @@ class WinRS:
     def command(
         self,
         executable: str,
-        args: t.Optional[t.List[str]] = None,
+        args: list[str] | None = None,
         no_shell: bool = False,
-        command_id: t.Optional[uuid.UUID] = None,
+        command_id: uuid.UUID | None = None,
     ) -> str:
         rsp = NAMESPACES["rsp"]
 
@@ -160,8 +165,8 @@ class WinRS:
 
     def open(
         self,
-        base_options: t.Optional[OptionSet] = None,
-        open_content: t.Optional[ElementTree.Element] = None,
+        base_options: OptionSet | None = None,
+        open_content: ElementTree.Element | None = None,
     ) -> str:
         rsp = NAMESPACES["rsp"]
 
@@ -208,7 +213,7 @@ class WinRS:
     def receive(
         self,
         stream: str = "stdout stderr",
-        command_id: t.Optional[uuid.UUID] = None,
+        command_id: uuid.UUID | None = None,
     ) -> str:
         rsp = NAMESPACES["rsp"]
 
@@ -227,8 +232,8 @@ class WinRS:
         self,
         stream: str,
         data: bytes,
-        command_id: t.Optional[uuid.UUID] = None,
-        end: t.Optional[bool] = None,
+        command_id: uuid.UUID | None = None,
+        end: bool | None = None,
     ) -> str:
         rsp = NAMESPACES["rsp"]
 
@@ -261,7 +266,7 @@ class WinRS:
         response: ElementTree.Element,
         base_element: str = "s:Body/rsp:Shell/",
     ) -> None:
-        """Process a WSMan Create response."""
+        """Process a WSManClient Create response."""
         fields = [
             ("rsp:ShellId", "shell_id", uuid.UUID),
             ("rsp:ResourceUri", "resource_uri", str),

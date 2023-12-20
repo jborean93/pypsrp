@@ -1,8 +1,8 @@
 import base64
 import uuid
 
-from psrp._winrs import WinRS
 from psrp._wsman import NAMESPACES, CreateEvent, SendEvent, WSMan
+from psrp._wsman._winrs import WinRS
 
 
 def test_winrs_environment() -> None:

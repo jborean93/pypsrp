@@ -1,6 +1,7 @@
-# -*- coding: utf-8 -*-
-# Copyright: (c) 2022, Jordan Borean (@jborean93) <jborean93@gmail.com>
+# Copyright: (c) 2023, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
+
+from __future__ import annotations
 
 import base64
 import enum
@@ -98,7 +99,7 @@ class WSManAction(enum.Enum):
 
 
 class _WSManEventRegistry(type):
-    __registry: t.Dict[str, "_WSManEventRegistry"] = {}
+    __registry: dict[str, _WSManEventRegistry] = {}
 
     def __init__(
         cls,
@@ -107,7 +108,7 @@ class _WSManEventRegistry(type):
     ) -> None:
         super().__init__(*args, **kwargs)
 
-        action: t.Optional[WSManAction] = getattr(cls, "ACTION", None)
+        action: WSManAction | None = getattr(cls, "ACTION", None)
         if action is None:
             return
 
@@ -252,15 +253,15 @@ class ReceiveResponseEvent(WSManEvent):
     ACTION = WSManAction.RECEIVE_RESPONSE
 
     @property
-    def command_state(self) -> t.Optional[CommandState]:
+    def command_state(self) -> CommandState | None:
         """Describes the current state of the command."""
         command_state = self._raw.find("s:Body/rsp:ReceiveResponse/rsp:CommandState", namespaces=NAMESPACES)
         return CommandState(command_state.attrib["State"]) if command_state is not None else None
 
     @property
-    def streams(self) -> t.Dict[str, t.List[bytes]]:
+    def streams(self) -> dict[str, list[bytes]]:
         """Returns the raw command output separated by each stream it was written to."""
-        buffer: t.Dict[str, t.List[bytes]] = {}
+        buffer: dict[str, list[bytes]] = {}
         streams = self._raw.findall("s:Body/rsp:ReceiveResponse/rsp:Stream", namespaces=NAMESPACES)
         for stream in streams:
             stream_name = stream.attrib["Name"]
@@ -310,7 +311,7 @@ class _WSManSet:
         self.element_name = element_name
         self.child_element_name = child_element_name
         self.must_understand = must_understand
-        self.values: t.List[t.Tuple[str, str, t.Dict[str, str]]] = []
+        self.values: list[tuple[str, str, dict[str, str]]] = []
 
     def __str__(self) -> str:
         # can't just str({}) as the ordering is important
@@ -325,7 +326,7 @@ class _WSManSet:
         self,
         name: str,
         value: str,
-        attributes: t.Optional[t.Dict[str, str]] = None,
+        attributes: dict[str, str] | None = None,
     ) -> None:
         attributes = attributes if attributes is not None else {}
         self.values.append((name, value, attributes))
@@ -355,7 +356,7 @@ class SelectorSet(_WSManSet):
         super().__init__("SelectorSet", "Selector", False)
 
 
-class WSMan:
+class WSManClient:
     """WSMan Message Processor.
 
     This handles creating and processing WSMan envelopes in an IO-less way. New
@@ -380,7 +381,7 @@ class WSMan:
         max_envelope_size: int = 153600,
         operation_timeout: int = 20,
         locale: str = "en-US",
-        data_locale: t.Optional[str] = None,
+        data_locale: str | None = None,
     ) -> None:
         self.connection_uri = connection_uri
         self.session_id = str(uuid.uuid4())
@@ -394,10 +395,10 @@ class WSMan:
     def command(
         self,
         resource_uri: str,
-        resource: t.Optional[ElementTree.Element] = None,
-        option_set: t.Optional[OptionSet] = None,
-        selector_set: t.Optional[SelectorSet] = None,
-        timeout: t.Optional[int] = None,
+        resource: ElementTree.Element | None = None,
+        option_set: OptionSet | None = None,
+        selector_set: SelectorSet | None = None,
+        timeout: int | None = None,
     ) -> str:
         return self._invoke(
             WSManAction.COMMAND,
@@ -411,10 +412,10 @@ class WSMan:
     def connect(
         self,
         resource_uri: str,
-        resource: t.Optional[ElementTree.Element] = None,
-        option_set: t.Optional[OptionSet] = None,
-        selector_set: t.Optional[SelectorSet] = None,
-        timeout: t.Optional[int] = None,
+        resource: ElementTree.Element | None = None,
+        option_set: OptionSet | None = None,
+        selector_set: SelectorSet | None = None,
+        timeout: int | None = None,
     ) -> str:
         return self._invoke(
             WSManAction.CONNECT,
@@ -428,10 +429,10 @@ class WSMan:
     def create(
         self,
         resource_uri: str,
-        resource: t.Optional[ElementTree.Element] = None,
-        option_set: t.Optional[OptionSet] = None,
-        selector_set: t.Optional[SelectorSet] = None,
-        timeout: t.Optional[int] = None,
+        resource: ElementTree.Element | None = None,
+        option_set: OptionSet | None = None,
+        selector_set: SelectorSet | None = None,
+        timeout: int | None = None,
     ) -> str:
         return self._invoke(
             WSManAction.CREATE,
@@ -445,10 +446,10 @@ class WSMan:
     def delete(
         self,
         resource_uri: str,
-        resource: t.Optional[ElementTree.Element] = None,
-        option_set: t.Optional[OptionSet] = None,
-        selector_set: t.Optional[SelectorSet] = None,
-        timeout: t.Optional[int] = None,
+        resource: ElementTree.Element | None = None,
+        option_set: OptionSet | None = None,
+        selector_set: SelectorSet | None = None,
+        timeout: int | None = None,
     ) -> str:
         return self._invoke(
             WSManAction.DELETE,
@@ -462,10 +463,10 @@ class WSMan:
     def disconnect(
         self,
         resource_uri: str,
-        resource: t.Optional[ElementTree.Element] = None,
-        option_set: t.Optional[OptionSet] = None,
-        selector_set: t.Optional[SelectorSet] = None,
-        timeout: t.Optional[int] = None,
+        resource: ElementTree.Element | None = None,
+        option_set: OptionSet | None = None,
+        selector_set: SelectorSet | None = None,
+        timeout: int | None = None,
     ) -> str:
         return self._invoke(
             WSManAction.DISCONNECT,
@@ -479,10 +480,10 @@ class WSMan:
     def enumerate(
         self,
         resource_uri: str,
-        resource: t.Optional[ElementTree.Element] = None,
-        option_set: t.Optional[OptionSet] = None,
-        selector_set: t.Optional[SelectorSet] = None,
-        timeout: t.Optional[int] = None,
+        resource: ElementTree.Element | None = None,
+        option_set: OptionSet | None = None,
+        selector_set: SelectorSet | None = None,
+        timeout: int | None = None,
     ) -> str:
         return self._invoke(
             WSManAction.ENUMERATE,
@@ -496,10 +497,10 @@ class WSMan:
     def receive(
         self,
         resource_uri: str,
-        resource: t.Optional[ElementTree.Element] = None,
-        option_set: t.Optional[OptionSet] = None,
-        selector_set: t.Optional[SelectorSet] = None,
-        timeout: t.Optional[int] = None,
+        resource: ElementTree.Element | None = None,
+        option_set: OptionSet | None = None,
+        selector_set: SelectorSet | None = None,
+        timeout: int | None = None,
     ) -> str:
         return self._invoke(
             WSManAction.RECEIVE,
@@ -513,10 +514,10 @@ class WSMan:
     def reconnect(
         self,
         resource_uri: str,
-        resource: t.Optional[ElementTree.Element] = None,
-        option_set: t.Optional[OptionSet] = None,
-        selector_set: t.Optional[SelectorSet] = None,
-        timeout: t.Optional[int] = None,
+        resource: ElementTree.Element | None = None,
+        option_set: OptionSet | None = None,
+        selector_set: SelectorSet | None = None,
+        timeout: int | None = None,
     ) -> str:
         return self._invoke(
             WSManAction.RECONNECT,
@@ -530,10 +531,10 @@ class WSMan:
     def send(
         self,
         resource_uri: str,
-        resource: t.Optional[ElementTree.Element] = None,
-        option_set: t.Optional[OptionSet] = None,
-        selector_set: t.Optional[SelectorSet] = None,
-        timeout: t.Optional[int] = None,
+        resource: ElementTree.Element | None = None,
+        option_set: OptionSet | None = None,
+        selector_set: SelectorSet | None = None,
+        timeout: int | None = None,
     ) -> str:
         return self._invoke(
             WSManAction.SEND,
@@ -547,10 +548,10 @@ class WSMan:
     def signal(
         self,
         resource_uri: str,
-        resource: t.Optional[ElementTree.Element] = None,
-        option_set: t.Optional[OptionSet] = None,
-        selector_set: t.Optional[SelectorSet] = None,
-        timeout: t.Optional[int] = None,
+        resource: ElementTree.Element | None = None,
+        option_set: OptionSet | None = None,
+        selector_set: SelectorSet | None = None,
+        timeout: int | None = None,
     ) -> str:
         return self._invoke(
             WSManAction.SIGNAL,
@@ -563,7 +564,7 @@ class WSMan:
 
     def data_to_send(
         self,
-        amount: t.Optional[int] = None,
+        amount: int | None = None,
     ) -> bytes:
         """Get a set amount of data to send.
 
@@ -613,10 +614,10 @@ class WSMan:
         self,
         action: WSManAction,
         resource_uri: str,
-        option_set: t.Optional[OptionSet] = None,
-        selector_set: t.Optional[SelectorSet] = None,
-        timeout: t.Optional[int] = None,
-    ) -> t.Tuple[ElementTree.Element, str]:
+        option_set: OptionSet | None = None,
+        selector_set: SelectorSet | None = None,
+        timeout: int | None = None,
+    ) -> tuple[ElementTree.Element, str]:
         """Creates a WSMan envelope header based on the configured setup."""
         log.debug(
             "Creating WSMan header (Action: %s, Resource URI: %s, Option Set: %s, Selector Set: %s"
@@ -682,10 +683,10 @@ class WSMan:
         self,
         action: WSManAction,
         resource_uri: str,
-        resource: t.Optional[ElementTree.Element] = None,
-        option_set: t.Optional[OptionSet] = None,
-        selector_set: t.Optional[SelectorSet] = None,
-        timeout: t.Optional[int] = None,
+        resource: ElementTree.Element | None = None,
+        option_set: OptionSet | None = None,
+        selector_set: SelectorSet | None = None,
+        timeout: int | None = None,
     ) -> str:
         s = NAMESPACES["s"]
         envelope = ElementTree.Element("{%s}Envelope" % s)
@@ -707,12 +708,12 @@ def _parse_wsman_fault(
 ) -> WSManFault:
     """Processes a WSManFault response into a structure exception object."""
     xml = envelope
-    code_str: t.Optional[str] = None
+    code_str: str | None = None
     reason = None
     machine = None
     provider = None
     provider_path = None
-    provider_fault: t.Optional[str] = None
+    provider_fault: str | None = None
 
     fault = xml.find("s:Body/s:Fault", namespaces=NAMESPACES)
     if fault is not None:
@@ -752,7 +753,7 @@ def _parse_wsman_fault(
                 provider_fault = ", ".join([f.strip() for f in faults if f.strip()])
 
     # Lastly try and cleanup the value of the parameters.
-    code: t.Optional[int] = None
+    code: int | None = None
     if code_str:
         try:
             code = int(code_str)

@@ -1,6 +1,6 @@
 [build-system]
 requires = [
-    "setuptools >= 61.0.0",  # Support for setuptools config in pyproject.toml
+    "setuptools >= 68.1.0",  # Support for setuptools config in pyproject.toml out of beta
 ]
 build-backend = "setuptools.build_meta"
 
@@ -26,11 +26,11 @@ classifiers = [
 ]
 dependencies = [
     "cryptography",
-    "httpcore < 1.0.0",
-    "httpx < 1.0.0",
+    "httpcore[asyncio] > 1.0.0, < 2.0.0",
     "psrpcore >= 0.1.2",
-    "pyspnego >= 0.7.0, < 1.0.0",
-    "requests >= 2.9.1"  # Old pypsrp namespace
+    "pyspnego >= 0.8.0, < 1.0.0",  # 0.8.0 added cbt support for step()
+    "requests >= 2.9.1",  # Old pypsrp namespace
+    "truststore; python_version >= 3.10"  # Older versions use httpcore defaults
 ]
 
 [project.urls]

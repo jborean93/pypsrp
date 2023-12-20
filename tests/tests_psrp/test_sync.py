@@ -13,8 +13,8 @@ import pytest_mock
 
 import psrp
 import psrp._connection.wsman
-import psrp._winrs
 import psrp._wsman
+import psrp._wsman._winrs
 from psrp._connection.out_of_proc import ps_data_packet, ps_guid_packet
 
 
@@ -261,7 +261,7 @@ def test_runspace_get_pools_ignore_other_resources(
     mock_receive_enumeration = mocker.MagicMock(
         return_value=(
             [
-                psrp._winrs.WinRS(
+                psrp._wsman._winrs.WinRS(
                     psrp._wsman.WSMan("uri"),
                     "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/cmd",
                 )
@@ -1584,11 +1584,11 @@ def test_run_wsman_unhandled_exception_in_runspace(
     psrp_wsman: psrp.WSManInfo,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    original_receive = psrp._winrs.WinRS.receive
+    original_receive = psrp._wsman._winrs.WinRS.receive
 
     i = 0
 
-    def mock_receive(self: psrp._winrs.WinRS, stream: str, command_id: t.Optional[uuid.UUID] = None) -> str:
+    def mock_receive(self: psrp._wsman._winrs.WinRS, stream: str, command_id: t.Optional[uuid.UUID] = None) -> str:
         nonlocal i
         i += 1
         if i < 3:
@@ -1602,7 +1602,7 @@ def test_run_wsman_unhandled_exception_in_runspace(
         if event.state == psrpcore.types.RunspacePoolState.Broken:
             changed_event.set()
 
-    monkeypatch.setattr(psrp._winrs.WinRS, "receive", mock_receive)
+    monkeypatch.setattr(psrp._wsman._winrs.WinRS, "receive", mock_receive)
     rp = psrp.SyncRunspacePool(psrp_wsman)
     rp.state_changed += state_changed
     with rp:
@@ -1623,15 +1623,15 @@ def test_run_wsman_unhandled_exception(
     psrp_wsman: psrp.WSManInfo,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    original_receive = psrp._winrs.WinRS.receive
+    original_receive = psrp._wsman._winrs.WinRS.receive
 
-    def mock_receive(self: psrp._winrs.WinRS, stream: str, command_id: t.Optional[uuid.UUID] = None) -> str:
+    def mock_receive(self: psrp._wsman._winrs.WinRS, stream: str, command_id: t.Optional[uuid.UUID] = None) -> str:
         if command_id:
             raise Exception("unhandled exception")
 
         return original_receive(self, stream, command_id)
 
-    monkeypatch.setattr(psrp._winrs.WinRS, "receive", mock_receive)
+    monkeypatch.setattr(psrp._wsman._winrs.WinRS, "receive", mock_receive)
     with psrp.SyncRunspacePool(psrp_wsman) as rp:
         ps = psrp.SyncPowerShell(rp)
         ps.add_script('"test"')
