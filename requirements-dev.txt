@@ -1,5 +1,5 @@
 asyncssh
-black == 23.3.0
+black == 24.3.0
 build
 gssapi ; sys_platform != 'win32'
 krb5 ; sys_platform != 'win32'
