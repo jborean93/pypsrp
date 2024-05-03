@@ -7,6 +7,7 @@ import asyncio
 import base64
 import collections.abc
 import contextlib
+import dataclasses
 import ipaddress
 import logging
 import ssl
@@ -16,6 +17,7 @@ import urllib.parse
 import uuid
 import xml.etree.ElementTree as ElementTree
 
+import httpcore
 from psrpcore import ClientRunspacePool, PSRPEvent, PSRPPayload, StreamType
 from psrpcore.types import (
     ErrorCategoryInfo,
@@ -29,7 +31,9 @@ from psrpcore.types import (
     RunspacePoolStateMsg,
 )
 
-from psrp._connection.connection import (
+from .. import _wsman as wsman
+from .._exceptions import PSRPAuthenticationError, PSRPConnectionError, PSRPError
+from .connection import (
     AsyncConnection,
     AsyncEventCallable,
     ConnectionInfo,
@@ -39,16 +43,6 @@ from psrp._connection.connection import (
     SyncConnection,
     SyncEventCallable,
 )
-from psrp._exceptions import (
-    ErrorCancelled,
-    OperationAborted,
-    OperationTimedOut,
-    ServiceStreamDisconnected,
-    ShellDisconnected,
-    UnexpectedSelectors,
-)
-
-from .. import _wsman as wsman
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +80,30 @@ def _build_url(
             path = "wsman" if port in [5985, 5986] else ""
 
         return f"{scheme}://{server}:{port}/{path}", scheme == "https", server
+
+
+@contextlib.contextmanager
+def _map_wsman_exceptions() -> collections.abc.Generator[None]:
+    """Maps any of the wsman connection exceptions to public ones exposed by this library."""
+    try:
+        yield
+    except wsman.WSManAuthenticationError as e:
+        # Authentication problems
+        raise PSRPAuthenticationError(str(e)) from e
+
+    except wsman.WSManHTTPError as e:
+        # HTTP status that wasn't 2xx
+        raise PSRPConnectionError(str(e)) from e
+
+    except wsman.WSManFault as e:
+        # WSMan fault under HTTP Status 5xx
+        raise
+
+    except httpcore.TimeoutException as e:
+        raise PSRPConnectionError(str(e)) from e
+
+    except httpcore.NetworkError as e:
+        raise PSRPConnectionError(str(e)) from e
 
 
 def _process_enumeration_response(
@@ -271,8 +289,9 @@ class WSManInfo(ConnectionInfo):
         connection_timeout: float = 30.0,
         read_timeout: float = 30.0,
         # Authentication
-        auth: wsman.WSManAuthProvider
-        | t.Literal["basic", "certificate", "credssp", "kerberos", "negotiate", "ntlm"] = "negotiate",
+        auth: (
+            wsman.AuthProvider | t.Literal["basic", "certificate", "credssp", "kerberos", "negotiate", "ntlm"]
+        ) = "negotiate",
         username: str | None = None,
         password: str | None = None,
         # Cert auth
@@ -287,6 +306,14 @@ class WSManInfo(ConnectionInfo):
         credssp_ssl_context: ssl.SSLContext | None = None,
         credssp_auth_mechanism: t.Literal["kerberos", "negotiate", "ntlm"] = "negotiate",
         credssp_minimum_version: int | None = None,
+        # Proxies
+        proxy: str | None = None,
+        proxy_ssl_context: ssl.SSLContext | None = None,
+        proxy_username: str | None = None,
+        proxy_password: str | None = None,
+        proxy_auth: t.Literal["basic", "kerberos", "negotiate", "ntlm"] | None = None,
+        proxy_negotiate_hostname: str | None = None,
+        proxy_negotiate_service: str = "http",
         # PSRP/WinRM Protocol
         max_envelope_size: int | None = None,
         operation_timeout: int = 20,
@@ -312,6 +339,14 @@ class WSManInfo(ConnectionInfo):
                     password=certificate_key_password,
                 )
 
+        self._proxy = proxy
+        self._proxy_ssl_context = proxy_ssl_context
+        self._proxy_username = proxy_username
+        self._proxy_password = proxy_password
+        self._proxy_auth = proxy_auth
+        self._proxy_negotiate_hostname = proxy_negotiate_hostname
+        self._proxy_negotiate_service = proxy_negotiate_service
+
         self._max_envelope_size = max_envelope_size
         self._operation_timeout = operation_timeout
         self._locale = locale
@@ -320,12 +355,12 @@ class WSManInfo(ConnectionInfo):
         self._buffer_mode = buffer_mode
         self._idle_timeout = idle_timeout
 
-        self._auth_provider: wsman.WSManAuthProvider
-        if isinstance(auth, wsman.WSManAuthProvider):
+        self._auth_provider: wsman.AuthProvider
+        if isinstance(auth, wsman.AuthProvider):
             self._auth_provider = auth
 
         elif auth == "basic":
-            self._auth_provider = wsman.WSManBasicAuth(
+            self._auth_provider = wsman.BasicAuth(
                 username=username or "",
                 password=password or "",
             )
@@ -340,7 +375,7 @@ class WSManInfo(ConnectionInfo):
             self._auth_provider = wsman.WSManCertificateAuth()
 
         elif auth in ["kerberos", "negotiate", "ntlm"]:
-            self._auth_provider = wsman.WSManNegotiateAuth(
+            self._auth_provider = wsman.NegotiateAuth(
                 username=username,
                 password=password,
                 hostname=negotiate_hostname or hostname,
@@ -520,6 +555,13 @@ class WSManInfo(ConnectionInfo):
             connection_timeout=self._connection_timeout,
             read_timeout=self._read_timeout,
             auth=self._auth_provider.copy(),
+            proxy=self._proxy,
+            proxy_ssl_context=self._proxy_ssl_context,
+            proxy_username=self._proxy_username,
+            proxy_password=self._proxy_password,
+            proxy_auth=self._proxy_auth,
+            proxy_negotiate_hostname=self._proxy_negotiate_hostname,
+            proxy_negotiate_service=self._proxy_negotiate_service,
             max_envelope_size=self.max_envelope_size,
             operation_timeout=self.operation_timeout,
             locale=self.locale,
@@ -716,7 +758,7 @@ class SyncWSManConnection(SyncConnection):
         resp = self._connection.wsman_post(self._shell.data_to_send())
 
         # Older Win hosts raise this error when terminating a pipeline, just ignore it.
-        with contextlib.suppress(OperationAborted):
+        with contextlib.suppress(wsman.OperationAborted):
             self._shell.receive_data(resp)
 
     def connect(
@@ -831,16 +873,16 @@ class SyncWSManConnection(SyncConnection):
                     try:
                         event = t.cast(wsman.ReceiveResponseEvent, self._shell.receive_data(resp))
 
-                    except OperationTimedOut:
+                    except wsman.OperationTimedOut:
                         # Occurs when there has been no output after the OperationTimeout set, just repeat the request
                         continue
 
                     except (
-                        ErrorCancelled,
-                        OperationAborted,
-                        UnexpectedSelectors,
-                        ServiceStreamDisconnected,
-                        ShellDisconnected,
+                        wsman.ErrorCancelled,
+                        wsman.OperationAborted,
+                        wsman.UnexpectedSelectors,
+                        wsman.ServiceStreamDisconnected,
+                        wsman.ShellDisconnected,
                     ):
                         if pipeline_id not in self._listener_tasks:
                             # Received when the shell or pipeline has been closed
@@ -1088,7 +1130,7 @@ class AsyncWSManConnection(AsyncConnection):
         resp = await self._connection.wsman_post(self._shell.data_to_send())
 
         # Older Win hosts raise this error when terminating a pipeline, just ignore it.
-        with contextlib.suppress(OperationAborted):
+        with contextlib.suppress(wsman.OperationAborted):
             self._shell.receive_data(resp)
 
     async def connect(
@@ -1202,16 +1244,16 @@ class AsyncWSManConnection(AsyncConnection):
                     try:
                         event = t.cast(wsman.ReceiveResponseEvent, self._shell.receive_data(resp))
 
-                    except OperationTimedOut:
+                    except wsman.OperationTimedOut:
                         # Occurs when there has been no output after the OperationTimeout set, just repeat the request
                         continue
 
                     except (
-                        ErrorCancelled,
-                        OperationAborted,
-                        UnexpectedSelectors,
-                        ServiceStreamDisconnected,
-                        ShellDisconnected,
+                        wsman.ErrorCancelled,
+                        wsman.OperationAborted,
+                        wsman.UnexpectedSelectors,
+                        wsman.ServiceStreamDisconnected,
+                        wsman.ShellDisconnected,
                     ) as e:
                         if pipeline_id not in self._listener_tasks:
                             # Received when the shell or pipeline has been closed

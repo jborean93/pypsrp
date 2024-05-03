@@ -2,7 +2,7 @@ import psrp
 
 
 def test_wsman_http_error() -> None:
-    e = psrp.WSManHTTPError("msg", 500)
+    e = psrp.WSManHTTPError(500)
     assert isinstance(e, psrp.WSManHTTPError)
     assert not isinstance(e, psrp.WSManAuthenticationError)
     assert str(e) == "msg"
@@ -10,7 +10,7 @@ def test_wsman_http_error() -> None:
 
 
 def test_wsman_http_as_auth_error() -> None:
-    e = psrp.WSManHTTPError("msg", 401)
+    e = psrp.WSManHTTPError(401)
     assert isinstance(e, psrp.WSManHTTPError)
     assert isinstance(e, psrp.WSManAuthenticationError)
     assert str(e) == "msg"

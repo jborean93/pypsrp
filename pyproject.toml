@@ -30,7 +30,7 @@ dependencies = [
     "psrpcore >= 0.1.2",
     "pyspnego >= 0.8.0, < 1.0.0",  # 0.8.0 added cbt support for step()
     "requests >= 2.9.1",  # Old pypsrp namespace
-    "truststore; python_version >= 3.10"  # Older versions use httpcore defaults
+    "truststore; python_version >= '3.10'"  # Older versions use httpcore defaults
 ]
 
 [project.urls]

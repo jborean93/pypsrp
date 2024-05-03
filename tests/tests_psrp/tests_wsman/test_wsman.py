@@ -1,7 +1,6 @@
 import pytest
 
-import psrp
-from psrp._wsman import WSMan
+from psrp._wsman import WSManClient, WSManFault, WSManFaultCode
 
 
 def test_raise_native_wsman_fault():
@@ -20,11 +19,11 @@ def test_raise_native_wsman_fault():
         </s:Body>
     </s:Envelope>"""
 
-    wsman = WSMan("host")
-    with pytest.raises(psrp.WSManFault) as exc:
+    wsman = WSManClient("host")
+    with pytest.raises(WSManFault) as exc:
         wsman.receive_data(xml_text.encode())
 
-    assert exc.value.code == psrp.WSManFaultCode.UNKNOWN
+    assert exc.value.code == UNKNOWN
     assert exc.value.machine is None
     assert exc.value.message == (
         "Received a WSManFault message. (Code: 2150891519 UNKNOWN, "
@@ -60,11 +59,11 @@ def test_raise_native_wsman_fault_no_reason():
         </s:Body>
     </s:Envelope>"""
 
-    wsman = WSMan("host")
-    with pytest.raises(psrp.WSManFault) as exc:
+    wsman = WSManClient("host")
+    with pytest.raises(WSManFault) as exc:
         wsman.receive_data(xml_text.encode())
 
-    assert exc.value.code == psrp.WSManFaultCode.UNKNOWN
+    assert exc.value.code == WSManFaultCode.UNKNOWN
     assert exc.value.machine is None
     assert exc.value.message == "Received a WSManFault message. (Code: 2150891519 UNKNOWN)"
     assert exc.value.provider is None
@@ -104,8 +103,8 @@ def test_raise_wsman_fault_with_wsman_fault():
         </s:Body>
     </s:Envelope>"""
 
-    wsman = WSMan("host")
-    with pytest.raises(psrp.WSManFault) as exc:
+    wsman = WSManClient("host")
+    with pytest.raises(WSManFault) as exc:
         wsman.receive_data(xml_text.encode())
 
     assert exc.value.code == 87
@@ -153,8 +152,8 @@ def test_raise_wsman_fault_without_provider():
         </s:Body>
     </s:Envelope>"""
 
-    wsman = WSMan("host")
-    with pytest.raises(psrp.WSManFault) as exc:
+    wsman = WSManClient("host")
+    with pytest.raises(WSManFault) as exc:
         wsman.receive_data(xml_text.encode())
 
     assert exc.value.code == 2150858817
@@ -212,8 +211,8 @@ def test_raise_wsman_fault_with_provider_faults():
         </s:Body>
     </s:Envelope>"""
 
-    wsman = WSMan("host")
-    with pytest.raises(psrp.WSManFault) as exc:
+    wsman = WSManClient("host")
+    with pytest.raises(WSManFault) as exc:
         wsman.receive_data(xml_text.encode())
 
     assert exc.value.code == 2150859113

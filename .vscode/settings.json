@@ -6,8 +6,6 @@
     ],
     "files.trimTrailingWhitespace": true,
     "editor.trimAutoWhitespace": true,
-    "python.formatting.provider": "black",
-    "python.linting.mypyEnabled": true,
     "python.analysis.extraPaths": [
         "src",
     ],

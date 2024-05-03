@@ -1,23 +1,43 @@
-# Copyright: (c) 2023, Jordan Borean (@jborean93) <jborean93@gmail.com>
+# Copyright: (c) 2024, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 from __future__ import annotations
 
 import asyncio
+import collections.abc
 import concurrent.futures
+import contextlib
 import re
 import ssl
 import typing as t
 
 import spnego
 import spnego.channel_bindings
+import spnego.exceptions
 import spnego.tls
 from spnego.channel_bindings import GssChannelBindings
+
+from ._exceptions import WSManAuthenticationError
 
 BOUNDARY_PATTERN = re.compile("boundary=[" '|\\"](.*)[' '|\\"]')
 
 
-class WSManAuthProvider:
+@contextlib.contextmanager
+def _wrap_spnego_error(
+    *,
+    context: spnego.ContextProxy | None = None,
+) -> collections.abc.Generator[None]:
+    try:
+        yield
+    except spnego.exceptions.SpnegoError as e:
+        msg = str(e)
+        if context and (auth_stage := context.get_extra_info("auth_stage", default=None)):
+            msg = f"{msg}. Error during stage {auth_stage}"
+
+        raise WSManAuthenticationError(401, msg=msg) from e
+
+
+class AuthProvider:
     """WSMan Authentication Provider stub."""
 
     @property
@@ -30,7 +50,12 @@ class WSManAuthProvider:
         """The value for the HTTP Authorization header."""
         raise NotImplementedError()  # pragma: nocover
 
-    def copy(self) -> WSManAuthProvider:
+    @property
+    def stage(self) -> str | None:
+        """The authentication stage to use in error messages if present."""
+        return None
+
+    def copy(self) -> AuthProvider:
         return self
 
     async def step_async(
@@ -109,7 +134,7 @@ class WSManEncryptionProvider:
         raise NotImplementedError()  # pragma: nocover
 
 
-class WSManBasicAuth(WSManAuthProvider):
+class BasicAuth(AuthProvider):
     """WSMan Basic Auth.
 
     Implementation for Basic auth over WSMan.
@@ -143,7 +168,7 @@ class WSManBasicAuth(WSManAuthProvider):
         return self._auth_token
 
 
-class WSManCertificateAuth(WSManAuthProvider):
+class WSManCertificateAuth(AuthProvider):
     """WSMan Certificate Auth.
 
     Implementation for Certificate auth over WSMan. Certificate auth is special
@@ -168,7 +193,7 @@ class WSManCertificateAuth(WSManAuthProvider):
         return b""
 
 
-class _WSManSpnegoAuth(WSManAuthProvider, WSManEncryptionProvider):
+class _SpnegoAuth(AuthProvider, WSManEncryptionProvider):
     def __init__(
         self,
         *,
@@ -202,10 +227,11 @@ class _WSManSpnegoAuth(WSManAuthProvider, WSManEncryptionProvider):
         in_token: bytes | None = None,
         channel_bindings: spnego.channel_bindings.GssChannelBindings | None = None,
     ) -> bytes | None:
-        out_token = self._context.step(
-            in_token=in_token,
-            channel_bindings=channel_bindings,
-        )
+        with _wrap_spnego_error(context=self._context):
+            out_token = self._context.step(
+                in_token=in_token,
+                channel_bindings=channel_bindings,
+            )
 
         return out_token or None
 
@@ -296,7 +322,7 @@ class _WSManSpnegoAuth(WSManAuthProvider, WSManEncryptionProvider):
         return b"".join(content), content_type.encode()
 
 
-class WSManNegotiateAuth(_WSManSpnegoAuth):
+class NegotiateAuth(_SpnegoAuth):
     """WSMan Negotiate Auth.
 
     Implementation for Negotiate auth over WSMan. This also has support for
@@ -333,14 +359,15 @@ class WSManNegotiateAuth(_WSManSpnegoAuth):
             if delegate:
                 context_req |= spnego.ContextReq.delegate
 
-            context = spnego.client(
-                username=username,
-                password=password,
-                hostname=hostname,
-                service=service,
-                protocol=protocol,
-                context_req=context_req,
-            )
+            with _wrap_spnego_error():
+                context = spnego.client(
+                    username=username,
+                    password=password,
+                    hostname=hostname,
+                    service=service,
+                    protocol=protocol,
+                    context_req=context_req,
+                )
 
         if context.protocol == "kerberos":
             enc_protocol = "Kerberos"
@@ -355,11 +382,13 @@ class WSManNegotiateAuth(_WSManSpnegoAuth):
     def http_auth_label(self) -> bytes:
         return self._http_auth_label
 
-    def copy(self) -> WSManNegotiateAuth:
-        return WSManNegotiateAuth(context=self._context.new_context())
+    def copy(self) -> NegotiateAuth:
+        with _wrap_spnego_error(context=self._context):
+            new_ctx = self._context.new_context()
+        return NegotiateAuth(context=new_ctx)
 
 
-class WSManCredSSPAuth(_WSManSpnegoAuth):
+class WSManCredSSPAuth(_SpnegoAuth):
     """WSMan CredSSP Auth.
 
     Implementation for CredSSP auth over WSMan. This also has support for
@@ -401,25 +430,27 @@ class WSManCredSSPAuth(_WSManSpnegoAuth):
                 context_kwargs["credssp_min_protocol"] = min_protocol
 
             if negotiate_protocol:
-                context_kwargs["credssp_negotiate_context"] = spnego.client(
-                    username=username,
-                    password=password,
-                    hostname=hostname,
-                    service=service,
-                    protocol=negotiate_protocol,
-                )
+                with _wrap_spnego_error():
+                    context_kwargs["credssp_negotiate_context"] = spnego.client(
+                        username=username,
+                        password=password,
+                        hostname=hostname,
+                        service=service,
+                        protocol=negotiate_protocol,
+                    )
 
             if tls_context:
                 context_kwargs["credssp_tls_context"] = spnego.tls.CredSSPTLSContext(tls_context)
 
-            context = spnego.client(
-                username=username,
-                password=password,
-                hostname=hostname,
-                service=service,
-                protocol="credssp",
-                **context_kwargs,
-            )
+            with _wrap_spnego_error():
+                context = spnego.client(
+                    username=username,
+                    password=password,
+                    hostname=hostname,
+                    service=service,
+                    protocol="credssp",
+                    **context_kwargs,
+                )
 
         super().__init__(context=context, enc_protocol="CredSSP")
 
@@ -428,9 +459,18 @@ class WSManCredSSPAuth(_WSManSpnegoAuth):
         return b"CredSSP"
 
     @property
+    def stage(self) -> str | None:
+        # CredSSP has multiple auth steps and knowing what stage if failed can
+        # be helpful in determining the underlying error.
+        return t.cast(t.Optional[str], self._context.get_extra_info("auth_stage", default=None))
+
+    @property
     def _max_enc_block_size(self) -> int | None:
         # CredSSP uses TLS which has a max block size of 16KiB
         return 16384
 
     def copy(self) -> WSManCredSSPAuth:
-        return WSManCredSSPAuth(username="", password="", context=self._context.new_context())
+        with _wrap_spnego_error(context=self._context):
+            new_ctx = self._context.new_context()
+
+        return WSManCredSSPAuth(username="", password="", context=new_ctx)

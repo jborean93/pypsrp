@@ -1,13 +1,13 @@
 import base64
 import uuid
 
-from psrp._wsman import NAMESPACES, CreateEvent, SendEvent, WSMan
+from psrp._wsman._client import NAMESPACES, CreateEvent, SendEvent, WSManClient
 from psrp._wsman._winrs import WinRS
 
 
 def test_winrs_environment() -> None:
-    client_wsman = WSMan("client")
-    server_wsman = WSMan("server")
+    client_wsman = WSManClient("client")
+    server_wsman = WSManClient("server")
     winrs = WinRS(client_wsman, environment={"AAA": "bbb", "ccc": "DDD"})
     mid = winrs.open()
 
@@ -27,8 +27,8 @@ def test_winrs_environment() -> None:
 
 
 def test_winrs_idle_timeout() -> None:
-    client_wsman = WSMan("client")
-    server_wsman = WSMan("server")
+    client_wsman = WSManClient("client")
+    server_wsman = WSManClient("server")
     winrs = WinRS(client_wsman, idle_time_out=10)
     mid = winrs.open()
 
@@ -42,8 +42,8 @@ def test_winrs_idle_timeout() -> None:
 
 
 def test_winrs_lifetime() -> None:
-    client_wsman = WSMan("client")
-    server_wsman = WSMan("server")
+    client_wsman = WSManClient("client")
+    server_wsman = WSManClient("server")
     winrs = WinRS(client_wsman, lifetime=10)
     mid = winrs.open()
 
@@ -57,8 +57,8 @@ def test_winrs_lifetime() -> None:
 
 
 def test_winrs_name() -> None:
-    client_wsman = WSMan("client")
-    server_wsman = WSMan("server")
+    client_wsman = WSManClient("client")
+    server_wsman = WSManClient("server")
     winrs = WinRS(client_wsman, name="My Name")
     mid = winrs.open()
 
@@ -72,8 +72,8 @@ def test_winrs_name() -> None:
 
 
 def test_winrs_working_directory() -> None:
-    client_wsman = WSMan("client")
-    server_wsman = WSMan("server")
+    client_wsman = WSManClient("client")
+    server_wsman = WSManClient("server")
     winrs = WinRS(client_wsman, working_directory="C:\\Windows")
     mid = winrs.open()
 
@@ -87,8 +87,8 @@ def test_winrs_working_directory() -> None:
 
 
 def test_winrs_no_profile() -> None:
-    client_wsman = WSMan("client")
-    server_wsman = WSMan("server")
+    client_wsman = WSManClient("client")
+    server_wsman = WSManClient("server")
     winrs = WinRS(client_wsman, no_profile=True)
     mid = winrs.open()
 
@@ -104,8 +104,8 @@ def test_winrs_no_profile() -> None:
 
 
 def test_winrs_codepage() -> None:
-    client_wsman = WSMan("client")
-    server_wsman = WSMan("server")
+    client_wsman = WSManClient("client")
+    server_wsman = WSManClient("server")
     winrs = WinRS(client_wsman, codepage=65001)
     mid = winrs.open()
 
@@ -121,8 +121,8 @@ def test_winrs_codepage() -> None:
 
 
 def test_winrs_send_end() -> None:
-    client_wsman = WSMan("client")
-    server_wsman = WSMan("server")
+    client_wsman = WSManClient("client")
+    server_wsman = WSManClient("server")
     winrs = WinRS(client_wsman)
     mid = winrs.send("stdin", b"data", end=True)
 

@@ -99,17 +99,29 @@ def get_tls_server_end_point_bindings(
 
     backend = default_backend()
     cert = x509.load_der_x509_certificate(certificate_der, backend)
-    try:
-        hash_algorithm = cert.signature_hash_algorithm
-    except UnsupportedAlgorithm:
-        hash_algorithm = None
 
-    # If the cert signature algorithm is unknown, md5, or sha1 then use sha256
-    # otherwise use the signature algorithm of the cert itself.
-    if not hash_algorithm or hash_algorithm.name in ["md5", "sha1"]:
-        digest = hashes.Hash(hashes.SHA256(), backend)
+    alg_oid = cert.signature_algorithm_oid.dotted_string
+    hash_algorithm: hashes.HashAlgorithm
+    if alg_oid in (
+        "1.2.840.10045.4.3.3",  # SHA384ECDSA
+        "1.2.840.113549.1.1.12",  # SHA384RSA
+        "2.16.840.1.101.3.4.2.2",  # SHA384
+    ):
+        hash_algorithm = hashes.SHA384()
+
+    elif alg_oid in (
+        "1.2.840.10045.4.3.4",  # SHA512ECDSA
+        "1.2.840.113549.1.1.13",  # SHA512RSA
+        "2.16.840.1.101.3.4.2.3",  # SHA512
+    ):
+        hash_algorithm = hashes.SHA512()
+
     else:
-        digest = hashes.Hash(hash_algorithm, backend)
+        # Older protocols default to SHA256, also used as a catch all in case
+        # of a weird algorithm which will most likely also use SHA256.
+        hash_algorithm = hashes.SHA256()
+
+    digest = hashes.Hash(hash_algorithm, backend)
 
     digest.update(certificate_der)
     certificate_hash = digest.finalize()

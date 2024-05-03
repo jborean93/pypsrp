@@ -36,10 +36,6 @@ from psrp._exceptions import (
     PipelineStopped,
     PSRPError,
     RunspaceNotAvailable,
-    WSManAuthenticationError,
-    WSManFault,
-    WSManFaultCode,
-    WSManHTTPError,
 )
 from psrp._host import PSHost, PSHostRawUI, PSHostUI
 from psrp._sync import (
@@ -79,10 +75,6 @@ __all__ = [
     "SyncPSDataCollection",
     "SyncPSDataStreams",
     "SyncRunspacePool",
-    "WSManAuthenticationError",
-    "WSManFault",
-    "WSManFaultCode",
-    "WSManHTTPError",
     "WSManInfo",
     "async_invoke_ps",
     "copy_file",
