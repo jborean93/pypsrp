@@ -212,8 +212,12 @@ def test_runspace_disconnect(psrp_wsman: psrp.ConnectionInfo) -> None:
 
 
 def test_runspace_disconnect_without_timeout_and_buffer_mode(psrp_wsman: psrp.WSManInfo) -> None:
-    psrp_wsman.buffer_mode = psrp.OutputBufferingMode.DROP
-    psrp_wsman.idle_timeout = 10
+    psrp_wsman = psrp.WSManInfo(
+        server=psrp_wsman.connection_uri,
+        auth=psrp_wsman._auth_provider,
+        buffer_mode=psrp.OutputBufferingMode.DROP,
+        idle_timeout=10,
+    )
 
     with psrp.SyncRunspacePool(psrp_wsman) as rp:
         assert rp.state == psrpcore.types.RunspacePoolState.Opened
@@ -262,7 +266,7 @@ def test_runspace_get_pools_ignore_other_resources(
         return_value=(
             [
                 psrp._wsman._winrs.WinRS(
-                    psrp._wsman.WSMan("uri"),
+                    psrp._wsman.WSManClient("uri"),
                     "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/cmd",
                 )
             ],
@@ -1569,7 +1573,11 @@ def test_run_get_command_meta(conn: str, request: pytest.FixtureRequest) -> None
 
 
 def test_run_wsman_with_operation_timeout(psrp_wsman: psrp.WSManInfo) -> None:
-    psrp_wsman.operation_timeout = 2
+    psrp_wsman = psrp.WSManInfo(
+        server=psrp_wsman.connection_uri,
+        auth=psrp_wsman._auth_provider,
+        operation_timeout=2,
+    )
     with psrp.SyncRunspacePool(psrp_wsman) as rp:
         # Unfortunately this test needs to run for a longer time to test out
         # the scenario

@@ -570,9 +570,9 @@ class WSMan(object):
         ET.SubElement(header, "{%s}OperationTimeout" % wsman).text = "PT%sS" % str(timeout or self.operation_timeout)
 
         reply_to = ET.SubElement(header, "{%s}ReplyTo" % wsa)
-        ET.SubElement(
-            reply_to, "{%s}Address" % wsa, attrib={"{%s}mustUnderstand" % s: "true"}
-        ).text = "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous"
+        ET.SubElement(reply_to, "{%s}Address" % wsa, attrib={"{%s}mustUnderstand" % s: "true"}).text = (
+            "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous"
+        )
 
         ET.SubElement(header, "{%s}ResourceURI" % wsman, attrib={"{%s}mustUnderstand" % s: "true"}).text = resource_uri
 

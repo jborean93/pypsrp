@@ -1,7 +1,9 @@
-# Copyright: (c) 2023, Jordan Borean (@jborean93) <jborean93@gmail.com>
+# Copyright: (c) 2024, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 from __future__ import annotations
+
+import typing as t
 
 from ._auth import (
     AuthProvider,
@@ -62,8 +64,19 @@ from ._exceptions import (
     WSManHTTPError,
 )
 from ._http import AsyncWSManHTTP, SyncWSManHTTP
+from ._http_proxy import HTTPProxy
+from ._proxy import Proxy
 from ._tls import create_ssl_context
 from ._winrs import CommandInfo, WinRS
+
+try:
+    from ._socks import SOCKS5Proxy
+except ImportError:
+
+    class SOCKS5Proxy(Proxy):  # type: ignore[no-redef]
+        def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
+            raise Exception("Attempted to use SocksProxy but 'pypsrp[socks]' is not installed.")
+
 
 __all__ = [
     "NAMESPACES",
@@ -87,9 +100,11 @@ __all__ = [
     "FaultEvent",
     "GetEvent",
     "GetResponseEvent",
+    "HTTPProxy",
     "OperationAborted",
     "OperationTimedOut",
     "OptionSet",
+    "Proxy",
     "PullEvent",
     "PullResponseEvent",
     "PutEvent",
@@ -106,6 +121,7 @@ __all__ = [
     "SignalCode",
     "SignalEvent",
     "SignalResponseEvent",
+    "SOCKS5Proxy",
     "SyncWSManHTTP",
     "UnexpectedSelectors",
     "WSManAction",

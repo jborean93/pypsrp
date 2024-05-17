@@ -1,4 +1,4 @@
-# Copyright: (c) 2023, Jordan Borean (@jborean93) <jborean93@gmail.com>
+# Copyright: (c) 2024, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 from __future__ import annotations
@@ -87,7 +87,7 @@ class WSManHTTPError(Exception):
         *,
         msg: str | None = None,
     ) -> WSManHTTPError:
-        if http_code == 401:
+        if http_code in [401, 407]:
             cls = WSManAuthenticationError
 
         return super().__new__(cls)

@@ -26,7 +26,7 @@ BOUNDARY_PATTERN = re.compile("boundary=[" '|\\"](.*)[' '|\\"]')
 def _wrap_spnego_error(
     *,
     context: spnego.ContextProxy | None = None,
-) -> collections.abc.Generator[None]:
+) -> collections.abc.Iterator[None]:
     try:
         yield
     except spnego.exceptions.SpnegoError as e:
@@ -55,13 +55,13 @@ class AuthProvider:
         """The authentication stage to use in error messages if present."""
         return None
 
-    def copy(self) -> AuthProvider:
+    def copy(self) -> t.Self:
         return self
 
     async def step_async(
         self,
         in_token: bytes | None = None,
-        channel_bindings: spnego.channel_bindings.GssChannelBindings | None = None,
+        channel_bindings: GssChannelBindings | None = None,
     ) -> bytes | None:
         """Async version of step."""
         return self.step(in_token=in_token, channel_bindings=channel_bindings)
@@ -69,7 +69,7 @@ class AuthProvider:
     def step(
         self,
         in_token: bytes | None = None,
-        channel_bindings: spnego.channel_bindings.GssChannelBindings | None = None,
+        channel_bindings: GssChannelBindings | None = None,
     ) -> bytes | None:
         """Performs an auth step to produce an auth token.
 
@@ -90,6 +90,86 @@ class AuthProvider:
             Authorization header.
         """
         raise NotImplementedError()  # pragma: nocover
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        auth: t.Literal["basic", "certificate", "credssp", "kerberos", "negotiate", "ntlm"] = "negotiate",
+        username: str | None = None,
+        password: str | None = None,
+        negotiate_hostname: str | None = None,
+        negotiate_service: str | None = None,
+        negotiate_delegate: bool = False,
+        negotiate_ignore_mutual: bool = False,
+        credssp_minimum_version: int | None = None,
+        credssp_ssl_context: ssl.SSLContext | None = None,
+        credssp_auth_mechanism: t.Literal["kerberos", "negotiate", "ntlm"] | None = None,
+    ) -> AuthProvider:
+        """Create Auth Provider.
+
+        Creates an authentication provider from the inputs provided. The auth
+        provider can be used for WSMan authentication and Proxy authentication.
+
+        Args:
+            auth: The authentication protocol to use.
+            username: The username to authenticate with.
+            password: The password to authenticate with.
+            negotiate_hostname: The hostname to use for the Negotiate auth SPN.
+            negotiate_service: The service to use for the Negotiate auth SPN.
+            negotiate_delegate: Whether to request a delegatable ticket.
+            negotiate_ignore_mutual: Whether to ignore the mutual check for
+                negotiate auth. This should only be used for proxy based auth
+                providers.
+            credssp_minimum_version: The minimum CredSSP protocol the client
+                will allow.
+            credssp_ssl_context: A custom CredSSP TLS context to use.
+            credssp_auth_mechanism: The CredSSP inner auth mechanism to use.
+
+        Returns:
+            AuthProvider: The auth provider from the validated input.
+        """
+        negotiate_hostname = negotiate_hostname or "unknown"
+        negotiate_service = negotiate_service or "http"
+
+        if auth == "basic":
+            return BasicAuth(
+                username=username or "",
+                password=password or "",
+            )
+
+        elif auth == "certificate":
+            return WSManCertificateAuth()
+
+        elif auth in ["kerberos", "negotiate", "ntlm"]:
+            return NegotiateAuth(
+                username=username,
+                password=password,
+                hostname=negotiate_hostname,
+                service=negotiate_service,
+                delegate=negotiate_delegate,
+                ignore_mutual=negotiate_ignore_mutual,
+                protocol=auth,
+            )
+
+        elif auth == "credssp":
+            if not username or not password:
+                raise ValueError("Auth protocol credssp requires a username and password to be provided")
+
+            return WSManCredSSPAuth(
+                username=username,
+                password=password,
+                hostname=negotiate_hostname,
+                service=negotiate_service,
+                min_protocol=credssp_minimum_version,
+                tls_context=credssp_ssl_context,
+                negotiate_protocol=credssp_auth_mechanism,
+            )
+
+        else:
+            raise ValueError(
+                f"Invalid auth protocol '{auth}', must be basic, certificate, kerberos, negotiate, ntlm, or credssp"
+            )
 
 
 class WSManEncryptionProvider:
@@ -150,6 +230,8 @@ class BasicAuth(AuthProvider):
         username: str,
         password: str,
     ) -> None:
+        self.username = username
+        self.password = password
         self._auth_token = f"{username}:{password}".encode("utf-8")
 
     @property
@@ -163,7 +245,7 @@ class BasicAuth(AuthProvider):
     def step(
         self,
         in_token: bytes | None = None,
-        channel_bindings: spnego.channel_bindings.GssChannelBindings | None = None,
+        channel_bindings: GssChannelBindings | None = None,
     ) -> bytes | None:
         return self._auth_token
 
@@ -188,7 +270,7 @@ class WSManCertificateAuth(AuthProvider):
     def step(
         self,
         in_token: bytes | None = None,
-        channel_bindings: spnego.channel_bindings.GssChannelBindings | None = None,
+        channel_bindings: GssChannelBindings | None = None,
     ) -> bytes | None:
         return b""
 
@@ -199,13 +281,17 @@ class _SpnegoAuth(AuthProvider, WSManEncryptionProvider):
         *,
         context: spnego.ContextProxy,
         enc_protocol: str,
+        ignore_mutual: bool = False,
     ) -> None:
         self._context = context
         self._encryption_type = f"application/HTTP-{enc_protocol}-session-encrypted"
+        self._ignore_mutual = ignore_mutual
+        self._first = True
+        self._complete_override = False
 
     @property
     def complete(self) -> bool:
-        return self._context.complete
+        return self._complete_override and self._ignore_mutual or self._context.complete
 
     @property
     def _max_enc_block_size(self) -> int | None:
@@ -225,8 +311,17 @@ class _SpnegoAuth(AuthProvider, WSManEncryptionProvider):
     def step(
         self,
         in_token: bytes | None = None,
-        channel_bindings: spnego.channel_bindings.GssChannelBindings | None = None,
+        channel_bindings: GssChannelBindings | None = None,
     ) -> bytes | None:
+        # Some proxies don't respond with a token back that's needed to
+        # complete the auth. This is only for mutual auth so we can ignore that
+        # as we want to do mutual auth with the Windows server rather than the
+        # proxy host.
+        if not self._first and not in_token and self._ignore_mutual:
+            self._complete_override = True
+            return None
+
+        self._first = False
         with _wrap_spnego_error(context=self._context):
             out_token = self._context.step(
                 in_token=in_token,
@@ -338,6 +433,8 @@ class NegotiateAuth(_SpnegoAuth):
             request.
         service: The target service name, defaults to http.
         delegate: Request a delegatable ticket, only works with Kerberos auth.
+        ignore_mutual: Used for proxy auth only, disables the mutual check
+            needed by the underlying auth context.
         protocol: The protocol to use, defaults to negotiate but can be set
             to 'kerberos', or 'ntlm'.
         context: Inner use only.
@@ -351,6 +448,7 @@ class NegotiateAuth(_SpnegoAuth):
         hostname: str = "unspecified",
         service: str = "http",
         delegate: bool = False,
+        ignore_mutual: bool = False,
         protocol: str = "negotiate",
         context: spnego.ContextProxy | None = None,
     ) -> None:
@@ -376,7 +474,11 @@ class NegotiateAuth(_SpnegoAuth):
             enc_protocol = "SPNEGO"
             self._http_auth_label = b"Negotiate"
 
-        super().__init__(context=context, enc_protocol=enc_protocol)
+        super().__init__(
+            context=context,
+            enc_protocol=enc_protocol,
+            ignore_mutual=ignore_mutual,
+        )
 
     @property
     def http_auth_label(self) -> bytes:
@@ -385,7 +487,10 @@ class NegotiateAuth(_SpnegoAuth):
     def copy(self) -> NegotiateAuth:
         with _wrap_spnego_error(context=self._context):
             new_ctx = self._context.new_context()
-        return NegotiateAuth(context=new_ctx)
+        return NegotiateAuth(
+            context=new_ctx,
+            ignore_mutual=self._ignore_mutual,
+        )
 
 
 class WSManCredSSPAuth(_SpnegoAuth):

@@ -10,6 +10,8 @@
 * Fix deadlock when receiving certain WSManFault errors outside of a close operation
 * Fix invalid selector error when connecting to Exchange Online by re-using proper cookies
 * Fix connection info URI builder when targeting the default HTTP and HTTPS port 80/443
+* Removed dependency on `httpx` in favour of using `httpcore` directly
+* Added HTTP and SOCKS5 proxy support in the new `psrp` namespace
 
 ## 1.0.0b1 - 2022-05-27
 

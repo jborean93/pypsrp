@@ -1,19 +1,17 @@
-# Copyright: (c) 2023, Jordan Borean (@jborean93) <jborean93@gmail.com>
+# Copyright: (c) 2024, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 from __future__ import annotations
 
 import pathlib
 import ssl
+import tempfile
 
 import httpcore
-import spnego
-import spnego.channel_bindings
-import spnego.tls
 from cryptography import x509
-from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
+from spnego.channel_bindings import GssChannelBindings
 
 HAS_TRUSTSTORE = True
 try:
@@ -30,13 +28,42 @@ def create_ssl_context(
 ) -> ssl.SSLContext:
     """Create new SSL Context.
 
-    Creates a new SSLContext to use for TLS connections.
+    Creates a new SSLContext to use for TLS connections. Python 3.10 will use
+    the truststore package to create the SSLContext so it trusts the system CA
+    trust store. Otherwise, it will use the default SSL trust location
+    behaviour that Python provides.
+
+    When using client certificate authentication, the caller must provide:
+
+    + The private key,
+    + The certificate, and
+    + Any certs that might be needed to verify the cert back to a CA
+
+    Each certificate should be in the PEM format with the key being first, then
+    the certificate sequence starting with the leaf certificate. The private
+    key can be encrypted with a password which is specified by the password
+    argument.
+
+    The certfile argument can either be a path to a file that contains the
+    PEM certificate and optionally the PEM private key. The keyfile argument
+    can also be used when certfile is a path to provide the private key as a
+    separate file.
+
+    The certificate argument can also be a string that contains both the
+    private key and certificate in PEM format. As Python does not support a way
+    to load the certificate/key from memory it will be written to a temporary
+    file using mkstemp(). This file will be deleted as soon as it is loaded by
+    OpenSSL and while it is stored in a secure temporary file, the key should
+    be password protected for added protection. The keyfile argument is ignored
+    when certfile is set to the certificate string and not a path.
 
     Args:
-        verify:
-        certfile:
-        keyfile:
-        password:
+        verify: When set to a bool defines whether to verify the cert or not.
+            If set to a string, it is treated as a path to a CA trust store.
+        certfile: Used for certificate authentication. This is the path to the
+            client certificate PEM or the certificate as a string.
+        keyfile: The certificate authentication key file.
+        password: The password used to decrypt the certificate key if required.
 
     Returns:
         ssl.SSLContext: The configured SSLContext to use for the TLS connection.
@@ -51,11 +78,31 @@ def create_ssl_context(
         # Needed for certificate authentication with TLS 1.3 as WSMan does post
         # handshake cert authentication.
         context.post_handshake_auth = True
-        context.load_cert_chain(
-            certfile=certfile,
-            keyfile=keyfile,
-            password=password,
-        )
+
+        # Python doesn't support loading from memory, this is a workaround
+        # using a temporary file from mkstemp() which should be secure enough.
+        # Users should be aware of this limitation and protect the keys with a
+        # password. Setting delete_on_close=False is needed for Windows support
+        # as the file is locked by the process and can't be read by the SSL. It
+        # will still be deleted when the context manager is exited.
+        # https://github.com/python/cpython/pull/2449
+        if "-----BEGIN CERTIFICATE-----" in certfile:
+            with tempfile.NamedTemporaryFile(mode="w+b", delete_on_close=False) as fd:
+                fd.write(certfile.encode("utf-8"))
+                fd.flush()
+                fd.close()
+
+                context.load_cert_chain(
+                    certfile=fd.name,
+                    password=password,
+                )
+
+        else:
+            context.load_cert_chain(
+                certfile=certfile,
+                keyfile=keyfile,
+                password=password,
+            )
 
     if verify is None or verify is True:
         return context
@@ -80,7 +127,7 @@ def create_ssl_context(
 
 def get_tls_server_end_point_bindings(
     ssl_object: ssl.SSLObject,
-) -> spnego.channel_bindings.GssChannelBindings | None:
+) -> GssChannelBindings | None:
     """Get Channel Binding Token.
 
     Get the channel binding tls-server-end-point token from the SSL object
@@ -90,8 +137,7 @@ def get_tls_server_end_point_bindings(
         ssl_object: The SSLObject to get the token for.
 
     Returns:
-        Optional[spngeo.channel_bindings.GssChannelBindings]: The channel
-        channel bindings if present.
+        Optional[GssChannelBindings]: The channel channel bindings if present.
     """
     certificate_der = ssl_object.getpeercert(True)
     if not certificate_der:
@@ -126,6 +172,6 @@ def get_tls_server_end_point_bindings(
     digest.update(certificate_der)
     certificate_hash = digest.finalize()
 
-    return spnego.channel_bindings.GssChannelBindings(
+    return GssChannelBindings(
         application_data=b"tls-server-end-point:" + certificate_hash,
     )

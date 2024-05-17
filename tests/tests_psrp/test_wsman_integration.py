@@ -1,6 +1,5 @@
 import os
 import pathlib
-import sys
 import typing as t
 
 import pytest
@@ -340,11 +339,9 @@ def test_wsman_invalid_credential_sync() -> None:
         password="invalid",
     )
 
-    with pytest.raises(psrp.WSManAuthenticationError) as e:
+    with pytest.raises(psrp.PSRPAuthenticationError) as e:
         with psrp.SyncRunspacePool(connection):
             pass
-
-    assert e.value.http_code == 401
 
 
 @pytest.mark.asyncio
@@ -357,8 +354,6 @@ async def test_wsman_invalid_credential_async() -> None:
         password="invalid",
     )
 
-    with pytest.raises(psrp.WSManAuthenticationError) as e:
+    with pytest.raises(psrp.PSRPAuthenticationError) as e:
         async with psrp.AsyncRunspacePool(connection):
             pass
-
-    assert e.value.http_code == 401

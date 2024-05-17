@@ -1,4 +1,4 @@
-# Copyright: (c) 2023, Jordan Borean (@jborean93) <jborean93@gmail.com>
+# Copyright: (c) 2024, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
 from __future__ import annotations
@@ -631,9 +631,9 @@ class WSManClient:
 
         header = ElementTree.Element("{%s}Header" % s)
 
-        ElementTree.SubElement(
-            header, "{%s}Action" % wsa, attrib={"{%s}mustUnderstand" % s: "true"}
-        ).text = action.value
+        ElementTree.SubElement(header, "{%s}Action" % wsa, attrib={"{%s}mustUnderstand" % s: "true"}).text = (
+            action.value
+        )
 
         ElementTree.SubElement(
             header,
@@ -657,13 +657,13 @@ class WSManClient:
         )
 
         reply_to = ElementTree.SubElement(header, "{%s}ReplyTo" % wsa)
-        ElementTree.SubElement(
-            reply_to, "{%s}Address" % wsa, attrib={"{%s}mustUnderstand" % s: "true"}
-        ).text = "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous"
+        ElementTree.SubElement(reply_to, "{%s}Address" % wsa, attrib={"{%s}mustUnderstand" % s: "true"}).text = (
+            "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous"
+        )
 
-        ElementTree.SubElement(
-            header, "{%s}ResourceURI" % wsman, attrib={"{%s}mustUnderstand" % s: "true"}
-        ).text = resource_uri
+        ElementTree.SubElement(header, "{%s}ResourceURI" % wsman, attrib={"{%s}mustUnderstand" % s: "true"}).text = (
+            resource_uri
+        )
 
         ElementTree.SubElement(header, "{%s}SessionId" % wsmv, attrib={"{%s}mustUnderstand" % s: "false"}).text = (
             "uuid:%s" % str(self.session_id).upper()

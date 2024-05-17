@@ -2,10 +2,7 @@
 # Copyright: (c) 2022, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
-import logging
-
-log = logging.getLogger(__name__)
-log.addHandler(logging.NullHandler())
+import typing as t
 
 from psrp._async import (
     AsyncCommandMetaPipeline,
@@ -34,6 +31,7 @@ from psrp._connection.wsman import WSManInfo
 from psrp._exceptions import (
     PipelineFailed,
     PipelineStopped,
+    PSRPAuthenticationError,
     PSRPError,
     RunspaceNotAvailable,
 )
@@ -45,6 +43,31 @@ from psrp._sync import (
     SyncPSDataStreams,
     SyncRunspacePool,
 )
+
+try:
+    from psrp._connection.named_pipe import NamedPipeInfo
+except Exception:  # pragma: no cover
+
+    class NamedPipeInfo(ConnectionInfo):  # type: ignore[no-redef]
+
+        def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
+            raise Exception("Attempted to use NamedPipeInfo but 'pypsrp[named_pipe]' is not installed.")
+
+
+try:
+    from psrp._connection.ssh import SSHInfo, WinPSSSHInfo
+except Exception:  # pragma: no cover
+
+    class SSHInfo(ConnectionInfo):  # type: ignore[no-redef]
+
+        def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
+            raise Exception("Attempted to use SSHInfo but 'pypsrp[ssh]' is not installed.")
+
+    class WinPSSSHInfo(ConnectionInfo):  # type: ignore[no-redef]
+
+        def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
+            raise Exception("Attempted to use WinPSSSHInfo but 'pypsrp[ssh]' is not installed.")
+
 
 __all__ = [
     "AsyncCommandMetaPipeline",
@@ -58,6 +81,7 @@ __all__ = [
     "ConnectionInfo",
     "EnumerationPipelineResult",
     "EnumerationRunspaceResult",
+    "NamedPipeInfo",
     "OutputBufferingMode",
     "PipelineFailed",
     "PipelineStopped",
@@ -65,8 +89,10 @@ __all__ = [
     "PSHost",
     "PSHostRawUI",
     "PSHostUI",
+    "PSRPAuthenticationError",
     "PSRPError",
     "RunspaceNotAvailable",
+    "SSHInfo",
     "SyncCommandMetaPipeline",
     "SyncConnection",
     "SyncEventCallable",
@@ -75,25 +101,10 @@ __all__ = [
     "SyncPSDataCollection",
     "SyncPSDataStreams",
     "SyncRunspacePool",
+    "WinPSSSHInfo",
     "WSManInfo",
     "async_invoke_ps",
     "copy_file",
     "fetch_file",
     "invoke_ps",
 ]
-
-
-try:
-    from psrp._connection.named_pipe import NamedPipeInfo
-except Exception:  # pragma: no cover
-    log.exception("Optional Named Pipe connection failed to import")
-else:  # pragma: no cover
-    __all__.append("NamedPipeInfo")
-
-
-try:
-    from psrp._connection.ssh import SSHInfo, WinPSSSHInfo
-except Exception:  # pragma: no cover
-    log.exception("Optional SSH connection failed to import")
-else:  # pragma: no cover
-    __all__.extend(["SSHInfo", "WinPSSSHInfo"])
