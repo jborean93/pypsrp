@@ -4,356 +4,23 @@
 from __future__ import annotations
 
 import base64
-import enum
 import logging
 import typing as t
 import uuid
 from xml.etree import ElementTree
 
-from ._exceptions import WSManFault
+from ._protocol import (
+    NAMESPACES,
+    OptionSet,
+    SelectorSet,
+    SignalCode,
+    WSManAction,
+    create_envelope,
+    create_header,
+)
+from .events import CreateResponseEvent, FaultEvent, WSManEvent
 
 log = logging.getLogger(__name__)
-
-
-# [MS-WSMV] 2.2.1 Namespaces
-# https://msdn.microsoft.com/en-us/library/ee878420.aspx
-NAMESPACES = {
-    "s": "http://www.w3.org/2003/05/soap-envelope",
-    "xs": "http://www.w3.org/2001/XMLSchema",
-    "xsi": "http://www.w3.org/2001/XMLSchema-instance",
-    "wsa": "http://schemas.xmlsoap.org/ws/2004/08/addressing",
-    "wsman": "http://schemas.dmtf.org/wbem/wsman/1/wsman.xsd",
-    "wsmid": "http://schemas.dmtf.org/wbem/wsman/identify/1/wsmanidentity.xsd",
-    "wsmanfault": "http://schemas.microsoft.com/wbem/wsman/1/wsmanfault",
-    "cim": "http://schemas.dmtf.org/wbem/wscim/1/common",
-    "wsmv": "http://schemas.microsoft.com/wbem/wsman/1/wsman.xsd",
-    "cfg": "http://schemas.microsoft.com/wbem/wsman/1/config",
-    "sub": "http://schemas.microsoft.com/wbem/wsman/1/subscription",
-    "rsp": "http://schemas.microsoft.com/wbem/wsman/1/windows/shell",
-    "m": "http://schemas.microsoft.com/wbem/wsman/1/machineid",
-    "cert": "http://schemas.microsoft.com/wbem/wsman/1/config/service/certmapping",
-    "plugin": "http://schemas.microsoft.com/wbem/wsman/1/config/PluginConfiguration",
-    "wsen": "http://schemas.xmlsoap.org/ws/2004/09/enumeration",
-    "wsdl": "http://schemas.xmlsoap.org/wsdl",
-    "wst": "http://schemas.xmlsoap.org/ws/2004/09/transfer",
-    "wsp": "http://schemas.xmlsoap.org/ws/2004/09/policy",
-    "wse": "http://schemas.xmlsoap.org/ws/2004/08/eventing",
-    "i": "http://schemas.microsoft.com/wbem/wsman/1/cim/interactive.xsd",
-    "xml": "http://www.w3.org/XML/1998/namespace",
-    "pwsh": "http://schemas.microsoft.com/powershell",
-}
-# Register well known namespace prefixes so ElementTree doesn't randomly generate them, saving packet space.
-for k, v in NAMESPACES.items():
-    ElementTree.register_namespace(k, v)
-
-
-class CommandState(enum.Enum):
-    DONE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandState/Done"
-    PENDING = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandState/Pending"
-    RUNNING = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandState/Running"
-
-
-class SignalCode(enum.Enum):
-    """
-    [MS-WSMV] 2.2.4.38 Signal - Code
-    https://msdn.microsoft.com/en-us/library/cc251558.aspx
-
-    The control code to send in a Signal message to the server
-    """
-
-    CTRL_C = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/signal/ctrl_c"
-    CTRL_BREAK = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/signal/ctrl_break"
-    TERMINATE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/signal/Terminate"
-    PS_CRTL_C = "powershell/signal/crtl_c"
-
-
-class WSManAction(enum.Enum):
-    GET = "http://schemas.xmlsoap.org/ws/2004/09/transfer/Get"
-    GET_RESPONSE = "http://schemas.xmlsoap.org/ws/2004/09/transfer/GetResponse"
-    PUT = "http://schemas.xmlsoap.org/ws/2004/09/transfer/Put"
-    PUT_RESPONSE = "http://schemas.xmlsoap.org/ws/2004/09/transfer/PutResponse"
-    CREATE = "http://schemas.xmlsoap.org/ws/2004/09/transfer/Create"
-    CREATE_RESPONSE = "http://schemas.xmlsoap.org/ws/2004/09/transfer/CreateResponse"
-    DELETE = "http://schemas.xmlsoap.org/ws/2004/09/transfer/Delete"
-    DELETE_RESPONSE = "http://schemas.xmlsoap.org/ws/2004/09/transfer/DeleteResponse"
-    ENUMERATE = "http://schemas.xmlsoap.org/ws/2004/09/enumeration/Enumerate"
-    ENUMERATE_RESPONSE = "http://schemas.xmlsoap.org/ws/2004/09/enumeration/EnumerateResponse"
-    FAULT = "http://schemas.dmtf.org/wbem/wsman/1/wsman/fault"
-    FAULT_ADDRESSING = "http://schemas.xmlsoap.org/ws/2004/08/addressing/fault"
-    PULL = "http://schemas.xmlsoap.org/ws/2004/09/enumeration/Pull"
-    PULL_RESPONSE = "http://schemas.xmlsoap.org/ws/2004/09/enumeration/PullResponse"
-    COMMAND = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command"
-    COMMAND_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/CommandResponse"
-    CONNECT = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Connect"
-    CONNECT_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/ConnectResponse"
-    DISCONNECT = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Disconnect"
-    DISCONNECT_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/DisconnectResponse"
-    RECEIVE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Receive"
-    RECEIVE_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/ReceiveResponse"
-    RECONNECT = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Reconnect"
-    RECONNECT_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/ReconnectResponse"
-    SEND = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Send"
-    SEND_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/SendResponse"
-    SIGNAL = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Signal"
-    SIGNAL_RESPONSE = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/SignalResponse"
-
-
-class _WSManEventRegistry(type):
-    __registry: dict[str, _WSManEventRegistry] = {}
-
-    def __init__(
-        cls,
-        *args: t.Any,
-        **kwargs: t.Any,
-    ) -> None:
-        super().__init__(*args, **kwargs)
-
-        action: WSManAction | None = getattr(cls, "ACTION", None)
-        if action is None:
-            return
-
-        if action.value not in cls.__registry:
-            cls.__registry[action.value] = cls
-
-    def __call__(
-        cls,
-        data: ElementTree.Element,
-    ) -> t.Any:
-        action = data.find("s:Header/wsa:Action", namespaces=NAMESPACES)
-        new_cls = cls.__registry.get(getattr(action, "text", None) or "", cls)
-        return super(_WSManEventRegistry, new_cls).__call__(data)
-
-
-class WSManEvent(metaclass=_WSManEventRegistry):
-    def __init__(
-        self,
-        data: ElementTree.Element,
-    ):
-        self._raw = data
-
-    @property
-    def header(self) -> ElementTree.Element:
-        """The WSMan header XML Element."""
-        return self._raw.find("s:Header", namespaces=NAMESPACES)  # type: ignore[return-value]
-
-    @property
-    def body(self) -> ElementTree.Element:
-        """The WSMan body XML Element."""
-        return self._raw.find("s:Body", namespaces=NAMESPACES)  # type: ignore[return-value]
-
-    @property
-    def message_id(self) -> uuid.UUID:
-        """The unique message identifier of the message."""
-        message_id = t.cast(ElementTree.Element, self._raw.find("s:Header/wsa:MessageID", namespaces=NAMESPACES))
-
-        # The XML element text starts with uuid: which should be removed
-        return uuid.UUID(t.cast(str, message_id.text)[5:])
-
-
-class GetEvent(WSManEvent):
-    ACTION = WSManAction.GET
-
-
-class GetResponseEvent(WSManEvent):
-    ACTION = WSManAction.GET_RESPONSE
-
-
-class PutEvent(WSManEvent):
-    ACTION = WSManAction.PUT
-
-
-class PutResponseEvent(WSManEvent):
-    ACTION = WSManAction.PUT_RESPONSE
-
-
-class CreateEvent(WSManEvent):
-    ACTION = WSManAction.CREATE
-
-
-class CreateResponseEvent(WSManEvent):
-    ACTION = WSManAction.CREATE_RESPONSE
-
-
-class DeleteEvent(WSManEvent):
-    ACTION = WSManAction.DELETE
-
-
-class DeleteResponseEvent(WSManEvent):
-    ACTION = WSManAction.DELETE_RESPONSE
-
-
-class EnumerateEvent(WSManEvent):
-    ACTION = WSManAction.ENUMERATE
-
-
-class EnumerateResponseEvent(WSManEvent):
-    ACTION = WSManAction.ENUMERATE_RESPONSE
-
-
-class FaultEvent(WSManEvent):
-    ACTION = WSManAction.FAULT
-
-    def __init__(
-        self,
-        data: ElementTree.Element,
-    ):
-        super().__init__(data)
-        self.error = _parse_wsman_fault(data)
-
-
-class FaultAddressingEvent(FaultEvent):
-    ACTION = WSManAction.FAULT_ADDRESSING
-
-
-class PullEvent(WSManEvent):
-    ACTION = WSManAction.PULL
-
-
-class PullResponseEvent(WSManEvent):
-    ACTION = WSManAction.PULL_RESPONSE
-
-
-class CommandEvent(WSManEvent):
-    ACTION = WSManAction.COMMAND
-
-
-class CommandResponseEvent(WSManEvent):
-    ACTION = WSManAction.COMMAND_RESPONSE
-
-    @property
-    def command_id(self) -> uuid.UUID:
-        """The unique command identifier of the command that was created."""
-        command_id = t.cast(
-            ElementTree.Element, self._raw.find("s:Body/rsp:CommandResponse/rsp:CommandId", namespaces=NAMESPACES)
-        )
-        return uuid.UUID(command_id.text or "")
-
-
-class ConnectEvent(WSManEvent):
-    ACTION = WSManAction.CONNECT
-
-
-class ConnectResponseEvent(WSManEvent):
-    ACTION = WSManAction.CONNECT_RESPONSE
-
-
-class DisconnectEvent(WSManEvent):
-    ACTION = WSManAction.DISCONNECT
-
-
-class DisconnectResponseEvent(WSManEvent):
-    ACTION = WSManAction.DISCONNECT_RESPONSE
-
-
-class ReceiveEvent(WSManEvent):
-    ACTION = WSManAction.RECEIVE
-
-
-class ReceiveResponseEvent(WSManEvent):
-    ACTION = WSManAction.RECEIVE_RESPONSE
-
-    @property
-    def command_state(self) -> CommandState | None:
-        """Describes the current state of the command."""
-        command_state = self._raw.find("s:Body/rsp:ReceiveResponse/rsp:CommandState", namespaces=NAMESPACES)
-        return CommandState(command_state.attrib["State"]) if command_state is not None else None
-
-    @property
-    def streams(self) -> dict[str, list[bytes]]:
-        """Returns the raw command output separated by each stream it was written to."""
-        buffer: dict[str, list[bytes]] = {}
-        streams = self._raw.findall("s:Body/rsp:ReceiveResponse/rsp:Stream", namespaces=NAMESPACES)
-        for stream in streams:
-            stream_name = stream.attrib["Name"]
-            if stream_name not in buffer:
-                buffer[stream_name] = []
-
-            if stream.text is not None:
-                stream_value = base64.b64decode(stream.text.encode("utf-8"))
-                buffer[stream_name].append(stream_value)
-
-        return buffer
-
-
-class ReconnectEvent(WSManEvent):
-    ACTION = WSManAction.RECONNECT
-
-
-class ReconnectResponseEvent(WSManEvent):
-    ACTION = WSManAction.RECONNECT_RESPONSE
-
-
-class SendEvent(WSManEvent):
-    ACTION = WSManAction.SEND
-
-
-class SendResponseEvent(WSManEvent):
-    ACTION = WSManAction.SEND_RESPONSE
-
-
-class SignalEvent(WSManEvent):
-    ACTION = WSManAction.SIGNAL
-
-
-class SignalResponseEvent(WSManEvent):
-    ACTION = WSManAction.SIGNAL_RESPONSE
-
-
-class _WSManSet:
-    """Selector or OptionSet class for WSMan requests."""
-
-    def __init__(
-        self,
-        element_name: str,
-        child_element_name: str,
-        must_understand: bool,
-    ) -> None:
-        self.element_name = element_name
-        self.child_element_name = child_element_name
-        self.must_understand = must_understand
-        self.values: list[tuple[str, str, dict[str, str]]] = []
-
-    def __str__(self) -> str:
-        # can't just str({}) as the ordering is important
-        entry_values = []
-        for value in self.values:
-            entry_values.append("'%s': '%s'" % (value[0], value[1]))
-
-        string_value = "{%s}" % ", ".join(entry_values)
-        return string_value
-
-    def add_option(
-        self,
-        name: str,
-        value: str,
-        attributes: dict[str, str] | None = None,
-    ) -> None:
-        attributes = attributes if attributes is not None else {}
-        self.values.append((name, value, attributes))
-
-    def pack(self) -> ElementTree.Element:
-        s = NAMESPACES["s"]
-        wsman = NAMESPACES["wsman"]
-        element = ElementTree.Element("{%s}%s" % (wsman, self.element_name))
-        if self.must_understand:
-            element.attrib["{%s}mustUnderstand" % s] = "true"
-
-        for key, value, attributes in self.values:
-            ElementTree.SubElement(
-                element, "{%s}%s" % (wsman, self.child_element_name), Name=key, attrib=attributes
-            ).text = value
-
-        return element
-
-
-class OptionSet(_WSManSet):
-    def __init__(self) -> None:
-        super().__init__("OptionSet", "Option", True)
-
-
-class SelectorSet(_WSManSet):
-    def __init__(self) -> None:
-        super().__init__("SelectorSet", "Selector", False)
 
 
 class WSManClient:
@@ -384,11 +51,11 @@ class WSManClient:
         data_locale: str | None = None,
     ) -> None:
         self.connection_uri = connection_uri
-        self.session_id = str(uuid.uuid4())
+        self.session_id = str(uuid.uuid4()).upper()
         self.max_envelope_size = max_envelope_size
         self.operation_timeout = operation_timeout
         self.locale = locale
-        self.data_locale = data_locale if data_locale else locale
+        self.data_locale = data_locale or locale
 
         self._data_to_send = bytearray()
 
@@ -400,7 +67,7 @@ class WSManClient:
         selector_set: SelectorSet | None = None,
         timeout: int | None = None,
     ) -> str:
-        return self._invoke(
+        return self._build_envelope(
             WSManAction.COMMAND,
             resource_uri,
             resource=resource,
@@ -417,7 +84,7 @@ class WSManClient:
         selector_set: SelectorSet | None = None,
         timeout: int | None = None,
     ) -> str:
-        return self._invoke(
+        return self._build_envelope(
             WSManAction.CONNECT,
             resource_uri,
             resource=resource,
@@ -434,7 +101,7 @@ class WSManClient:
         selector_set: SelectorSet | None = None,
         timeout: int | None = None,
     ) -> str:
-        return self._invoke(
+        return self._build_envelope(
             WSManAction.CREATE,
             resource_uri,
             resource=resource,
@@ -451,7 +118,7 @@ class WSManClient:
         selector_set: SelectorSet | None = None,
         timeout: int | None = None,
     ) -> str:
-        return self._invoke(
+        return self._build_envelope(
             WSManAction.DELETE,
             resource_uri,
             resource=resource,
@@ -468,7 +135,7 @@ class WSManClient:
         selector_set: SelectorSet | None = None,
         timeout: int | None = None,
     ) -> str:
-        return self._invoke(
+        return self._build_envelope(
             WSManAction.DISCONNECT,
             resource_uri,
             resource=resource,
@@ -485,7 +152,7 @@ class WSManClient:
         selector_set: SelectorSet | None = None,
         timeout: int | None = None,
     ) -> str:
-        return self._invoke(
+        return self._build_envelope(
             WSManAction.ENUMERATE,
             resource_uri,
             resource=resource,
@@ -502,7 +169,7 @@ class WSManClient:
         selector_set: SelectorSet | None = None,
         timeout: int | None = None,
     ) -> str:
-        return self._invoke(
+        return self._build_envelope(
             WSManAction.RECEIVE,
             resource_uri,
             resource=resource,
@@ -519,7 +186,7 @@ class WSManClient:
         selector_set: SelectorSet | None = None,
         timeout: int | None = None,
     ) -> str:
-        return self._invoke(
+        return self._build_envelope(
             WSManAction.RECONNECT,
             resource_uri,
             resource=resource,
@@ -536,7 +203,7 @@ class WSManClient:
         selector_set: SelectorSet | None = None,
         timeout: int | None = None,
     ) -> str:
-        return self._invoke(
+        return self._build_envelope(
             WSManAction.SEND,
             resource_uri,
             resource=resource,
@@ -553,7 +220,7 @@ class WSManClient:
         selector_set: SelectorSet | None = None,
         timeout: int | None = None,
     ) -> str:
-        return self._invoke(
+        return self._build_envelope(
             WSManAction.SIGNAL,
             resource_uri,
             resource=resource,
@@ -610,76 +277,7 @@ class WSManClient:
 
         return event
 
-    def _create_header(
-        self,
-        action: WSManAction,
-        resource_uri: str,
-        option_set: OptionSet | None = None,
-        selector_set: SelectorSet | None = None,
-        timeout: int | None = None,
-    ) -> tuple[ElementTree.Element, str]:
-        """Creates a WSMan envelope header based on the configured setup."""
-        log.debug(
-            "Creating WSMan header (Action: %s, Resource URI: %s, Option Set: %s, Selector Set: %s"
-            % (action, resource_uri, option_set, selector_set)
-        )
-        s = NAMESPACES["s"]
-        wsa = NAMESPACES["wsa"]
-        wsman = NAMESPACES["wsman"]
-        wsmv = NAMESPACES["wsmv"]
-        xml = NAMESPACES["xml"]
-
-        header = ElementTree.Element("{%s}Header" % s)
-
-        ElementTree.SubElement(header, "{%s}Action" % wsa, attrib={"{%s}mustUnderstand" % s: "true"}).text = (
-            action.value
-        )
-
-        ElementTree.SubElement(
-            header,
-            "{%s}DataLocale" % wsmv,
-            attrib={"{%s}mustUnderstand" % s: "false", "{%s}lang" % xml: self.data_locale},
-        )
-
-        ElementTree.SubElement(
-            header, "{%s}Locale" % wsman, attrib={"{%s}mustUnderstand" % s: "false", "{%s}lang" % xml: self.locale}
-        )
-
-        ElementTree.SubElement(
-            header, "{%s}MaxEnvelopeSize" % wsman, attrib={"{%s}mustUnderstand" % s: "true"}
-        ).text = str(self.max_envelope_size)
-
-        message_id = str(uuid.uuid4()).upper()
-        ElementTree.SubElement(header, "{%s}MessageID" % wsa).text = "uuid:%s" % message_id
-
-        ElementTree.SubElement(header, "{%s}OperationTimeout" % wsman).text = "PT%sS" % str(
-            timeout or self.operation_timeout
-        )
-
-        reply_to = ElementTree.SubElement(header, "{%s}ReplyTo" % wsa)
-        ElementTree.SubElement(reply_to, "{%s}Address" % wsa, attrib={"{%s}mustUnderstand" % s: "true"}).text = (
-            "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous"
-        )
-
-        ElementTree.SubElement(header, "{%s}ResourceURI" % wsman, attrib={"{%s}mustUnderstand" % s: "true"}).text = (
-            resource_uri
-        )
-
-        ElementTree.SubElement(header, "{%s}SessionId" % wsmv, attrib={"{%s}mustUnderstand" % s: "false"}).text = (
-            "uuid:%s" % str(self.session_id).upper()
-        )
-
-        ElementTree.SubElement(header, "{%s}To" % wsa).text = self.connection_uri
-
-        if option_set is not None:
-            header.append(option_set.pack())
-
-        if selector_set is not None:
-            header.append(selector_set.pack())
-
-        return header, message_id
-
-    def _invoke(
+    def _build_envelope(
         self,
         action: WSManAction,
         resource_uri: str,
@@ -689,88 +287,294 @@ class WSManClient:
         timeout: int | None = None,
     ) -> str:
         s = NAMESPACES["s"]
-        envelope = ElementTree.Element("{%s}Envelope" % s)
 
-        header, message_id = self._create_header(action, resource_uri, option_set, selector_set, timeout)
-        envelope.append(header)
-        body = ElementTree.SubElement(envelope, "{%s}Body" % s)
-        if resource is not None:
-            body.append(resource)
-
-        content = ElementTree.tostring(envelope, encoding="utf-8", method="xml")
+        header, message_id = create_header(
+            action=action,
+            connection_uri=self.connection_uri,
+            data_locale=self.data_locale,
+            locale=self.locale,
+            max_envelope_size=self.max_envelope_size,
+            operation_timeout=timeout or self.operation_timeout,
+            resource_uri=resource_uri,
+            session_id=self.session_id,
+            option_set=option_set,
+            selector_set=selector_set,
+        )
+        content = create_envelope(header, resource)
         self._data_to_send += content
 
         return message_id
 
 
-def _parse_wsman_fault(
-    envelope: ElementTree.Element,
-) -> WSManFault:
-    """Processes a WSManFault response into a structure exception object."""
-    xml = envelope
-    code_str: str | None = None
-    reason = None
-    machine = None
-    provider = None
-    provider_path = None
-    provider_fault: str | None = None
+class CommandInfo(t.NamedTuple):
+    command_id: uuid.UUID
+    state: str
 
-    fault = xml.find("s:Body/s:Fault", namespaces=NAMESPACES)
-    if fault is not None:
-        code_info = fault.find("s:Code/s:Subcode/s:Value", namespaces=NAMESPACES)
 
-        if code_info is not None:
-            code_str = code_info.text
+class WinRSClient:
+    def __init__(
+        self,
+        wsman: WSManClient,
+        resource_uri: str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell/cmd",
+        shell_id: str | None = None,
+        input_streams: str = "stdin",
+        output_streams: str = "stdout stderr",
+        codepage: int | None = None,
+        environment: dict[str, str] | None = None,
+        idle_time_out: int | None = None,
+        lifetime: int | None = None,
+        name: str | None = None,
+        no_profile: bool | None = None,
+        working_directory: str | None = None,
+    ):
+        self.wsman = wsman
+        self.resource_uri = resource_uri
+        self.shell_id = uuid.UUID(shell_id) if shell_id else uuid.UUID(int=0)
+        self.input_streams = input_streams
+        self.output_streams = output_streams
+        self.codepage = codepage
+        self.environment = environment
+        self.idle_time_out = idle_time_out
+        self.lifetime = lifetime
+        self.name = name
+        self.no_profile = no_profile
+        self.process_id = -1
+        self.working_directory = working_directory
+        self.owner: str | None = None
+        self.client_ip: str | None = None
+        self.shell_run_time: str | None = None
+        self.shell_inactivity: str | None = None
+        self.state = ""
+        self.selector_set: SelectorSet | None = None
 
-        else:
-            code_info = fault.find("s:Code/s:Value", namespaces=NAMESPACES)
-            if code_info is not None:
-                code_str = code_info.text
+    @classmethod
+    def enumerate_winrs(
+        cls,
+        wsman: WSManClient,
+        resource_uri: str = "http://schemas.microsoft.com/wbem/wsman/1/windows/shell",
+        selector_filter: SelectorSet | None = None,
+    ) -> str:
+        wsen = NAMESPACES["wsen"]
+        wsmn = NAMESPACES["wsman"]
 
-        reason_info = fault.find("s:Reason/s:Text", namespaces=NAMESPACES)
-        if reason_info is not None:
-            reason = reason_info.text
+        enum_msg = ElementTree.Element("{%s}Enumerate" % wsen)
+        ElementTree.SubElement(enum_msg, "{%s}OptimizeEnumeration" % wsmn)
+        ElementTree.SubElement(enum_msg, "{%s}MaxElements" % wsmn).text = "32000"
 
-        wsman_fault = fault.find("s:Detail/wsmanfault:WSManFault", namespaces=NAMESPACES)
-        if wsman_fault is not None:
-            code_str = wsman_fault.attrib.get("Code", code_str)
-            machine = wsman_fault.attrib.get("Machine")
+        if selector_filter:
+            filter = ElementTree.SubElement(
+                enum_msg, "{%s}Filter" % wsmn, Dialect="http://schemas.dmtf.org/wbem/wsman/1/wsman/SelectorFilter"
+            )
+            filter.append(selector_filter.pack())
 
-            message_info = wsman_fault.find("wsmanfault:Message", namespaces=NAMESPACES)
-            if message_info is not None:
-                # Message may still not be set, fall back to the existing reason value from the base soap Fault element.
-                reason = message_info.text if message_info.text else reason
+        return wsman.enumerate(resource_uri, enum_msg)
 
-            provider_info = wsman_fault.find("wsmanfault:Message/wsmanfault:ProviderFault", namespaces=NAMESPACES)
-            if provider_info is not None:
-                provider = provider_info.attrib.get("provider")
-                provider_path = provider_info.attrib.get("path")
-                faults = [provider_info.text or ""]
-                for fault_entry in provider_info:
-                    fault_info = ElementTree.tostring(fault_entry, encoding="utf-8", method="xml").decode("utf-8")
-                    faults.append(fault_info)
+    @classmethod
+    def receive_winrs_enumeration(
+        cls,
+        wsman: WSManClient,
+        data: bytes,
+    ) -> tuple[list[WinRSClient], list[CommandInfo]]:
+        cmd_enumeration = wsman.receive_data(data)
 
-                provider_fault = ", ".join([f.strip() for f in faults if f.strip()])
+        shells: list[WinRSClient] = []
+        commands: list[CommandInfo] = []
 
-    # Lastly try and cleanup the value of the parameters.
-    code: int | None = None
-    if code_str:
-        try:
-            code = int(code_str)
-        except ValueError:
-            pass
+        items: ElementTree.Element | None = cmd_enumeration.body.find(
+            "wsen:EnumerateResponse/wsman:Items", namespaces=NAMESPACES
+        )
+        if items is not None:
+            for raw in items:
+                if raw.tag == "{%s}Shell" % NAMESPACES["rsp"]:
+                    profile_loaded = False
+                    raw_profile_loaded = raw.find("rsp:ProfileLoaded", NAMESPACES)
+                    if raw_profile_loaded is not None:
+                        profile_loaded = (raw_profile_loaded.text or "").lower() == "yes"
 
-    if reason:
-        reason = reason.strip()
+                    shell = WinRSClient(wsman, no_profile=not profile_loaded)
+                    shell._parse_shell_create(raw, base_element="")
+                    shell.selector_set = SelectorSet()
+                    shell.selector_set.add_option("ShellId", str(shell.shell_id).upper())
+                    shells.append(shell)
 
-    if provider_fault:
-        provider_fault = provider_fault.strip()
+                else:
+                    command_id = t.cast(ElementTree.Element, raw.find("rsp:CommandId", namespaces=NAMESPACES))
+                    command_state = t.cast(ElementTree.Element, raw.find("rsp:CommandState", namespaces=NAMESPACES))
+                    commands.append(CommandInfo(command_id=uuid.UUID(command_id.text), state=command_state.text or ""))
 
-    return WSManFault(
-        code=code,
-        machine=machine,
-        reason=reason,
-        provider=provider,
-        provider_path=provider_path,
-        provider_fault=provider_fault,
-    )
+        return shells, commands
+
+    def data_to_send(
+        self,
+        amount: int | None = None,
+    ) -> bytes:
+        return self.wsman.data_to_send(amount=amount)
+
+    def receive_data(
+        self,
+        data: bytes,
+    ) -> WSManEvent:
+        event = self.wsman.receive_data(data)
+
+        if isinstance(event, CreateResponseEvent):
+            self._parse_shell_create(event.body)
+
+        return event
+
+    def command(
+        self,
+        executable: str,
+        args: list[str] | None = None,
+        no_shell: bool = False,
+        command_id: uuid.UUID | None = None,
+    ) -> str:
+        rsp = NAMESPACES["rsp"]
+
+        options = OptionSet()
+        options.add_option("WINRS_SKIP_CMD_SHELL", str(no_shell))
+
+        args = args if args is not None else []
+
+        cmd = ElementTree.Element("{%s}CommandLine" % rsp)
+        if command_id is not None:
+            cmd.attrib["CommandId"] = str(command_id).upper()
+
+        ElementTree.SubElement(cmd, "{%s}Command" % rsp).text = executable
+        for argument in args:
+            ElementTree.SubElement(cmd, "{%s}Arguments" % rsp).text = argument
+
+        return self.wsman.command(self.resource_uri, cmd, option_set=options, selector_set=self.selector_set)
+
+    def close(
+        self,
+    ) -> str:
+        return self.wsman.delete(self.resource_uri, selector_set=self.selector_set)
+
+    def open(
+        self,
+        base_options: OptionSet | None = None,
+        open_content: ElementTree.Element | None = None,
+    ) -> str:
+        rsp = NAMESPACES["rsp"]
+
+        shell = ElementTree.Element("{%s}Shell" % rsp)
+        if self.shell_id.int != 0:
+            shell.attrib["ShellId"] = str(self.shell_id).upper()
+
+        ElementTree.SubElement(shell, "{%s}InputStreams" % rsp).text = self.input_streams
+        ElementTree.SubElement(shell, "{%s}OutputStreams" % rsp).text = self.output_streams
+        if self.environment is not None:
+            env = ElementTree.SubElement(shell, "{%s}Environment" % rsp)
+            for key, value in self.environment.items():
+                ElementTree.SubElement(env, "{%s}Variable" % rsp, Name=str(key)).text = str(value)
+
+        if self.idle_time_out is not None:
+            ElementTree.SubElement(shell, "{%s}IdleTimeOut" % rsp).text = "PT%sS" % str(self.idle_time_out)
+
+        if self.lifetime is not None:
+            ElementTree.SubElement(shell, "{%s}Lifetime" % rsp).text = "PT%sS" % self.lifetime
+
+        if self.name is not None:
+            ElementTree.SubElement(shell, "{%s}Name" % rsp).text = self.name
+
+        if self.working_directory is not None:
+            ElementTree.SubElement(shell, "{%s}WorkingDirectory" % rsp).text = self.working_directory
+
+        if open_content is not None:
+            shell.append(open_content)
+
+        # Inherit the base options if it was passed in, otherwise use an empty option set.
+        options = OptionSet() if base_options is None else base_options
+        if self.no_profile is not None:
+            options.add_option("WINRS_NOPROFILE", str(self.no_profile))
+
+        if self.codepage is not None:
+            options.add_option("WINRS_CODEPAGE", str(self.codepage))
+
+        return self.wsman.create(
+            self.resource_uri,
+            shell,
+            option_set=options if len(options.values) else None,
+        )
+
+    def receive(
+        self,
+        stream: str = "stdout stderr",
+        command_id: uuid.UUID | None = None,
+    ) -> str:
+        rsp = NAMESPACES["rsp"]
+
+        receive = ElementTree.Element("{%s}Receive" % rsp)
+        stream_xml = ElementTree.SubElement(receive, "{%s}DesiredStream" % rsp)
+        stream_xml.text = stream
+        if command_id is not None:
+            stream_xml.attrib["CommandId"] = str(command_id).upper()
+
+        options = OptionSet()
+        options.add_option("WSMAN_CMDSHELL_OPTION_KEEPALIVE", "True")
+
+        return self.wsman.receive(self.resource_uri, receive, option_set=options, selector_set=self.selector_set)
+
+    def send(
+        self,
+        stream: str,
+        data: bytes,
+        command_id: uuid.UUID | None = None,
+        end: bool | None = None,
+    ) -> str:
+        rsp = NAMESPACES["rsp"]
+
+        send = ElementTree.Element("{%s}Send" % rsp)
+        stream_body = ElementTree.SubElement(send, "{%s}Stream" % rsp, Name=stream)
+        stream_body.text = base64.b64encode(data).decode("utf-8")
+
+        if end is not None:
+            stream_body.attrib["End"] = str(end)
+
+        if command_id is not None:
+            stream_body.attrib["CommandId"] = str(command_id).upper()
+
+        return self.wsman.send(self.resource_uri, send, selector_set=self.selector_set)
+
+    def signal(
+        self,
+        signal: SignalCode,
+        command_id: uuid.UUID,
+    ) -> str:
+        rsp = NAMESPACES["rsp"]
+
+        body = ElementTree.Element("{%s}Signal" % rsp, attrib={"CommandId": str(command_id).upper()})
+        ElementTree.SubElement(body, "{%s}Code" % rsp).text = signal.value
+
+        return self.wsman.signal(self.resource_uri, body, selector_set=self.selector_set)
+
+    def _parse_shell_create(
+        self,
+        response: ElementTree.Element,
+        base_element: str = "s:Body/rsp:Shell/",
+    ) -> None:
+        """Process a WSManClient Create response."""
+        fields = [
+            ("rsp:ShellId", "shell_id", uuid.UUID),
+            ("rsp:ResourceUri", "resource_uri", str),
+            ("rsp:Owner", "owner", str),
+            ("rsp:ClientIP", "client_ip", str),
+            ("rsp:IdleTimeOut", "idle_time_out", str),
+            ("rsp:InputStreams", "input_streams", str),
+            ("rsp:OutputStreams", "output_streams", str),
+            ("rsp:ProcessId", "process_id", int),
+            ("rsp:ShellRunTime", "shell_run_time", str),
+            ("rsp:ShellInactivity", "shell_inactivity", str),
+            ("rsp:State", "state", str),
+        ]
+        for xml_element, shell_attr, target_type in fields:
+            element = response.find(f"{base_element}{xml_element}", NAMESPACES)
+            if element is not None:
+                value: t.Any = target_type(element.text)
+                setattr(self, shell_attr, value)
+
+        selector_set = response.find("wst:ResourceCreated/wsa:ReferenceParameters/wsman:SelectorSet", NAMESPACES)
+        if selector_set is not None:
+            self.selector_set = SelectorSet()
+            for selector in selector_set:
+                self.selector_set.add_option(selector.attrib["Name"], selector.text or "")

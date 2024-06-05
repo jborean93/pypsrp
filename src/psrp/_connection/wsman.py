@@ -87,15 +87,15 @@ def _map_wsman_exceptions() -> collections.abc.Iterator[None]:
     """Maps any of the wsman connection exceptions to public ones exposed by this library."""
     try:
         yield
-    except wsman.WSManAuthenticationError as e:
+    except wsman.exceptions.WSManAuthenticationError as e:
         # Authentication problems
         raise PSRPAuthenticationError(str(e)) from e
 
-    except wsman.WSManHTTPError as e:
+    except wsman.exceptions.WSManHTTPError as e:
         # HTTP status that wasn't 2xx
         raise PSRPConnectionError(str(e)) from e
 
-    except wsman.WSManFault as e:
+    except wsman.exceptions.WSManFault as e:
         # WSMan fault under HTTP Status 5xx
         raise
 
@@ -108,12 +108,12 @@ def _map_wsman_exceptions() -> collections.abc.Iterator[None]:
 
 def _process_enumeration_response(
     connection_info: WSManInfo,
-    shell: wsman.WinRS,
+    shell: wsman.WinRSClient,
     data: bytes,
 ) -> EnumerationRunspaceResult:
     pipelines = [
         EnumerationPipelineResult(pid=c.command_id, state=c.state)
-        for c in wsman.WinRS.receive_winrs_enumeration(shell.wsman, data)[1]
+        for c in wsman.WinRSClient.receive_winrs_enumeration(shell.wsman, data)[1]
     ]
 
     return EnumerationRunspaceResult(
@@ -458,7 +458,7 @@ class WSManInfo(ConnectionInfo):
             raise ValueError(msg)
 
         # Used by enumerate as it contains the required selectors.
-        self._shell: wsman.WinRS | None = None
+        self._shell: wsman.WinRSClient | None = None
 
     @property
     def connection_uri(self) -> str:
@@ -534,16 +534,16 @@ class WSManInfo(ConnectionInfo):
         with self._new_sync_connection() as connection:
             client = wsman.WSManClient(self.connection_uri)
 
-            wsman.WinRS.enumerate_winrs(client)
+            wsman.WinRSClient.enumerate_winrs(client)
             with _map_wsman_exceptions():
                 resp = connection.wsman_post(client.data_to_send())
 
-            shells = wsman.WinRS.receive_winrs_enumeration(client, resp)[0]
+            shells = wsman.WinRSClient.receive_winrs_enumeration(client, resp)[0]
             for shell in shells:
                 if not shell.resource_uri.startswith(f"{PS_RESOURCE_PREFIX}/"):
                     continue
 
-                wsman.WinRS.enumerate_winrs(
+                wsman.WinRSClient.enumerate_winrs(
                     client,
                     resource_uri="http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command",
                     selector_filter=shell.selector_set,
@@ -556,16 +556,16 @@ class WSManInfo(ConnectionInfo):
         async with self._new_async_connection() as connection:
             client = wsman.WSManClient(self.connection_uri)
 
-            wsman.WinRS.enumerate_winrs(client)
+            wsman.WinRSClient.enumerate_winrs(client)
             with _map_wsman_exceptions():
                 resp = await connection.wsman_post(client.data_to_send())
 
-            shells = wsman.WinRS.receive_winrs_enumeration(client, resp)[0]
+            shells = wsman.WinRSClient.receive_winrs_enumeration(client, resp)[0]
             for shell in shells:
                 if not shell.resource_uri.startswith(f"{PS_RESOURCE_PREFIX}/"):
                     continue
 
-                wsman.WinRS.enumerate_winrs(
+                wsman.WinRSClient.enumerate_winrs(
                     client,
                     resource_uri="http://schemas.microsoft.com/wbem/wsman/1/windows/shell/Command",
                     selector_filter=shell.selector_set,
@@ -576,7 +576,7 @@ class WSManInfo(ConnectionInfo):
 
     def _copy_with_shell(
         self,
-        shell: wsman.WinRS,
+        shell: wsman.WinRSClient,
     ) -> WSManInfo:
         config_name = shell.resource_uri[len(PS_RESOURCE_PREFIX) + 1 :]
 
@@ -631,7 +631,7 @@ class WSManInfo(ConnectionInfo):
             locale=self.locale,
             data_locale=self.data_locale,
         )
-        return self._shell or wsman.WinRS(
+        return self._shell or wsman.WinRSClient(
             client,
             f"{PS_RESOURCE_PREFIX}/{self.configuration_name}",
             shell_id=str(pool.runspace_pool_id).upper(),
@@ -650,7 +650,7 @@ class SyncWSManConnection(SyncConnection):
         buffer_mode: OutputBufferingMode,
         idle_timeout: int | None,
         max_envelope_size: int | None,
-        shell: wsman.WinRS,
+        shell: wsman.WinRSClient,
         connection: wsman.SyncWSManHTTP,
     ) -> None:
         super().__init__(pool, callback)
@@ -728,7 +728,7 @@ class SyncWSManConnection(SyncConnection):
         self._shell.command("", args=[base64.b64encode(payload.data).decode()], command_id=pipeline_id)
         with _map_wsman_exceptions():
             resp = self._connection.wsman_post(self._shell.data_to_send())
-        command_resp = t.cast(wsman.CommandResponseEvent, self._shell.receive_data(resp))
+        command_resp = t.cast(wsman.events.CommandResponseEvent, self._shell.receive_data(resp))
 
         # On older Windows hosts (Win 7) the pipeline id specified in the request isn't actually used. Will need to
         # create a mapping table to ensure that the returned command id is used if our pipeline_id is requested.
@@ -791,7 +791,7 @@ class SyncWSManConnection(SyncConnection):
             resp = self._connection.wsman_post(self._shell.data_to_send())
 
         # Older Win hosts raise this error when terminating a pipeline, just ignore it.
-        with contextlib.suppress(wsman.OperationAborted):
+        with contextlib.suppress(wsman.exceptions.OperationAborted):
             self._shell.receive_data(resp)
 
     def connect(
@@ -908,18 +908,18 @@ class SyncWSManConnection(SyncConnection):
                         resp = conn.wsman_post(self._shell.data_to_send())
 
                     try:
-                        event = t.cast(wsman.ReceiveResponseEvent, self._shell.receive_data(resp))
+                        event = t.cast(wsman.events.ReceiveResponseEvent, self._shell.receive_data(resp))
 
-                    except wsman.OperationTimedOut:
+                    except wsman.exceptions.OperationTimedOut:
                         # Occurs when there has been no output after the OperationTimeout set, just repeat the request
                         continue
 
                     except (
-                        wsman.ErrorCancelled,
-                        wsman.OperationAborted,
-                        wsman.UnexpectedSelectors,
-                        wsman.ServiceStreamDisconnected,
-                        wsman.ShellDisconnected,
+                        wsman.exceptions.ErrorCancelled,
+                        wsman.exceptions.OperationAborted,
+                        wsman.exceptions.UnexpectedSelectors,
+                        wsman.exceptions.ServiceStreamDisconnected,
+                        wsman.exceptions.ShellDisconnected,
                     ):
                         if pipeline_id not in self._listener_tasks:
                             # Received when the shell or pipeline has been closed
@@ -1034,7 +1034,7 @@ class AsyncWSManConnection(AsyncConnection):
         buffer_mode: OutputBufferingMode,
         idle_timeout: int | None,
         max_envelope_size: int | None,
-        shell: wsman.WinRS,
+        shell: wsman.WinRSClient,
         connection: wsman.AsyncWSManHTTP,
     ) -> None:
         super().__init__(pool, callback)
@@ -1110,7 +1110,7 @@ class AsyncWSManConnection(AsyncConnection):
         self._shell.command("", args=[base64.b64encode(payload.data).decode()], command_id=pipeline_id)
         with _map_wsman_exceptions():
             resp = await self._connection.wsman_post(self._shell.data_to_send())
-        command_resp = t.cast(wsman.CommandResponseEvent, self._shell.receive_data(resp))
+        command_resp = t.cast(wsman.events.CommandResponseEvent, self._shell.receive_data(resp))
 
         # On older Windows hosts (Win 7) the pipeline id specified in the request isn't actually used. Will need to
         # create a mapping table to ensure that the returned command id is used if our pipeline_id is requested.
@@ -1172,7 +1172,7 @@ class AsyncWSManConnection(AsyncConnection):
             resp = await self._connection.wsman_post(self._shell.data_to_send())
 
         # Older Win hosts raise this error when terminating a pipeline, just ignore it.
-        with contextlib.suppress(wsman.OperationAborted):
+        with contextlib.suppress(wsman.exceptions.OperationAborted):
             self._shell.receive_data(resp)
 
     async def connect(
@@ -1288,18 +1288,18 @@ class AsyncWSManConnection(AsyncConnection):
                         resp = await conn.wsman_post(self._shell.data_to_send())
 
                     try:
-                        event = t.cast(wsman.ReceiveResponseEvent, self._shell.receive_data(resp))
+                        event = t.cast(wsman.events.ReceiveResponseEvent, self._shell.receive_data(resp))
 
-                    except wsman.OperationTimedOut:
+                    except wsman.exceptions.OperationTimedOut:
                         # Occurs when there has been no output after the OperationTimeout set, just repeat the request
                         continue
 
                     except (
-                        wsman.ErrorCancelled,
-                        wsman.OperationAborted,
-                        wsman.UnexpectedSelectors,
-                        wsman.ServiceStreamDisconnected,
-                        wsman.ShellDisconnected,
+                        wsman.exceptions.ErrorCancelled,
+                        wsman.exceptions.OperationAborted,
+                        wsman.exceptions.UnexpectedSelectors,
+                        wsman.exceptions.ServiceStreamDisconnected,
+                        wsman.exceptions.ShellDisconnected,
                     ) as e:
                         if pipeline_id not in self._listener_tasks:
                             # Received when the shell or pipeline has been closed

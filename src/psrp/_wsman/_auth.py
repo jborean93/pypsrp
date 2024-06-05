@@ -17,7 +17,7 @@ import spnego.exceptions
 import spnego.tls
 from spnego.channel_bindings import GssChannelBindings
 
-from ._exceptions import WSManAuthenticationError
+from .exceptions import WSManAuthenticationError
 
 BOUNDARY_PATTERN = re.compile("boundary=[" '|\\"](.*)[' '|\\"]')
 
@@ -34,7 +34,7 @@ def _wrap_spnego_error(
         if context and (auth_stage := context.get_extra_info("auth_stage", default=None)):
             msg = f"{msg}. Error during stage {auth_stage}"
 
-        raise WSManAuthenticationError(401, msg=msg) from e
+        raise WSManAuthenticationError(401, message=msg) from e
 
 
 class AuthProvider:

@@ -14,9 +14,9 @@ import spnego.channel_bindings
 import spnego.tls
 
 from ._auth import AuthProvider, WSManEncryptionProvider
-from ._exceptions import WSManAuthenticationError, WSManHTTPError
 from ._proxy import Proxy
 from ._tls import get_tls_server_end_point_bindings
+from .exceptions import WSManAuthenticationError, WSManHTTPError
 
 # Default for 'Accept-Encoding' is 'gzip, default' which normally
 # doesn't matter on vanilla WinRM but for Exchange endpoints hosted on
@@ -131,7 +131,7 @@ def check_response_status(
     # A WSManFault has more information that the WSMan state machine can
     # handle with better context so we ignore those.
     if response.status != 200 and (not content or b"wsmanfault" not in content):
-        raise WSManHTTPError(response.status, msg=msg)
+        raise WSManHTTPError(response.status, message=msg)
 
 
 def get_header_response_token(
@@ -150,7 +150,7 @@ def get_header_response_token(
             msg = f"Expecting {auth_header_name.decode()} label to be {expected_label.decode()} but got {token_split[0].decode()}"
             if auth_stage := provider.stage:
                 msg += f"during stage: {auth_stage}"
-            raise WSManAuthenticationError(401, msg=msg)
+            raise WSManAuthenticationError(401, message=msg)
 
         try:
             return base64.b64decode(token_split[1])
@@ -169,7 +169,7 @@ def get_header_response_token(
         msg = f"{target} did not response with authentication token in header {auth_header_name.decode()}"
         if auth_stage := provider.stage:
             msg += f"during stage: {auth_stage}"
-        raise WSManAuthenticationError(error_code, msg=msg)
+        raise WSManAuthenticationError(error_code, message=msg)
 
     return None
 

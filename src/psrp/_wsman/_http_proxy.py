@@ -8,7 +8,6 @@ import ssl
 import httpcore
 
 from ._auth import AuthProvider
-from ._exceptions import WSManHTTPError
 from ._http import AsyncHTTPConnection, SyncHTTPConnection, check_response_status
 from ._proxy import Proxy
 

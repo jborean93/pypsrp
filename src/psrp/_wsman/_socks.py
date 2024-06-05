@@ -11,8 +11,8 @@ import httpcore
 from socksio import socks5
 
 from ._auth import AuthProvider, BasicAuth
-from ._exceptions import WSManAuthenticationError, WSManHTTPError
 from ._proxy import Proxy
+from .exceptions import WSManAuthenticationError, WSManHTTPError
 
 # https://datatracker.ietf.org/doc/html/rfc1928
 AUTH_METHODS = {
@@ -172,14 +172,16 @@ class SOCKS5Proxy(Proxy):
         if response.method != self.auth_method:
             requested = AUTH_METHODS.get(self.auth_method, "UNKNOWN")
             responded = AUTH_METHODS.get(response.method, "UNKNOWN")
-            raise WSManHTTPError(500, msg=f"Requested auth method {requested} from SOCKS5 Server, but got {responded}.")
+            raise WSManHTTPError(
+                500, message=f"Requested auth method {requested} from SOCKS5 Server, but got {responded}."
+            )
 
         if self.auth_data:
             conn.send(self.auth_data)
             incoming_bytes = yield conn.data_to_send()
             response = conn.receive_data(incoming_bytes)
             if not (isinstance(response, socks5.SOCKS5UsernamePasswordReply) and response.success):
-                raise WSManAuthenticationError(401, msg="SOCKS5 Proxy authentication failed.")
+                raise WSManAuthenticationError(401, message="SOCKS5 Proxy authentication failed.")
 
         conn.send(target_info)
         incoming_bytes = yield conn.data_to_send()
@@ -187,4 +189,4 @@ class SOCKS5Proxy(Proxy):
         assert isinstance(response, socks5.SOCKS5Reply)
         if response.reply_code != socks5.SOCKS5ReplyCode.SUCCEEDED:
             reply_code = REPLY_CODES.get(response.reply_code, "UNKNOWN")
-            raise WSManHTTPError(500, msg=f"SOCKS5 Proxy Server could not connect: {reply_code}.")
+            raise WSManHTTPError(500, message=f"SOCKS5 Proxy Server could not connect: {reply_code}.")
