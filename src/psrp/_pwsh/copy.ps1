@@ -12,7 +12,11 @@ param (
 
     [Parameter()]
     [switch]
-    $ExpandVariables
+    $ExpandVariables,
+
+    [Parameter()]
+    [switch]
+    $Overwrite
 )
 
 begin {
@@ -35,6 +39,9 @@ begin {
     $parentDir = Split-Path -Path $Path -Parent
     if (-not (Test-Path -LiteralPath $parentDir)) {
         throw "Target path directory '$parentDir' does not exist"
+    }
+    if (!$overwrite -and (Test-Path -LiteralPath $Path)) {
+        throw "Target file '$Path' already exists"
     }
 
     $bindingFlags = [System.Reflection.BindingFlags]'NonPublic, Instance'
