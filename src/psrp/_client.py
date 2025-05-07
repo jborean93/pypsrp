@@ -35,6 +35,7 @@ def copy_file(
     dest: str,
     *,
     expand_variables: bool = False,
+    overwrite: bool = False,
 ) -> str:
     """Copies a file to the remote connection.
 
@@ -60,6 +61,7 @@ def copy_file(
             and relative paths are resolved from the current location of the
             connection which is based on the connection type.
         expand_variables: Expand the src and dest paths for any variables.
+        overwrite: Overwrite the destination file.
 
     Returns:
         str: The absolute path to the remote destination that the local file
@@ -94,6 +96,7 @@ def copy_file(
         ps.add_parameters(
             Path=dest,
             ExpandVariables=expand_variables,
+            Overwrite=overwrite,
         )
 
         if log.isEnabledFor(logging.DEBUG):
