@@ -203,6 +203,10 @@ class WSMan(object):
                 building the server SPN
             negotiate_service: Override the service used when building the
                 server SPN, default='WSMAN'
+
+            # custom user-agent header
+            user_agent: The user agent to use for the HTTP requests, this
+                defaults to 'Python PSRP Client'
         """
         log.debug(
             "Initialising WSMan class with maximum envelope size of %d "
@@ -740,6 +744,7 @@ class _TransportHTTP(object):
         self.read_timeout = read_timeout
         self.reconnection_retries = reconnection_retries
         self.reconnection_backoff = reconnection_backoff
+        self.user_agent = kwargs.get("user_agent")
 
         # determine the message encryption logic
         if encryption not in ["auto", "always", "never"]:
@@ -868,7 +873,10 @@ class _TransportHTTP(object):
         self._suppress_library_warnings()
 
         session = requests.Session()
-        session.headers["User-Agent"] = "Python PSRP Client"
+        if self.user_agent:
+            session.headers["User-Agent"] = self.user_agent
+        else:
+            session.headers["User-Agent"] = "Python PSRP Client"
 
         # requests defaults to 'Accept-Encoding: gzip, default' which normally doesn't matter on vanila WinRM but for
         # Exchange endpoints hosted on IIS they actually compress it with 1 of the 2 algorithms. By explicitly setting
