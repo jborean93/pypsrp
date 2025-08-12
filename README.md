@@ -1,3 +1,7 @@
+# devious-pypsrp
+This is a temporary repo/package with various fixes for use until a new pypsrp release is published to PyPI.
+
+
 # pypsrp - Python PowerShell Remoting Protocol Client library
 
 [![Test workflow](https://github.com/jborean93/pypsrp/actions/workflows/ci.yml/badge.svg)](https://github.com/jborean93/pypsrp/actions/workflows/ci.yml)

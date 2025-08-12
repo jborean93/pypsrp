@@ -1017,26 +1017,31 @@ class AsyncWSManHTTP:
             ext = {"trace": trace}
 
         async with self._conn_lock:
-            headers = {}
-            if self._http.cookies:
-                headers["Cookie"] = "; ".join([f"{c}={v}" for c, v in self._http.cookies.items()])
+            while True:
+                try:
+                    headers = {}
+                    if self._http.cookies:
+                        headers["Cookie"] = "; ".join([f"{c}={v}" for c, v in self._http.cookies.items()])
 
-            response = await self._http.post(
-                self.connection_uri,
-                content=data,
-                headers=headers,
-                extensions=ext,
-            )
+                    response = await self._http.post(
+                        self.connection_uri,
+                        content=data,
+                        headers=headers,
+                        extensions=ext,
+                    )
 
-        content = await response.aread()
+                    content = await response.aread()
 
-        # A WSManFault has more information that the WSMan state machine can
-        # handle with better context so we ignore those.
-        if response.status_code != 200 and (not content or b"wsmanfault" not in content):
-            try:
-                response.raise_for_status()
-            except httpx.HTTPError as e:
-                raise WSManHTTPError(str(e), response.status_code) from e
+                    # A WSManFault has more information that the WSMan state machine can
+                    # handle with better context so we ignore those.
+                    if response.status_code != 200 and (not content or b"wsmanfault" not in content):
+                        response.raise_for_status()
+                    break
+                except (httpcore.RemoteProtocolError, httpcore.ConnectionNotAvailable, httpcore.ReadTimeout):
+                    self.__init__(self._connection_info) # Reconnect
+                    continue
+                except httpx.HTTPError as e:
+                    raise WSManHTTPError(str(e), response.status_code) from e
 
         return content or b""
 
@@ -1139,26 +1144,27 @@ class SyncWSManHTTP:
             ext = {"trace": trace}
 
         with self._conn_lock:
-            headers = {}
-            if self._http.cookies:
-                headers["Cookie"] = "; ".join([f"{c}={v}" for c, v in self._http.cookies.items()])
-
-            response = self._http.post(
-                self.connection_uri,
-                content=data,
-                headers=headers,
-                extensions=ext,
-            )
-
-        content = response.read()
-
-        # A WSManFault has more information that the WSMan state machine can
-        # handle with better context so we ignore those.
-        if response.status_code != 200 and (not content or b"wsmanfault" not in content):
-            try:
-                response.raise_for_status()
-            except httpx.HTTPError as e:
-                raise WSManHTTPError(str(e), response.status_code) from e
+            while True:
+                try:
+                    response = self._http.post(
+                        self.connection_uri,
+                        content=data,
+                        headers={
+                            "Content-Type": "application/soap+xml;charset=UTF-8",
+                        },
+                        extensions=ext,
+                    )
+                    content = response.read()
+                    # A WSManFault has more information that the WSMan state machine can
+                    # handle with better context so we ignore those.
+                    if response.status_code != 200 and (not content or b"wsmanfault" not in content):
+                        response.raise_for_status()
+                    break
+                except (httpcore.RemoteProtocolError, httpcore.ConnectionNotAvailable, httpcore.ReadTimeout):
+                        self.__init__(self._connection_info) # Reconnect
+                        continue
+                except httpx.HTTPError as e:
+                    raise WSManHTTPError(str(e), response.status_code) from e
 
         return content or b""
 
