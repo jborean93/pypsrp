@@ -827,8 +827,8 @@ class _TransportHTTP(object):
 
                 try:
                     self._send_request(prep_request)
-                except requests.ReadTimeout:
-                    log.exception("Read timeout during initial authentication request - attempt %d", attempt)
+                except (requests.ReadTimeout, requests.ConnectTimeout) as e:
+                    log.exception("%s during initial authentication request - attempt %d", (type(e).__name__, attempt))
                     if attempt == retries_on_read_timeout:
                         raise
 
@@ -870,8 +870,8 @@ class _TransportHTTP(object):
             prep_request = self.session.prepare_request(request)
             try:
                 return self._send_request(prep_request)
-            except requests.ReadTimeout:
-                log.exception("Read timeout during WSMan request - attempt %d", attempt)
+            except (requests.ReadTimeout, requests.ConnectTimeout) as e:
+                log.exception("%s during WSMan request - attempt %d", (type(e).__name__, attempt))
                 if attempt == retries_on_read_timeout:
                     raise
 
