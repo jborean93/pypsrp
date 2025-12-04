@@ -33,7 +33,7 @@ class _TransportTest(object):
         self.endpoint = "testendpoint"
         self.expected_action = expected_action
 
-    def send(self, xml):
+    def send(self, xml, *args, **kwargs):
         # ensure wsman is always sending a byte string
         assert isinstance(xml, bytes)
 

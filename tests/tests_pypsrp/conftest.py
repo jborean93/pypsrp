@@ -59,7 +59,7 @@ class TransportFake(object):
     def close(self):
         return
 
-    def send(self, message):
+    def send(self, message, *args, **kwargs):
         current_msg = self._test_meta[self._test_msg_key][self._msg_counter]
         actual = self._normalise_xml(message, generify=False, psrp_fragment_type="actual")
         expected = self._normalise_xml(

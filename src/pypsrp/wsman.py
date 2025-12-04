@@ -3,9 +3,11 @@
 
 from __future__ import division
 
+import copy
 import ipaddress
 import logging
 import re
+import time
 import typing
 import uuid
 import warnings
@@ -364,7 +366,18 @@ class WSMan(object):
         selector_set: typing.Optional["SelectorSet"] = None,
         timeout: typing.Optional[int] = None,
     ) -> ET.Element:
-        res = self.invoke(WSManAction.RECEIVE, resource_uri, resource, option_set, selector_set, timeout)
+        # Receiving data can sometimes timeout if the server has bounced the
+        # network adapter. Luckily just sending the exact same request again
+        # will return the same data so we can safely retry
+        res = self.invoke(
+            WSManAction.RECEIVE,
+            resource_uri,
+            resource,
+            option_set,
+            selector_set,
+            timeout,
+            retries_on_read_timeout=5,
+        )
         return res.find("s:Body", namespaces=NAMESPACES)  # type: ignore[return-value] # WSMan always has this present
 
     def reconnect(
@@ -437,6 +450,8 @@ class WSMan(object):
         option_set: typing.Optional["OptionSet"] = None,
         selector_set: typing.Optional["SelectorSet"] = None,
         timeout: typing.Optional[int] = None,
+        *,
+        retries_on_read_timeout: int = 0,
     ) -> ET.Element:
         """
         Send a generic WSMan request to the host.
@@ -451,6 +466,8 @@ class WSMan(object):
         :param selector_set: a wsman.SelectorSet to add to the request
         :param timeout: Override the default wsman:OperationTimeout value for
             the request, this should be an int in seconds.
+        :param retries_on_read_timeout: The number of retries to attempt if the
+            request fails due to a read timeout.
         :return: The ET Element of the response XML from the server
         """
         s = NAMESPACES["s"]
@@ -467,7 +484,7 @@ class WSMan(object):
         xml = ET.tostring(envelope, encoding="utf-8", method="xml")
 
         try:
-            response = self.transport.send(xml)
+            response = self.transport.send(xml, retries_on_read_timeout=retries_on_read_timeout)
         except WinRMTransportError as err:
             try:
                 # try and parse the XML and get the WSManFault
@@ -790,17 +807,34 @@ class _TransportHTTP(object):
         if self.session:
             self.session.close()
 
-    def send(self, message: bytes) -> bytes:
+    def send(
+        self,
+        message: bytes,
+        *,
+        retries_on_read_timeout: int = 0,
+    ) -> bytes:
         hostname = get_hostname(self.endpoint)
         if self.session is None:
             self.session = self._build_session()
 
+        attempt = 0
+        while True:
             # need to send an initial blank message to setup the security
             # context required for encryption
-            if self.wrap_required:
+            if self.wrap_required and not self.encryption:
                 request = requests.Request("POST", self.endpoint, data=None)
                 prep_request = self.session.prepare_request(request)
-                self._send_request(prep_request)
+
+                try:
+                    self._send_request(prep_request)
+                except requests.ReadTimeout:
+                    log.exception("Read timeout during initial authentication request - attempt %d", attempt)
+                    if attempt == retries_on_read_timeout:
+                        raise
+
+                    attempt += 1
+                    time.sleep(self.reconnection_backoff * (2**attempt))
+                    continue
 
                 protocol = WinRMEncryption.SPNEGO
                 if isinstance(self.session.auth, HttpCredSSPAuth):
@@ -811,30 +845,42 @@ class _TransportHTTP(object):
 
                 self.encryption = WinRMEncryption(self.session.auth.contexts[hostname], protocol)  # type: ignore[union-attr] # This should not happen
 
-        if log.isEnabledFor(logging.DEBUG):
-            log.debug("Sending message: %s" % message.decode("utf-8"))
-        # for testing, keep commented out
-        # self._test_messages.append({"request": message.decode('utf-8'),
-        #                             "response": None})
+            if log.isEnabledFor(logging.DEBUG):
+                log.debug("Sending message on attempt %d: %s" % (attempt, message.decode("utf-8")))
+            # for testing, keep commented out
+            # self._test_messages.append({"request": message.decode('utf-8'),
+            #                             "response": None})
 
-        headers = self.session.headers
-        if self.wrap_required:
-            content_type, payload = self.encryption.wrap_message(message)  # type: ignore[union-attr] # This should not happen
-            protocol = self.encryption.protocol if self.encryption else WinRMEncryption.SPNEGO
-            type_header = '%s;protocol="%s";boundary="Encrypted Boundary"' % (content_type, protocol)
-            headers.update(
-                {
-                    "Content-Type": type_header,
-                    "Content-Length": str(len(payload)),
-                }
-            )
-        else:
-            payload = message
-            headers["Content-Type"] = "application/soap+xml;charset=UTF-8"
+            headers = copy.copy(self.session.headers)
+            if self.wrap_required:
+                content_type, payload = self.encryption.wrap_message(message)  # type: ignore[union-attr] # This should not happen
+                protocol = self.encryption.protocol if self.encryption else WinRMEncryption.SPNEGO
+                type_header = '%s;protocol="%s";boundary="Encrypted Boundary"' % (content_type, protocol)
+                headers.update(
+                    {
+                        "Content-Type": type_header,
+                        "Content-Length": str(len(payload)),
+                    }
+                )
+            else:
+                payload = message
+                headers["Content-Type"] = "application/soap+xml;charset=UTF-8"
 
-        request = requests.Request("POST", self.endpoint, data=payload, headers=headers)
-        prep_request = self.session.prepare_request(request)
-        return self._send_request(prep_request)
+            request = requests.Request("POST", self.endpoint, data=payload, headers=headers)
+            prep_request = self.session.prepare_request(request)
+            try:
+                return self._send_request(prep_request)
+            except requests.ReadTimeout:
+                log.exception("Read timeout during WSMan request - attempt %d", attempt)
+                if attempt == retries_on_read_timeout:
+                    raise
+
+                # On a failure the encryption state is invalidated and needs to
+                # be recreated after authentication is done.
+                self.encryption = None
+
+                attempt += 1
+                time.sleep(self.reconnection_backoff * (2**attempt - 1))
 
     def _send_request(self, request: requests.PreparedRequest) -> bytes:
         response = self.session.send(request, timeout=(self.connection_timeout, self.read_timeout))  # type: ignore[union-attr] # This should not happen
