@@ -2,19 +2,16 @@ import os
 import time
 import typing
 
-import psrp
+from pypsrp.client import Client
 
 
 def test_winrm() -> typing.Tuple[str, str, int]:
-    connection = psrp.WSManInfo(
-        server=os.environ["PYPSRP_SERVER"],
-        username=os.environ["PYPSRP_USERNAME"],
-        password=os.environ["PYPSRP_PASSWORD"],
-    )
+    server = os.environ["PYPSRP_SERVER"]
+    username = os.environ["PYPSRP_USERNAME"]
+    password = os.environ["PYPSRP_PASSWORD"]
 
-    with psrp.SyncRunspacePool(connection) as rp:
-        ps = psrp.SyncPowerShell(rp)
-        return ps.add_script("whoami.exe").invoke()[0]
+    with Client(server, username=username, password=password, cert_validation=False) as c:
+        return c.execute_cmd("whoami.exe")
 
 
 def main() -> None:
@@ -25,7 +22,7 @@ def main() -> None:
         print(f"Starting WinRM attempt {attempt}")
 
         try:
-            out = test_winrm()
+            stdout, stderr, rc = test_winrm()
 
         except Exception as e:
             print(f"Connection attempt {attempt} failed: {e!s}")
@@ -38,7 +35,7 @@ def main() -> None:
             time.sleep(5)
 
         else:
-            print(f"Connection successful\n{out}")
+            print(f"Connection successful\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}\nRC: {rc}")
             break
 
 

@@ -1,34 +1,8 @@
 # Changelog
 
-## 1.0.0b2 - TBD
+## 0.9.0 - TBD
 
-* Bump minimum Python version to 3.8
-* Use setuptools with `pyproject.toml` as the project definition
-* Ensure the outgoing send buffer won't get too small to fit extra fragments
-* Fix up certificate authentication over TLS 1.3 connections
-* Cache Kerberos credentials to speed up re-authentication when starting a new WSMan connection on another thread
-* Fix deadlock when receiving certain WSManFault errors outside of a close operation
-* Fix invalid selector error when connecting to Exchange Online by re-using proper cookies
-* Fix connection info URI builder when targeting the default HTTP and HTTPS port 80/443
-
-## 1.0.0b1 - 2022-05-27
-
-### Breaking changes
-
-* There should be no breaking changes in this release as the `pypsrp` namespace will continue to work as it had.
-* The `pypsrp` namespace is going to be deprecated going forward and all work moving to the stuff in the `psrp` namespace.
-
-### Features
-
-* Added the `psrp` namespace which includes a sync and asyncio runspace pools and powershell pipelines
-* This also includes a new set of connection types such as:
-  * `psrp.NamedPipeInfo` - asyncio only connection for named pipes such as the management pipe pwsh creates
-  * `psrp.ProcessInfo` - connection to start a new pwsh pwsh process locally
-  * `psrp.SSHInfo` - asyncio only SSH connection for remote pwsh communication
-  * `psrp.WinPSSSHInfo` - asyncio only SSH connection for remote Windows PowerShell communication
-  * `psrp.WSManInfo` - connection for WSMan based remote targets
-* Also includes a base connection type class for Out of Process connections to help building your own
-
+* Raised minimum Python version to 3.10
 
 ## 0.8.1 - 2022-02-22
 

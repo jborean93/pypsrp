@@ -127,7 +127,8 @@ class Message(object):
         ):
             msg = ET.Element("S")
         else:
-            msg = self._serializer.serialize(self.data) or b""
+            serialized_msg = self._serializer.serialize(self.data)
+            msg = serialized_msg if serialized_msg is not None else b""
 
         if not isinstance(msg, bytes):
             message_data = ET.tostring(msg, encoding="utf-8", method="xml")
@@ -155,7 +156,7 @@ class Message(object):
         rpid = str(uuid.UUID(bytes_le=data[8:24]))
         pid = str(uuid.UUID(bytes_le=data[24:40]))
 
-        if data[40:43] == b"\xEF\xBB\xBF":
+        if data[40:43] == b"\xef\xbb\xbf":
             # 40-43 is the UTF-8 BOM which we don't care about
             message_data = to_string(data[43:])
         else:

@@ -120,13 +120,13 @@ function New-WinRMFirewallRule {
 
     foreach ($rule in $rules) {
         $rule_details = @{
-            LocalPorts      = $Port
-            RemotePorts     = "*"
-            LocalAddresses  = "*"
-            Enabled         = $true
-            Direction       = 1
-            Action          = 1
-            Grouping        = "Windows Remote Management"
+            LocalPorts = $Port
+            RemotePorts = "*"
+            LocalAddresses = "*"
+            Enabled = $true
+            Direction = 1
+            Action = 1
+            Grouping = "Windows Remote Management"
             ApplicationName = "System"
         }
         $rule.Protocol = 6
@@ -174,7 +174,7 @@ function Reset-WinRMConfig {
     Write-Information -MessageData "Creating HTTP listener"
     $selectorSet = @{
         Transport = "HTTP"
-        Address   = "*"
+        Address = "*"
     }
     $valueSet = @{
         Enabled = $true
@@ -184,11 +184,11 @@ function Reset-WinRMConfig {
     $certificate = New-LegacySelfSignedCert -Subject $env:COMPUTERNAME -ValidDays 1095
     $selectorSet = @{
         Transport = "HTTPS"
-        Address   = "*"
+        Address = "*"
     }
     $valueSet = @{
         CertificateThumbprint = $certificate.Thumbprint
-        Enabled               = $true
+        Enabled = $true
     }
 
     Write-Information -MessageData "Creating HTTPS listener"
@@ -217,11 +217,11 @@ function Reset-WinRMConfig {
 
     Write-Information -MessageData "Allow local admins over network auth"
     $regInfo = @{
-        Path         = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
-        Name         = "LocalAccountTokenFilterPolicy"
-        Value        = 1
+        Path = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+        Name = "LocalAccountTokenFilterPolicy"
+        Value = 1
         PropertyType = "DWord"
-        Force        = $true
+        Force = $true
     }
     New-ItemProperty @regInfo
 
@@ -240,43 +240,42 @@ Function New-CertificateAuthBinding {
 
     Write-Information -MessageData "Generating self signed certificate for authentication of user $Name"
     $certInfo = @{
-        Subject           = "CN=$Name"
-        KeyUsage          = "DigitalSignature", "KeyEncipherment"
-        KeyAlgorithm      = "RSA"
-        KeyLength         = 2048
-        TextExtension     = @("2.5.29.37={text}1.3.6.1.5.5.7.3.2", "2.5.29.17={text}upn=$Name@localhost")
-        Type              = "Custom"
+        Subject = "CN=$Name"
+        KeyUsage = "DigitalSignature", "KeyEncipherment"
+        KeyAlgorithm = "RSA"
+        KeyLength = 2048
+        TextExtension = @("2.5.29.37={text}1.3.6.1.5.5.7.3.2", "2.5.29.17={text}upn=$Name@localhost")
+        Type = "Custom"
         CertStoreLocation = "Cert:\CurrentUser\My"
     }
     $cert = New-SelfSignedCertificate @certInfo
 
     Write-Information -MessageData "Exporting private key in a PFX file"
-    $certDir = Split-Path $CertPath -Parent
-    [System.IO.File]::WriteAllBytes("$certDir\cert.pfx", $cert.Export("Pfx"))
+    [System.IO.File]::WriteAllBytes("$CertPath\cert.pfx", $cert.Export("Pfx"))
 
     Write-Information -MessageData "Converting private key to PEM format with openssl"
     $out = openssl.exe @(
         "pkcs12",
-        "-in", "$certDir\cert.pfx",
+        "-in", "$CertPath\cert.pfx",
         "-nocerts",
         "-nodes",
-        "-out", "$certDir\cert_key.pem",
+        "-out", "$CertPath\cert_key.pem",
         "-passin", "pass:",
         "-passout", "pass:"
     ) 2>&1
     if ($LASTEXITCODE) {
         throw "Failed to extract key from PEM:`n$out"
     }
-    Remove-Item -Path "$certDir\cert.pfx" -Force
+    Remove-Item -Path "$CertPath\cert.pfx" -Force
 
     # WinRM seems to be very picky about the type of cert in the trusted root and people store. Make sure this is set
     # to the cert and not cert + key.
     $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($cert.RawData)
 
     Write-Information -MessageData "Exporting cert and key of user certificate"
-    $key_pem = Get-Content -Path "$certDir\cert_key.pem"
-    Remove-Item -Path "$certDir\cert_key.pem" -Force
-    [System.IO.File]::WriteAllLines($CertPath, @(
+    $key_pem = Get-Content -Path "$CertPath\cert_key.pem"
+    Remove-Item -Path "$CertPath\cert_key.pem" -Force
+    [System.IO.File]::WriteAllLines("$CertPath\cert.pem", @(
             $key_pem
             "-----BEGIN CERTIFICATE-----"
             [System.Convert]::ToBase64String($cert.RawData) -replace ".{64}", "$&`n"
@@ -356,12 +355,12 @@ $certChain = [Security.Cryptography.X509Certificates.X509Chain]::new()
 [void]$certChain.Build($clientCertificate)
 
 $credBinding = @{
-    Path       = "WSMan:\localhost\ClientCertificate"
-    Subject    = "$UserName@localhost"
-    URI        = "*"
-    Issuer     = $certChain.ChainElements.Certificate[-1].Thumbprint
+    Path = "WSMan:\localhost\ClientCertificate"
+    Subject = "$UserName@localhost"
+    URI = "*"
+    Issuer = $certChain.ChainElements.Certificate[-1].Thumbprint
     Credential = $userCertCredential
-    Force      = $true
+    Force = $true
 }
 New-Item @credBinding
 
@@ -372,43 +371,11 @@ Restart-Service -Name winrm
 
 Write-Information -MessageData "Testing WinRM connection"
 $invokeParams = @{
-    ComputerName  = 'localhost'
-    ScriptBlock   = { whoami.exe }
+    ComputerName = 'localhost'
+    ScriptBlock = { whoami.exe }
     SessionOption = (New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck)
 }
 Invoke-Command @invokeParams -Credential $userCredential
 
 # Write-Information -MessageData "Testing WinRM connection with certificates"
 # Invoke-Command @invokeParams -CertificateThumbprint $thumbprint
-
-Write-Information -MessageData "Installing OpenSSH service"
-choco.exe install -y openssh --pre --no-progress --params '"/SSHServerFeature"'
-
-$sshDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath("~/.ssh")
-if (-not (Test-Path -Path $sshDir)) {
-    $null = New-Item -Path $sshDir -ItemType Directory
-}
-ssh-keygen -o -a 100 -t ed25519 -f (Join-Path $sshDir id_ed25519) -q -N '""'
-Copy-Item -Path "$sshDir\id_ed25519.pub" -Destination C:\ProgramData\ssh\administrators_authorized_keys -Force
-icacls.exe "C:\ProgramData\ssh\administrators_authorized_keys" /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
-
-$pwshPath = (Get-Command -Name pwsh.exe).Path
-$fsObj = New-Object -ComObject Scripting.FileSystemObject
-$pwshShortPath = $fsObj.GetFile($pwshPath).ShortPath
-$subSystemLine = "Match all`r`nSubsystem powershell $pwshShortPath -sshs -NoLogo"
-Add-Content -Path C:\ProgramData\ssh\sshd_config -Value $subSystemLine -Encoding ASCII
-Add-Content -Path C:\ProgramData\ssh\sshd_config -Value "PubkeyAuthentication yes" -Encoding ASCII
-Restart-Service -Name sshd -Force
-
-Write-Information -MessageData "Testing SSH connection"
-ssh -o IdentityFile="$sshDir\id_ed25519" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null localhost whoami
-if ($LASTEXITCODE) {
-    throw "SSH test failed with $LASTEXITCODE"
-}
-
-# Schannel doesn't like certs that aren't self signed in the root store
-# https://learn.microsoft.com/en-us/windows-server/security/tls/what-s-new-in-tls-ssl-schannel-ssp-overview#BKMK_TrustedIssuers
-# Write-Information -MessageData "Migrating signed certs from the root store to intermediate store"
-# Get-ChildItem Cert:\LocalMachine\Root -Recurse |
-#     Where-Object { $_.Issuer -ne $_.Subject } |
-#     Move-Item -Destination Cert:\LocalMachine\CA

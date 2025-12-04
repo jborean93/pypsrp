@@ -570,9 +570,9 @@ class WSMan(object):
         ET.SubElement(header, "{%s}OperationTimeout" % wsman).text = "PT%sS" % str(timeout or self.operation_timeout)
 
         reply_to = ET.SubElement(header, "{%s}ReplyTo" % wsa)
-        ET.SubElement(
-            reply_to, "{%s}Address" % wsa, attrib={"{%s}mustUnderstand" % s: "true"}
-        ).text = "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous"
+        ET.SubElement(reply_to, "{%s}Address" % wsa, attrib={"{%s}mustUnderstand" % s: "true"}).text = (
+            "http://schemas.xmlsoap.org/ws/2004/08/addressing/role/anonymous"
+        )
 
         ET.SubElement(header, "{%s}ResourceURI" % wsman, attrib={"{%s}mustUnderstand" % s: "true"}).text = resource_uri
 
@@ -617,7 +617,7 @@ class WSMan(object):
             if reason_info is not None:
                 reason = reason_info.text
 
-        wsman_fault = fault.find("s:Detail/wsmanfault:WSManFault", namespaces=NAMESPACES) if fault else None
+        wsman_fault = fault.find("s:Detail/wsmanfault:WSManFault", namespaces=NAMESPACES) if fault is not None else None
         if wsman_fault is not None:
             code = wsman_fault.attrib.get("Code", code)
             machine = wsman_fault.attrib.get("Machine")

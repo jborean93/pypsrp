@@ -501,7 +501,7 @@ class TestPSRPScenarios(object):
             ps.add_parameter("Force")
 
             # Test out Unicode and complex info
-            string_value = "こんにちは - actual_x000A_string\nnewline: %s" % b"\xD8\x01\xDC\x37".decode("utf-16-be")
+            string_value = "こんにちは - actual_x000A_string\nnewline: %s" % b"\xd8\x01\xdc\x37".decode("utf-16-be")
             ps.add_statement().add_cmdlet("Set-Variable")
             ps.add_parameter("Name", "unicode_string")
             ps.add_parameter("Value", string_value)
