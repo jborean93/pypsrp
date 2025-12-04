@@ -62,7 +62,7 @@ class Serializer(object):
         self.cipher: typing.Any = None
         # Finds C0, C1 and surrogate pairs in a unicode string for us to
         # encode according to the PSRP rules
-        self._serial_str = re.compile("[\u0000-\u001F\u007F-\u009F\U00010000-\U0010FFFF]")
+        self._serial_str = re.compile("[\u0000-\u001f\u007f-\u009f\U00010000-\U0010ffff]")
 
         # to support surrogate UTF-16 pairs we need to use a UTF-16 regex
         # so we can replace the UTF-16 string representation with the actual
@@ -703,13 +703,9 @@ class Serializer(object):
         element: ET.Element,
         metadata: typing.Optional[ObjectMeta] = None,
     ) -> typing.List:
-        list_value = []
         value_meta = getattr(metadata, "list_value_meta", None)
 
-        entries = element.find("LST")
-        for entry in entries or []:
-            entry_value = self.deserialize(entry, value_meta, clear=False)
-            list_value.append(entry_value)
+        list_value = list(self._deserialize_list_values(element, "LST", value_meta=value_meta))
 
         return list_value
 
@@ -719,10 +715,8 @@ class Serializer(object):
     ) -> Queue:
         queue: Queue = Queue()
 
-        entries = element.find("QUE")
-        for entry in entries or []:
-            entry_value = self.deserialize(entry, clear=False)
-            queue.put(entry_value)
+        for entry in self._deserialize_list_values(element, "QUE"):
+            queue.put(entry)
 
         return queue
 
@@ -731,14 +725,23 @@ class Serializer(object):
         element: ET.Element,
     ) -> typing.List:
         # no native Stack object in Python so just use a list
-        stack = []
-
-        entries = element.find("STK")
-        for entry in entries or []:
-            entry_value = self.deserialize(entry, clear=False)
-            stack.append(entry_value)
+        stack = list(self._deserialize_list_values(element, "STK"))
 
         return stack
+
+    def _deserialize_list_values(
+        self,
+        element: ET.Element,
+        list_type: str,
+        value_meta: typing.Optional[ObjectMeta] = None,
+    ) -> typing.Iterable[typing.Any]:
+        entries = element.find(list_type)
+        if entries is None:
+            return
+
+        for entry in entries:
+            entry_value = self.deserialize(entry, metadata=value_meta, clear=False)
+            yield entry_value
 
     def _deserialize_dct(
         self,

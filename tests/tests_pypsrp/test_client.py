@@ -358,7 +358,7 @@ class TestClient(object):
         os.remove(path)
         try:
             client.fetch("%TEMP%\\file.txt", path, expand_variables=True)
-            expected_hash = b"\x22\xC1\xA7\x8E\xC5\xAD\xA1\xCD\x2F\x36\x65\xB5\x8B\x30\x49\x9E\x51\xA3\xB0\x29"
+            expected_hash = b"\x22\xc1\xa7\x8e\xc5\xad\xa1\xcd\x2f\x36\x65\xb5\x8b\x30\x49\x9e\x51\xa3\xb0\x29"
 
             hash = hashlib.sha1()
             with open(path, "rb") as temp_file:
