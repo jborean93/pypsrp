@@ -15,4 +15,5 @@ repos:
   - id: mypy
     additional_dependencies:
     - pyspnego
+    - types-PyYAML
     - types-requests
