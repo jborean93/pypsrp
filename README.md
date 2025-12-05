@@ -375,7 +375,7 @@ with wsman, RunspacePool(wsman) as pool, PowerShell(pool) as ps:
     print(ps.output)
     print(ps.streams.debug)
 
-    # Is is possible to run the PowerShell pipeline again with invoke() but it
+    # It is possible to run the PowerShell pipeline again with invoke() but it
     # needs to be explicitly closed first and the commands/streams optionally
     # cleared if desired.
     ps.close()

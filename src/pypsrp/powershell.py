@@ -1068,6 +1068,16 @@ class PowerShell(object):
         self.output = []
 
     def close(self) -> None:
+        """
+        Closes the PowerShell pipeline and cleans up server resources.
+
+        This method must be called to reuse a PowerShell object for multiple
+        invocations. It sends a TERMINATE signal to the server and removes
+        the pipeline from the runspace pool's pipeline registry.
+
+        :raises InvalidPipelineStateError: If the pipeline is not in a terminal
+            state (COMPLETED, STOPPED, or FAILED)
+        """
         valid_states = [PSInvocationState.COMPLETED, PSInvocationState.STOPPED, PSInvocationState.FAILED]
         if self.state == PSInvocationState.NOT_STARTED:
             return
