@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pypsrp"
-version = "0.9.0"
+version = "0.9.0rc1"
 description = "PowerShell Remoting Protocol and WinRM for Python"
 readme = "README.md"
 requires-python = ">=3.10"
