@@ -555,6 +555,21 @@ class TestPSRPScenarios(object):
         assert output[6].adapted_properties["ServiceName"] == "winrm"
         assert output[6].extended_properties["Name"] == "winrm"
 
+    @pytest.mark.parametrize("wsman_conn", [[True, "test_psrp_multiple_invocations"]], indirect=True)
+    def test_psrp_multiple_invocations(self, wsman_conn):
+        with RunspacePool(wsman_conn) as pool, PowerShell(pool) as ps:
+            ps.add_script("1+1")
+            actual1 = ps.invoke()
+            assert ps.state == PSInvocationState.COMPLETED
+            assert actual1 == [2]
+
+            ps.close()
+            ps.clear_streams()
+
+            actual2 = ps.invoke()
+            assert ps.state == PSInvocationState.COMPLETED
+            assert actual2 == [2]
+
     @pytest.mark.parametrize(
         "wsman_conn",
         # because we are seeing how the client handles
@@ -889,6 +904,7 @@ end {
             ps = PowerShell(pool)
             ps.state = PSInvocationState.RUNNING
             ps._command_id = ps.id
+            pool.pipelines[ps.id] = ps
 
             with pytest.raises(WSManFaultError) as err:
                 ps.end_invoke()
@@ -977,6 +993,29 @@ end {
             "state 'NotStarted', expecting state(s): 'Disconnected'"
         )
 
+    def test_close_not_started(self):
+        ps = PowerShell(RSPoolTest())
+        ps.close()
+        assert ps.state == PSInvocationState.NOT_STARTED
+
+    def test_close_invalid_state(self):
+        ps = PowerShell(RSPoolTest())
+        ps.state = PSInvocationState.RUNNING
+
+        with pytest.raises(InvalidPipelineStateError) as err:
+            ps.close()
+        assert err.value.action == "close a PowerShell pipeline"
+        assert err.value.current_state == PSInvocationState.RUNNING
+        assert err.value.expected_state == [
+            PSInvocationState.COMPLETED,
+            PSInvocationState.STOPPED,
+            PSInvocationState.FAILED,
+        ]
+        assert (
+            str(err.value) == "Cannot 'close a PowerShell pipeline' on the current "
+            "state 'Running', expecting state(s): 'Completed, Stopped, Failed'"
+        )
+
     def test_psrp_create_nested_invalid_state(self):
         ps = PowerShell(RSPoolTest())
         with pytest.raises(InvalidPipelineStateError) as err:
@@ -1002,15 +1041,20 @@ end {
 
     def test_psrp_begin_invoke_invalid_state(self):
         ps = PowerShell(RSPoolTest())
-        ps.state = PSInvocationState.COMPLETED
+        ps.state = PSInvocationState.DISCONNECTED
         with pytest.raises(InvalidPipelineStateError) as err:
             ps.begin_invoke()
         assert err.value.action == "start a PowerShell pipeline"
-        assert err.value.current_state == PSInvocationState.COMPLETED
-        assert err.value.expected_state == PSInvocationState.NOT_STARTED
+        assert err.value.current_state == PSInvocationState.DISCONNECTED
+        assert err.value.expected_state == [
+            PSInvocationState.NOT_STARTED,
+            PSInvocationState.STOPPED,
+            PSInvocationState.COMPLETED,
+            PSInvocationState.FAILED,
+        ]
         assert (
             str(err.value) == "Cannot 'start a PowerShell pipeline' on the current state "
-            "'Completed', expecting state(s): 'NotStarted'"
+            "'Disconnected', expecting state(s): 'NotStarted, Stopped, Completed, Failed'"
         )
 
     def test_psrp_being_invoke_no_commands(self):

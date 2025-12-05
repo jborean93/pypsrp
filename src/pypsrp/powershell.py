@@ -916,7 +916,16 @@ class PowerShell(object):
         # CommandID that is created and we need to reference in the WSMan msgs
         self._command_id: typing.Optional[str] = None
 
-        runspace_pool.pipelines[self.id] = self
+    def __enter__(self) -> "PowerShell":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: typing.Optional[typing.Type[BaseException]],
+        value: typing.Optional[BaseException],
+        traceback: typing.Optional[types.TracebackType],
+    ) -> None:
+        self.close()
 
     def add_argument(
         self,
@@ -1051,6 +1060,33 @@ class PowerShell(object):
         self.commands = []
         return self
 
+    def clear_streams(self) -> None:
+        """
+        Clears all the data streams of the current PowerShell object.
+        """
+        self.streams = PSDataStreams()
+        self.output = []
+
+    def close(self) -> None:
+        """
+        Closes the PowerShell pipeline and cleans up server resources.
+
+        This method must be called to reuse a PowerShell object for multiple
+        invocations. It sends a TERMINATE signal to the server and removes
+        the pipeline from the runspace pool's pipeline registry.
+
+        :raises InvalidPipelineStateError: If the pipeline is not in a terminal
+            state (COMPLETED, STOPPED, or FAILED)
+        """
+        valid_states = [PSInvocationState.COMPLETED, PSInvocationState.STOPPED, PSInvocationState.FAILED]
+        if self.state == PSInvocationState.NOT_STARTED:
+            return
+        elif self.state not in valid_states:
+            raise InvalidPipelineStateError(self.state, valid_states, "close a PowerShell pipeline")
+
+        self.runspace_pool.shell.signal(SignalCode.TERMINATE, command_id=self._command_id or self.id)
+        self.runspace_pool.pipelines.pop(self.id, None)
+
     def connect(self):
         """
         Connects to a running command on a remote server, waits until the
@@ -1133,8 +1169,14 @@ class PowerShell(object):
             values. Will default to returning the invocation info on all
         """
         log.info("Beginning remote Pipeline invocation")
-        if self.state != PSInvocationState.NOT_STARTED:
-            raise InvalidPipelineStateError(self.state, PSInvocationState.NOT_STARTED, "start a PowerShell pipeline")
+        valid_states = [
+            PSInvocationState.NOT_STARTED,
+            PSInvocationState.STOPPED,
+            PSInvocationState.COMPLETED,
+            PSInvocationState.FAILED,
+        ]
+        if self.state not in valid_states:
+            raise InvalidPipelineStateError(self.state, valid_states, "start a PowerShell pipeline")
 
         if len(self.commands) == 0:
             raise InvalidPSRPOperation("Cannot invoke PowerShell without any commands being set")
@@ -1423,13 +1465,15 @@ class PowerShell(object):
         self.state = PSInvocationState.STOPPING
         self.runspace_pool.shell.signal(SignalCode.PS_CTRL_C, str(self.id).upper())
         self.state = PSInvocationState.STOPPED
-        del self.runspace_pool.pipelines[self.id]
+        self.runspace_pool.pipelines.pop(self.id, None)
 
     def _invoke(
         self,
         msg: ComplexObject,
     ) -> None:
         fragments = self.runspace_pool._fragmenter.fragment(msg, self.runspace_pool.id, self.id)
+
+        self.runspace_pool.pipelines[self.id] = self
 
         # send first fragment as Command message
         first_frag = base64.b64encode(fragments.pop(0)).decode("utf-8")

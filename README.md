@@ -342,9 +342,8 @@ from pypsrp.wsman import WSMan
 # creates a https connection with explicit kerberos auth and implicit credentials
 wsman = WSMan("server", auth="kerberos", cert_validation=False))
 
-with wsman, RunspacePool(wsman) as pool:
+with wsman, RunspacePool(wsman) as pool, PowerShell(pool) as ps:
     # execute 'Get-Process | Select-Object Name'
-    ps = PowerShell(pool)
     ps.add_cmdlet("Get-Process").add_cmdlet("Select-Object").add_argument("Name")
     output = ps.invoke()
 
@@ -375,6 +374,19 @@ with wsman, RunspacePool(wsman) as pool:
     ps.invoke(["string", 1])
     print(ps.output)
     print(ps.streams.debug)
+
+    # It is possible to run the PowerShell pipeline again with invoke() but it
+    # needs to be explicitly closed first and the commands/streams optionally
+    # cleared if desired.
+    ps.close()
+
+    # Clears out ps.output and ps.streams to a blank value. Not required but
+    # nice if the output should be separate from a previous run
+    ps.clear_streams()
+
+    # Removes all existing commands. Not required but needed if re-using the
+    # same pipeline with a different set of commands
+    ps.clear_commands()
 ```
 
 
