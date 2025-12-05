@@ -3,7 +3,6 @@
 
 from __future__ import division
 
-import copy
 import ipaddress
 import logging
 import re
@@ -851,7 +850,7 @@ class _TransportHTTP(object):
             # self._test_messages.append({"request": message.decode('utf-8'),
             #                             "response": None})
 
-            headers = copy.copy(self.session.headers)
+            headers = self.session.headers.copy()  # type: ignore[attr-defined] # We cannot use copy.copy as it still is a ref to the original.
             if self.wrap_required:
                 content_type, payload = self.encryption.wrap_message(message)  # type: ignore[union-attr] # This should not happen
                 protocol = self.encryption.protocol if self.encryption else WinRMEncryption.SPNEGO
