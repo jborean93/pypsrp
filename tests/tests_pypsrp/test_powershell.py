@@ -201,6 +201,14 @@ class TestRunspacePool(object):
         finally:
             pool.close()
 
+    @pytest.mark.parametrize("wsman_conn", [[True, "test_psrp_no_profile"]], indirect=True)
+    def test_psrp_no_profile(self, wsman_conn):
+        with RunspacePool(wsman_conn, no_profile=True) as pool:
+            ps = PowerShell(pool)
+            ps.add_script("$env:USERPROFILE.ToUpperInvariant()")
+            actual = ps.invoke()
+            assert actual[0] == r"C:\WINDOWS\SYSTEM32\CONFIG\SYSTEMPROFILE"
+
     @pytest.mark.parametrize(
         "wsman_conn",
         # the commands on the server could differ based on

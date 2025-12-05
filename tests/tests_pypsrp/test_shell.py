@@ -146,8 +146,8 @@ class TestWinRS(object):
 
     @pytest.mark.parametrize(
         "wsman_conn",
-        # not all hosts respect the no_profile, we will
-        # just validate the message against a fake host
+        # Seems like this was disabled since Server 2012+ but works on PSRP so
+        # we keep it here and just test the raw request.
         [[False, "test_winrs_noprofile"]],
         indirect=True,
     )

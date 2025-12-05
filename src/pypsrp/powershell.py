@@ -103,6 +103,8 @@ class RunspacePool(object):
         min_runspaces: int = 1,
         max_runspaces: int = 1,
         session_key_timeout_ms: int = 60000,
+        *,
+        no_profile: bool = False,
     ) -> None:
         """
         Represents a Runspace pool on a remote host. This pool can contain
@@ -129,6 +131,8 @@ class RunspacePool(object):
             hold
         :param session_key_timeout_ms: The maximum time to wait for a session
             key transfer from the server
+        :param no_profile: If True, the user profile will not be loaded and
+            will use the machine defaults.
         """
         log.info("Initialising RunspacePool object for configuration %s" % configuration_name)
         # The below are defined in some way at
@@ -138,7 +142,12 @@ class RunspacePool(object):
         self.connection = connection
         resource_uri = "http://schemas.microsoft.com/powershell/%s" % configuration_name
         self.shell = WinRS(
-            connection, resource_uri=resource_uri, id=self.id, input_streams="stdin pr", output_streams="stdout"
+            connection,
+            resource_uri=resource_uri,
+            id=self.id,
+            input_streams="stdin pr",
+            output_streams="stdout",
+            no_profile=no_profile,
         )
         self.ci_table: typing.Dict = {}
         self.pipelines: typing.Dict[str, "PowerShell"] = {}

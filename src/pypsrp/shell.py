@@ -67,7 +67,7 @@ class WinRS(object):
         :param lifetime: The total lifetime of the shell
         :param name: The name (description) of the shell
         :param no_profile: Whether to create the shell with the user profile
-            active or not
+            active or not. This may not work on newer hosts like Server 2012+.
         :param working_directory: The default working directory of the created
             shell
         """
@@ -197,8 +197,8 @@ class WinRS(object):
         # inherit the base options if it was passed in, otherwise use an empty
         # option set
         options = OptionSet() if base_options is None else base_options
-        if self.no_profile is not None:
-            options.add_option("WINRS_NOPROFILE", str(self.no_profile))
+        if self.no_profile:
+            options.add_option("WINRS_NOPROFILE", "TRUE", {"MustComply": "true"})
         if self.codepage is not None:
             options.add_option("WINRS_CODEPAGE", str(self.codepage))
 
