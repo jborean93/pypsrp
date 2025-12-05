@@ -5,6 +5,10 @@
 * Raised minimum Python version to 3.10
 * Added retry handler for WSMan `Receive` operations that can attempt to recover from a network disconnect during a command operation
 * Added `no_profile` option to `RunspacePool` to skip loading the user profile on the remote shell
+* Made an `__enter__` and `__exit__` method for `PowerShell` to allow it to be used with a `with PowerShell(runspace) as ps:` syntax
+  * On `__exit__` the pipeline will be closed using the `TERMINATE` signal to clean up any resources on the server end
+  * `ps.close()` can also be called manually to clean up any resources and to prep the pipeline to be run again
+* Added `clear_streams()` onto a `PowerShell` object to clear the output and `streams` values so it is ready for a subsequent run
 
 ## 0.8.1 - 2022-02-22
 
