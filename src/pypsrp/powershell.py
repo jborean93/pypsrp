@@ -11,7 +11,6 @@ import uuid
 import warnings
 import xml.etree.ElementTree as ET
 
-from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
@@ -578,7 +577,6 @@ class RunspacePool(object):
         self._exchange_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=2048,
-            backend=default_backend(),
         )
         public_numbers = self._exchange_key.public_key().public_numbers()
         exponent = struct.pack("<I", public_numbers.e)
@@ -870,7 +868,7 @@ class RunspacePool(object):
         iv = b"\x00" * 16  # PSRP doesn't use an IV
         algorithm = algorithms.AES(decrypted_key)
         mode = modes.CBC(iv)
-        cipher = Cipher(algorithm, mode, default_backend())
+        cipher = Cipher(algorithm, mode)
 
         self._serializer.cipher = cipher
         self._key_exchanged = True
