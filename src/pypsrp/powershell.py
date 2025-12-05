@@ -1068,14 +1068,11 @@ class PowerShell(object):
         self.output = []
 
     def close(self) -> None:
+        valid_states = [PSInvocationState.COMPLETED, PSInvocationState.STOPPED, PSInvocationState.FAILED]
         if self.state == PSInvocationState.NOT_STARTED:
             return
-        elif self.state not in [PSInvocationState.COMPLETED, PSInvocationState.STOPPED, PSInvocationState.FAILED]:
-            raise InvalidPipelineStateError(
-                self.state,
-                [PSInvocationState.COMPLETED, PSInvocationState.STOPPED, PSInvocationState.FAILED],
-                "close a PowerShell pipeline",
-            )
+        elif self.state not in valid_states:
+            raise InvalidPipelineStateError(self.state, valid_states, "close a PowerShell pipeline")
 
         self.runspace_pool.shell.signal(SignalCode.TERMINATE, command_id=self._command_id or self.id)
         self.runspace_pool.pipelines.pop(self.id, None)

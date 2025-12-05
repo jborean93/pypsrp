@@ -993,6 +993,29 @@ end {
             "state 'NotStarted', expecting state(s): 'Disconnected'"
         )
 
+    def test_close_not_started(self):
+        ps = PowerShell(RSPoolTest())
+        ps.close()
+        assert ps.state == PSInvocationState.NOT_STARTED
+
+    def test_close_invalid_state(self):
+        ps = PowerShell(RSPoolTest())
+        ps.state = PSInvocationState.RUNNING
+
+        with pytest.raises(InvalidPipelineStateError) as err:
+            ps.close()
+        assert err.value.action == "close a PowerShell pipeline"
+        assert err.value.current_state == PSInvocationState.RUNNING
+        assert err.value.expected_state == [
+            PSInvocationState.COMPLETED,
+            PSInvocationState.STOPPED,
+            PSInvocationState.FAILED,
+        ]
+        assert (
+            str(err.value) == "Cannot 'close a PowerShell pipeline' on the current "
+            "state 'Running', expecting state(s): 'Completed, Stopped, Failed'"
+        )
+
     def test_psrp_create_nested_invalid_state(self):
         ps = PowerShell(RSPoolTest())
         with pytest.raises(InvalidPipelineStateError) as err:
