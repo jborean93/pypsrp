@@ -219,7 +219,7 @@ configure a `WinRS` shell;
 * `idle_time_out`: THe idle timeout in seconds of the shell
 * `lifetime`: The total lifetime of the shell
 * `name`: The name (description only) of the shell
-* `no_profile`: Whether to create the shell with the user profile loaded or not
+* `no_profile`: Whether to create the shell with the user profile loaded or not. This no longer works on Server 2012/Windows 8 or newer
 * `working_directory`: The default working directory of the created shell
 
 `RunspacePool` is a shell used by the PSRP protocol, it is designed to be a
@@ -236,6 +236,7 @@ Here are the options that can be used to configure a `RunspacePool` shell;
 * `min_runspaces`: The minimuum number of runspaces that a pool can hold, default is 1
 * `max_runspaces`: The maximum number of runspaces that a pool can hold. Each PowerShell pipeline is run in a single Runspace, default is 1
 * `session_key_timeout_ms`: The maximum time to wait for a session key transfer from the server
+* `no_profile`: Do not load the user profile on the remote Runspace Pool
 
 ### Process
 

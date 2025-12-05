@@ -4,6 +4,7 @@
 
 * Raised minimum Python version to 3.10
 * Added retry handler for WSMan `Receive` operations that can attempt to recover from a network disconnect during a command operation
+* Added `no_profile` option to `RunspacePool` to skip loading the user profile on the remote shell
 
 ## 0.8.1 - 2022-02-22
 
