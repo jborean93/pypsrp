@@ -1,7 +1,6 @@
 import uuid
 
 import pytest
-from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from pypsrp.complex_objects import (
@@ -23,7 +22,7 @@ from pypsrp.powershell import PowerShell, RunspacePool
 from pypsrp.wsman import WSMan
 
 
-def gen_rsa_keypair(public_exponent, key_size, backend):
+def gen_rsa_keypair(public_exponent, key_size):
     # for a pasing test against mocked results, we need the same key
     # for each run
 

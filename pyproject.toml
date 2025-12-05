@@ -26,7 +26,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    "cryptography",
+    "cryptography >= 3.1",  # default_backend made an optional kwarg
     "pyspnego >= 0.7.0, < 1.0.0",
     "requests >= 2.9.1",
 ]

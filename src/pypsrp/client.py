@@ -15,7 +15,6 @@ import warnings
 import xml.etree.ElementTree as ET
 
 from pypsrp._utils import get_pwsh_script, to_bytes, to_unicode
-from pypsrp.complex_objects import ComplexObject
 from pypsrp.exceptions import WinRMError
 from pypsrp.powershell import (
     DEFAULT_CONFIGURATION_NAME,

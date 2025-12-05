@@ -11,7 +11,6 @@ import spnego
 import spnego.channel_bindings
 from cryptography import x509
 from cryptography.exceptions import UnsupportedAlgorithm
-from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
 from requests.auth import AuthBase
 from requests.packages.urllib3.response import HTTPResponse
@@ -257,9 +256,7 @@ class HTTPNegotiateAuth(AuthBase):
         :return: The byte string containing the hash of the server's
             certificate
         """
-        backend = default_backend()
-
-        cert = x509.load_der_x509_certificate(certificate_der, backend)
+        cert = x509.load_der_x509_certificate(certificate_der)
 
         hash_algorithm = None
         try:
@@ -273,9 +270,9 @@ class HTTPNegotiateAuth(AuthBase):
         # If the cert signature algorithm is unknown, md5, or sha1 then use sha256 otherwise use the signature
         # algorithm of the cert itself.
         if not hash_algorithm or hash_algorithm.name in ["md5", "sha1"]:
-            digest = hashes.Hash(hashes.SHA256(), backend)
+            digest = hashes.Hash(hashes.SHA256())
         else:
-            digest = hashes.Hash(hash_algorithm, backend)
+            digest = hashes.Hash(hash_algorithm)
 
         digest.update(certificate_der)
         certificate_hash = digest.finalize()

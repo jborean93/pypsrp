@@ -11,7 +11,6 @@ import typing
 import uuid
 import warnings
 import xml.etree.ElementTree as ET
-from xml.dom.minidom import Element
 
 import requests
 from requests.packages.urllib3.util.retry import Retry
