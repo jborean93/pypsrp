@@ -23,7 +23,7 @@ from pypsrp.wsman import WSMan
 
 
 def gen_rsa_keypair(public_exponent, key_size):
-    # for a pasing test against mocked results, we need the same key
+    # for a passing test against mocked results, we need the same key
     # for each run
 
     # private key numbers
