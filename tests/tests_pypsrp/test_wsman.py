@@ -825,7 +825,7 @@ class TestTransportHTTP(object):
         assert session.auth.hostname_override is None
         assert session.auth.password is None
         assert session.auth.send_cbt is True
-        assert session.auth.service == "WSMAN"
+        assert session.auth.service == "HTTP"
         assert session.auth.username is None
         assert session.auth.wrap_required is False
 
@@ -861,7 +861,7 @@ class TestTransportHTTP(object):
         assert session.auth.hostname_override is None
         assert session.auth.password is None
         assert session.auth.send_cbt is True
-        assert session.auth.service == "WSMAN"
+        assert session.auth.service == "HTTP"
         assert session.auth.username is None
         assert session.auth.wrap_required is False
 
@@ -897,7 +897,7 @@ class TestTransportHTTP(object):
         assert session.auth.hostname_override is None
         assert session.auth.password is None
         assert session.auth.send_cbt is True
-        assert session.auth.service == "WSMAN"
+        assert session.auth.service == "HTTP"
         assert session.auth.username is None
         assert session.auth.wrap_required is False
 

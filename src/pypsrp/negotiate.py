@@ -36,7 +36,7 @@ class HTTPNegotiateAuth(AuthBase):
         password: typing.Optional[str] = None,
         auth_provider: str = "negotiate",
         send_cbt: bool = True,
-        service: str = "WSMAN",
+        service: str = "HTTP",
         delegate: bool = False,
         hostname_override: typing.Optional[str] = None,
         wrap_required: bool = False,
