@@ -9,8 +9,8 @@
   * On `__exit__` the pipeline will be closed using the `TERMINATE` signal to clean up any resources on the server end
   * `ps.close()` can also be called manually to clean up any resources and to prep the pipeline to be run again
 * Added `clear_streams()` onto a `PowerShell` object to clear the output and `streams` values so it is ready for a subsequent run
-* Changed default service name used for Kerberos authentication from `WSMAN` to `HTTP` to match the behaviour on Windows
-  * `WSMAN` was used for CredSSP authentication only on the native Windows client while `Negotiate/Kerberos` auth used `HTTP`
+* Changed default service name used for Kerberos authentication from `WSMAN` to `HOST` to match the behaviour on Windows
+  * `WSMAN` was used for CredSSP authentication only on the native Windows client while `Negotiate/Kerberos` auth used `HOST`
   * This should fix errors when authenticating with domain controllers which sometimes fail to register the `WSMAN` service for the host
 
 ## 0.8.1 - 2022-02-22
