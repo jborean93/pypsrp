@@ -36,7 +36,7 @@ class HTTPNegotiateAuth(AuthBase):
         password: typing.Optional[str] = None,
         auth_provider: str = "negotiate",
         send_cbt: bool = True,
-        service: str = "HTTP",
+        service: str = "HOST",
         delegate: bool = False,
         hostname_override: typing.Optional[str] = None,
         wrap_required: bool = False,
@@ -60,7 +60,7 @@ class HTTPNegotiateAuth(AuthBase):
         :param send_cbt: Try to bind the channel token (HTTPS only) to the auth
             process, default is True
         :param service: The service part of the SPN to authenticate with,
-            defaults to HTTP
+            defaults to HOST
         :param delegate: Whether to get an auth token that allows the token to
             be delegated to other servers, this is only used with Kerberos and
             defaults to False
