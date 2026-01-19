@@ -7,6 +7,7 @@ import uuid
 import xml.etree.ElementTree as ET
 
 import pytest
+import requests.exceptions
 import yaml
 
 from pypsrp._utils import to_bytes, to_string
@@ -119,6 +120,8 @@ class TransportFake(object):
             )
         elif current_msg.get("auth_error", False):
             raise AuthenticationError("Failed to authenticate the user %s with %s" % (self.username, self.auth))
+        elif current_msg.get("http_error", False):
+            raise requests.exceptions.ConnectionError()
 
         if "timeout" in current_msg.keys():
             time.sleep(current_msg["timeout"])
@@ -276,5 +279,5 @@ def wsman_conn(request, monkeypatch):
     # to be uncommented in pypsrp/wsman.py
     test_messages = getattr(wsman.transport, "_test_messages", None)
     if test_messages is not None:
-        yaml_text = yaml.dump({"messages": test_messages}, default_flow_style=False, width=9999)
+        yaml_text = "\n\n" + yaml.dump({"messages": test_messages}, default_flow_style=False, width=9999)
         print(yaml_text)

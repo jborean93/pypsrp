@@ -5,6 +5,7 @@
 * Raised minimum Python version to 3.10
 * Added retry handler for WSMan `Receive` operations that can attempt to recover from a network disconnect during a command operation
 * Added `no_profile` option to `RunspacePool` to skip loading the user profile on the remote shell
+* Added `idle_timeout` option to `RunspacePool` to control the idle timeout, in seconds, of the remote Runspace Pool
 * Made an `__enter__` and `__exit__` method for `PowerShell` to allow it to be used with a `with PowerShell(runspace) as ps:` syntax
   * On `__exit__` the pipeline will be closed using the `TERMINATE` signal to clean up any resources on the server end
   * `ps.close()` can also be called manually to clean up any resources and to prep the pipeline to be run again
@@ -12,6 +13,7 @@
 * Changed default service name used for Kerberos authentication from `WSMAN` to `HOST` to match the behaviour on Windows
   * `WSMAN` was used for CredSSP authentication only on the native Windows client while `Negotiate/Kerberos` auth used `HOST`
   * This should fix errors when authenticating with domain controllers which sometimes fail to register the `WSMAN` service for the host
+* Added `is_alive(timeout=...)` on `RunspacePool` to check if the Runspace Pool is still alive and ready for use on the server
 
 ## 0.8.1 - 2022-02-22
 
