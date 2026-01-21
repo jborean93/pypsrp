@@ -1,6 +1,8 @@
 # Copyright: (c) 2026, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
+from __future__ import annotations
+
 import contextvars
 import functools
 import types
