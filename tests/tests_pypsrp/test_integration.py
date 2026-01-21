@@ -21,7 +21,8 @@ def functional_transports():
     PYPSRP_PASSWORD: THe password for the username
     PYPSRP_CERT_DIR: The directory where the cert.pem and cert_key.pem is
         located for certificate auth. If not defined then certificate auth will
-        not be tested
+        not be tested. An encrypted key with the key PYPSRP_PASSWORD is also
+        tested if cert_enc_key.pem is found in the directory.
 
     Here is the test matrix that is run on each test
         http with negotiate
@@ -48,22 +49,30 @@ def functional_transports():
 
     # can't really test kerberos in CI so it is missing from this list
     auths = ["negotiate", "ntlm", "credssp"]
-    auths_ssl = ["basic"]
+    auths_ssl = [("basic", None)]
     if cert_dir is not None:
-        auths_ssl.append("certificate")
         cert_key_pem = os.path.join(cert_dir, "cert_key.pem")
         cert_pem = os.path.join(cert_dir, "cert.pem")
-    else:
-        cert_key_pem = None
-        cert_pem = None
-    auths_ssl.extend(auths)
+        auths_ssl.append(("certificate", (cert_key_pem, cert_pem, None)))
+
+        cert_enc_key_pem = os.path.join(cert_dir, "cert_enc_key.pem")
+        if os.path.exists(cert_enc_key_pem):
+            auths_ssl.append(("certificate", (cert_enc_key_pem, cert_pem, password)))
+
+    auths_ssl.extend([(a, None) for a in auths])
 
     wsmans = []
     for auth in auths:
         wsman = WSMan(server, username=username, password=password, ssl=False, auth=auth, port=http_port)
         wsmans.append(wsman)
 
-    for auth in auths_ssl:
+    for auth, cert_info in auths_ssl:
+        cert_key_pem = None
+        cert_pem = None
+        cert_key_password = None
+        if cert_info is not None:
+            cert_key_pem, cert_pem, cert_key_password = cert_info
+
         wsman = WSMan(
             server,
             username=username,
@@ -72,6 +81,7 @@ def functional_transports():
             auth=auth,
             cert_validation=False,
             certificate_key_pem=cert_key_pem,
+            certificate_key_password=cert_key_password,
             certificate_pem=cert_pem,
             port=https_port,
         )

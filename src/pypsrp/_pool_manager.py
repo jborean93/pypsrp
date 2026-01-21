@@ -50,6 +50,33 @@ class DisableNewConnectionsContext:
         return None
 
 
+class HTTPSAdapterWithKeyPassword(requests.adapters.HTTPAdapter):
+
+    def __init__(
+        self,
+        *args: t.Any,
+        _pypsrp_key_password: str | None = None,
+        **kwargs: t.Any,
+    ) -> None:
+        self.__key_password = _pypsrp_key_password
+        super().__init__(*args, **kwargs)
+
+    def init_poolmanager(
+        self,
+        connections,
+        maxsize,
+        block=False,
+        **pool_kwargs,
+    ):
+        return super().init_poolmanager(
+            connections,
+            maxsize,
+            block,
+            key_password=self.__key_password,
+            **pool_kwargs,
+        )
+
+
 def _wrap(
     func: t.Callable[..., T],
     *,
@@ -90,10 +117,19 @@ def _create_connection_pool(pool):
 
 
 def create_request_adapter(  # type: ignore[no-any-unimported]  # requests does not have typing stubs for urllib3
+    *,
     max_retries: Retry,
+    key_password: str | None = None,
 ) -> requests.adapters.HTTPAdapter:
     """Creates a HTTPAdapter with support for disabling new connections via context."""
-    adapter = requests.adapters.HTTPAdapter(max_retries=max_retries)
+    adapter: requests.adapters.HTTPAdapter
+    if key_password is not None:
+        adapter = HTTPSAdapterWithKeyPassword(
+            max_retries=max_retries,
+            _pypsrp_key_password=key_password,
+        )
+    else:
+        adapter = requests.adapters.HTTPAdapter(max_retries=max_retries)
 
     # pool_classes_by_scheme stores the urllib3 pool types used when creating
     # the connection pool for http/https. We wrap the __init__ method so we can

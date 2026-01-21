@@ -28,12 +28,6 @@ lib::setup::windows_requirements() {
         -Password "${PYPSRP_PASSWORD}" \
         -CertPath "${PYPSRP_CERT_DIR}" \
         -InformationAction Continue
-
-    # FIXME: For some reason cert auth is failing with. Need to figure out what's happening here and unset this
-    # pypsrp.exceptions.WSManFaultError: Received a WSManFault message. (Code: 2150859262, Machine: localhost,
-    # Reason: The WS-Management service cannot process the operation. An attempt to query mapped credential failed.
-    # This will happen if the security context associated with WinRM service has changed since the credential was originally mapped
-    unset PYPSRP_CERT_DIR
 }
 
 lib::setup::system_requirements() {
