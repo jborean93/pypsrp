@@ -210,6 +210,73 @@ class TestRunspacePool(object):
 
     @pytest.mark.parametrize(
         "wsman_conn",
+        # A real test will take 2 minutes to run, we use a pre-built response to
+        # replicate this. Uncommenting the time.sleep line can be used to test
+        # this against a real host.
+        [[False, "test_psrp_is_alive_invalid_selectors"]],
+        indirect=True,
+    )
+    def test_psrp_is_alive_invalid_selectors(self, wsman_conn):
+        with RunspacePool(wsman_conn, idle_timeout=60) as pool:
+            assert pool.is_alive() is True
+            # This test is pretending 60+ seconds has passed, while 60+ seconds
+            # will return a shell in Disconnected mode, we need to wait a bit
+            # more for the WSMan service to actually reap the shell and return
+            # the invalid selectors message we are tested with here.
+            # time.sleep(120)
+            assert pool.is_alive() is False
+
+    @pytest.mark.parametrize(
+        "wsman_conn",
+        # A real test will take 1 minute to run, we use a pre-built response to
+        # replicate this. Uncommenting the time.sleep line can be used to test
+        # this against a real host.
+        [[False, "test_psrp_is_alive_state_disconnected"]],
+        indirect=True,
+    )
+    def test_psrp_is_alive_state_disconnected(self, wsman_conn):
+        with RunspacePool(wsman_conn, idle_timeout=60) as pool:
+            assert pool.is_alive() is True
+            # time.sleep(62)
+            assert pool.is_alive() is False
+
+    @pytest.mark.parametrize(
+        "wsman_conn",
+        # We cannot easily test this in real life as it requires us to kill the
+        # WSMan process during the sleep time, so we use a pre-built responses.
+        [[False, "test_psrp_is_alive_http_error"]],
+        indirect=True,
+    )
+    def test_psrp_is_alive_http_error(self, wsman_conn):
+        with RunspacePool(wsman_conn, idle_timeout=60) as pool:
+            assert pool.is_alive(timeout=5) is True
+            # For a real test, uncomment and stop WinRM service to replicate
+            # a HTTP connection timeout
+            # time.sleep(10)
+            assert pool.is_alive(timeout=5) is False
+
+    @pytest.mark.parametrize(
+        "wsman_conn",
+        [[True, "test_psrp_is_alive_other_wsman_error"]],
+        indirect=True,
+    )
+    def test_psrp_is_alive_other_wsman_error(self, wsman_conn):
+        with RunspacePool(wsman_conn, idle_timeout=60) as pool:
+            pool.shell.wsman.operation_timeout = -1
+            with pytest.raises(WSManFaultError) as err:
+                pool.is_alive()
+
+            assert (
+                str(err.value.reason)
+                == "The WS-Management service cannot process the request. The XML contains an invalid timeout field in the SOAP header: PT-1S."
+            )
+
+            pool.shell.wsman.operation_timeout = 30
+
+            assert pool.state == RunspacePoolState.OPENED
+
+    @pytest.mark.parametrize(
+        "wsman_conn",
         # the commands on the server could differ based on
         # each version, used existing responses instead
         [[False, "test_psrp_get_command_metadata"]],

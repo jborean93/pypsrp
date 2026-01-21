@@ -1,7 +1,7 @@
 # Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
-from __future__ import division
+from __future__ import annotations
 
 import ipaddress
 import logging
@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 import requests
 from requests.packages.urllib3.util.retry import Retry
 
+from pypsrp import _pool_manager
 from pypsrp._utils import get_hostname, to_string, to_unicode
 from pypsrp.encryption import WinRMEncryption
 from pypsrp.exceptions import (
@@ -471,6 +472,14 @@ class WSMan(object):
         s = NAMESPACES["s"]
         envelope = ET.Element("{%s}Envelope" % s)
 
+        http_timeout = None
+        if timeout:
+            # Failsafe if the operation timeout exceeds we don't want the
+            # request to hang indefinitely. The HTTP timeout needs to be more
+            # than the WSMan timeout as we cannot guarantee a WSMan response
+            # until the operation timeout is hit.
+            http_timeout = timeout + 2
+
         message_id, header = self._create_header(action, resource_uri, option_set, selector_set, timeout)
         message_id = f"uuid:{message_id}"
         envelope.append(header)
@@ -482,7 +491,11 @@ class WSMan(object):
         xml = ET.tostring(envelope, encoding="utf-8", method="xml")
 
         try:
-            response = self.transport.send(xml, retries_on_read_timeout=retries_on_read_timeout)
+            response = self.transport.send(
+                xml,
+                retries_on_read_timeout=retries_on_read_timeout,
+                timeout=http_timeout,
+            )
         except WinRMTransportError as err:
             try:
                 # try and parse the XML and get the WSManFault
@@ -810,6 +823,7 @@ class _TransportHTTP(object):
         message: bytes,
         *,
         retries_on_read_timeout: int = 0,
+        timeout: int | float | tuple[int | float, int | float] | None = None,
     ) -> bytes:
         hostname = get_hostname(self.endpoint)
         if self.session is None:
@@ -824,9 +838,9 @@ class _TransportHTTP(object):
                 prep_request = self.session.prepare_request(request)
 
                 try:
-                    self._send_request(prep_request)
+                    self._send_request(prep_request, timeout=timeout)
                 except (requests.ReadTimeout, requests.ConnectTimeout) as e:
-                    log.exception("%s during initial authentication request - attempt %d", (type(e).__name__, attempt))
+                    log.exception("%s during initial authentication request - attempt %d", type(e).__name__, attempt)
                     if attempt == retries_on_read_timeout:
                         raise
 
@@ -867,9 +881,12 @@ class _TransportHTTP(object):
             request = requests.Request("POST", self.endpoint, data=payload, headers=headers)
             prep_request = self.session.prepare_request(request)
             try:
-                return self._send_request(prep_request)
+                return self._send_request(
+                    prep_request,
+                    timeout=timeout,
+                )
             except (requests.ReadTimeout, requests.ConnectTimeout) as e:
-                log.exception("%s during WSMan request - attempt %d", (type(e).__name__, attempt))
+                log.exception("%s during WSMan request - attempt %d", type(e).__name__, attempt)
                 if attempt == retries_on_read_timeout:
                     raise
 
@@ -880,8 +897,15 @@ class _TransportHTTP(object):
                 attempt += 1
                 time.sleep(self.reconnection_backoff * (2**attempt - 1))
 
-    def _send_request(self, request: requests.PreparedRequest) -> bytes:
-        response = self.session.send(request, timeout=(self.connection_timeout, self.read_timeout))  # type: ignore[union-attr] # This should not happen
+    def _send_request(
+        self,
+        request: requests.PreparedRequest,
+        timeout: int | float | tuple[int | float, int | float] | None = None,
+    ) -> bytes:
+        response = self.session.send(  # type: ignore[union-attr] # This should not happen
+            request,
+            timeout=timeout if timeout is not None else (self.connection_timeout, self.read_timeout),
+        )
 
         content_type = response.headers.get("content-type", "")
         if content_type.startswith("multipart/encrypted;") or content_type.startswith("multipart/x-multi-encrypted;"):
@@ -959,8 +983,9 @@ class _TransportHTTP(object):
             del retry_kwargs["status"]
             retries = Retry(**retry_kwargs)
 
-        session.mount("http://", requests.adapters.HTTPAdapter(max_retries=retries))
-        session.mount("https://", requests.adapters.HTTPAdapter(max_retries=retries))
+        adapter = _pool_manager.create_request_adapter(max_retries=retries)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
 
         # set cert validation config
         session.verify = self.cert_validation

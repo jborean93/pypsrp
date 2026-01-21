@@ -8,6 +8,7 @@ messages:
   transport_error:  # omit to not fire a WinRMTransportError in this message
     protocol: http
     code: 500
+  http_error: yes  # no or omit to not fire a ConnectionError in this message
   overrides:
   - path: The path to the element, this is requirement
     attributes:

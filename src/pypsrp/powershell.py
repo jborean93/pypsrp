@@ -1,6 +1,8 @@
 # Copyright: (c) 2018, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 
+from __future__ import annotations
+
 import base64
 import logging
 import struct
@@ -11,9 +13,11 @@ import uuid
 import warnings
 import xml.etree.ElementTree as ET
 
+import requests.exceptions
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+from pypsrp import _pool_manager
 from pypsrp._utils import version_equal_or_newer
 from pypsrp.complex_objects import (
     ApartmentState,
@@ -104,6 +108,7 @@ class RunspacePool(object):
         session_key_timeout_ms: int = 60000,
         *,
         no_profile: bool = False,
+        idle_timeout: int | None = None,
     ) -> None:
         """
         Represents a Runspace pool on a remote host. This pool can contain
@@ -132,6 +137,9 @@ class RunspacePool(object):
             key transfer from the server
         :param no_profile: If True, the user profile will not be loaded and
             will use the machine defaults.
+        :param idle_timeout: The idle timeout, in seconds, for the runspace. The
+            runspace will be closed if no operations are performed in the time
+            specified. If None the server default will be used.
         """
         log.info("Initialising RunspacePool object for configuration %s" % configuration_name)
         # The below are defined in some way at
@@ -147,6 +155,7 @@ class RunspacePool(object):
             input_streams="stdin pr",
             output_streams="stdout",
             no_profile=no_profile,
+            idle_time_out=idle_timeout,
         )
         self.ci_table: typing.Dict = {}
         self.pipelines: typing.Dict[str, "PowerShell"] = {}
@@ -658,6 +667,47 @@ class RunspacePool(object):
             elements like cmdlet parameters
         """
         return self._serializer.serialize(obj, metadata=metadata)
+
+    def is_alive(
+        self,
+        *,
+        timeout: int | None = None,
+    ) -> bool:
+        """Checks whether the RunspacePool is still alive.
+
+        :param timeout: Override the connection timeout defaults for the
+            request. The WSMan operation timeout will be set to this value
+            and the HTTP connect/read timeouts will be this value + 2 seconds.
+        :return: A bool True if the pool is still alive, False otherwise.
+        """
+        is_closed = False
+
+        try:
+            # We don't want to try and open a new connection if the socket
+            # was closed, we treat it as the pool is not alive.
+            with _pool_manager.DisableNewConnectionsContext():
+                state = self.shell._get_shell(timeout=timeout)
+
+            is_closed = state.get("State", "") == "Disconnected"
+        except WSManFaultError as exc:
+            if exc.code in [
+                0x80338029,  # ERROR_WSMAN_OPERATION_TIMEDOUT
+                0x8033805B,  # ERROR_WSMAN_UNEXPECTED_SELECTORS
+            ]:
+                is_closed = True
+            else:
+                raise
+
+        except (_pool_manager.NewConnectionDisabled, TimeoutError, requests.exceptions.ConnectionError):
+            # If a timeout or connection error occurs, treat the pool as closed.
+            is_closed = True
+
+        if is_closed:
+            # Ensures that close() doesn't try and close an already closed pool
+            self.state = RunspacePoolState.CLOSED
+            return False
+
+        return True
 
     def _receive(
         self,
