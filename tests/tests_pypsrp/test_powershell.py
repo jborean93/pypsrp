@@ -264,7 +264,7 @@ class TestRunspacePool(object):
         with RunspacePool(wsman_conn, idle_timeout=60) as pool:
             pool.shell.wsman.operation_timeout = -1
             with pytest.raises(WSManFaultError) as err:
-                assert pool.is_alive() is True
+                pool.is_alive()
 
             assert (
                 str(err.value.reason)

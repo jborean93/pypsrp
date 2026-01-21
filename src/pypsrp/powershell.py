@@ -684,7 +684,7 @@ class RunspacePool(object):
 
         try:
             # We don't want to try and open a new connection if the socket
-            # was closed, we treat as as the pool is not alive.
+            # was closed, we treat it as the pool is not alive.
             with _pool_manager.DisableNewConnectionsContext():
                 state = self.shell._get_shell(timeout=timeout)
 

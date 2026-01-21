@@ -328,7 +328,7 @@ class WinRS(object):
 
         The timeout parameter can be used to override the default WSMan timeout
         for this operation. If set the HTTP connect and read timeout will be
-        set to this value + 5 seconds to ensure the request does not block for
+        set to this value + 2 seconds to ensure the request does not block for
         a longer time.
 
         :param timeout: Sets the WSMan operational timeout to this value in

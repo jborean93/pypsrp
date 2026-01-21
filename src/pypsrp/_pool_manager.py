@@ -13,7 +13,7 @@ T = t.TypeVar("T")
 
 
 class NewConnectionDisabled(Exception):
-    """Raised when new connections is being made but has been disabled in the current context."""
+    """Raised when new connections are being made but have been disabled in the current context."""
 
 
 class DisableNewConnectionsContext:
