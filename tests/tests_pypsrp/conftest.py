@@ -260,7 +260,13 @@ def wsman_conn(request, monkeypatch):
 
     if allow_real and username is not None and password is not None and server is not None:
         wsman = WSMan(
-            server, port=port, username=username, password=password, ssl=ssl, auth=auth, cert_validation=False
+            server,
+            port=port,
+            username=username,
+            password=password,
+            ssl=ssl,
+            auth=auth,
+            cert_validation=False,
         )
     else:
         # Mock out UUID's so they are not a problem when comparing messages

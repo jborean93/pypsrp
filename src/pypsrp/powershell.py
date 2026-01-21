@@ -17,6 +17,7 @@ import requests.exceptions
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+from pypsrp import _pool_manager
 from pypsrp._utils import version_equal_or_newer
 from pypsrp.complex_objects import (
     ApartmentState,
@@ -682,7 +683,11 @@ class RunspacePool(object):
         is_closed = False
 
         try:
-            state = self.shell._get_shell(timeout=timeout)
+            # We don't want to try and open a new connection if the socket
+            # was closed, we treat as as the pool is not alive.
+            with _pool_manager.DisableNewConnectionsContext():
+                state = self.shell._get_shell(timeout=timeout)
+
             is_closed = state.get("State", "") == "Disconnected"
         except WSManFaultError as exc:
             if exc.code in [
@@ -693,7 +698,7 @@ class RunspacePool(object):
             else:
                 raise
 
-        except (TimeoutError, requests.exceptions.ConnectionError):
+        except (_pool_manager.NewConnectionDisabled, TimeoutError, requests.exceptions.ConnectionError):
             # If a timeout or connection error occurs, treat the pool as closed.
             is_closed = True
 

@@ -15,6 +15,7 @@ import xml.etree.ElementTree as ET
 import requests
 from requests.packages.urllib3.util.retry import Retry
 
+from pypsrp import _pool_manager
 from pypsrp._utils import get_hostname, to_string, to_unicode
 from pypsrp.encryption import WinRMEncryption
 from pypsrp.exceptions import (
@@ -880,7 +881,10 @@ class _TransportHTTP(object):
             request = requests.Request("POST", self.endpoint, data=payload, headers=headers)
             prep_request = self.session.prepare_request(request)
             try:
-                return self._send_request(prep_request, timeout=timeout)
+                return self._send_request(
+                    prep_request,
+                    timeout=timeout,
+                )
             except (requests.ReadTimeout, requests.ConnectTimeout) as e:
                 log.exception("%s during WSMan request - attempt %d", type(e).__name__, attempt)
                 if attempt == retries_on_read_timeout:
@@ -979,8 +983,9 @@ class _TransportHTTP(object):
             del retry_kwargs["status"]
             retries = Retry(**retry_kwargs)
 
-        session.mount("http://", requests.adapters.HTTPAdapter(max_retries=retries))
-        session.mount("https://", requests.adapters.HTTPAdapter(max_retries=retries))
+        adapter = _pool_manager.create_request_adapter(max_retries=retries)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
 
         # set cert validation config
         session.verify = self.cert_validation
