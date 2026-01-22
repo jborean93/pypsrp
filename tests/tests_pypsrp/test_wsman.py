@@ -825,7 +825,7 @@ class TestTransportHTTP(object):
         assert session.auth.hostname_override is None
         assert session.auth.password is None
         assert session.auth.send_cbt is True
-        assert session.auth.service == "HOST"
+        assert session.auth.service == "host"
         assert session.auth.username is None
         assert session.auth.wrap_required is False
 
@@ -837,7 +837,7 @@ class TestTransportHTTP(object):
             ssl=False,
             password="pass",
             negotiate_delegate=True,
-            negotiate_hostname_override="host",
+            negotiate_hostname_override="host1",
             negotiate_send_cbt=False,
             negotiate_service="HTTP",
         )
@@ -845,7 +845,7 @@ class TestTransportHTTP(object):
         assert isinstance(session.auth, HTTPNegotiateAuth)
         assert session.auth.auth_provider == "kerberos"
         assert session.auth.delegate is True
-        assert session.auth.hostname_override == "host"
+        assert session.auth.hostname_override == "host1"
         assert session.auth.password == "pass"
         assert session.auth.send_cbt is False
         assert session.auth.service == "HTTP"
@@ -861,7 +861,7 @@ class TestTransportHTTP(object):
         assert session.auth.hostname_override is None
         assert session.auth.password is None
         assert session.auth.send_cbt is True
-        assert session.auth.service == "HOST"
+        assert session.auth.service == "host"
         assert session.auth.username is None
         assert session.auth.wrap_required is False
 
@@ -897,7 +897,7 @@ class TestTransportHTTP(object):
         assert session.auth.hostname_override is None
         assert session.auth.password is None
         assert session.auth.send_cbt is True
-        assert session.auth.service == "HOST"
+        assert session.auth.service == "host"
         assert session.auth.username is None
         assert session.auth.wrap_required is False
 
@@ -909,7 +909,7 @@ class TestTransportHTTP(object):
             ssl=False,
             password="pass",
             negotiate_delegate=True,
-            negotiate_hostname_override="host",
+            negotiate_hostname_override="host1",
             negotiate_send_cbt=False,
             negotiate_service="HTTP",
             cert_validation=False,
@@ -918,7 +918,7 @@ class TestTransportHTTP(object):
         assert isinstance(session.auth, HTTPNegotiateAuth)
         assert session.auth.auth_provider == "ntlm"
         assert session.auth.delegate is True
-        assert session.auth.hostname_override == "host"
+        assert session.auth.hostname_override == "host1"
         assert session.auth.password == "pass"
         assert session.auth.send_cbt is False
         assert session.auth.service == "HTTP"
