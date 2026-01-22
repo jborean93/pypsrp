@@ -28,7 +28,7 @@ classifiers = [
 dependencies = [
     "cryptography >= 3.1",  # default_backend made an optional kwarg
     "pyspnego >= 0.7.0, < 1.0.0",
-    "requests >= 2.9.1",
+    "requests >= 2.27.0",  # requests official support for 3.10+
 ]
 
 [project.urls]

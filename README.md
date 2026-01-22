@@ -182,7 +182,8 @@ These are the options that can be used to setup `WSMan`;
 * `data_locale`: The `wsmv:DataLocale` value to set on each WSMan request. This specifies the format in which numerical data is presented in the response text, default is the value of `locale`
 * `reconnection_retries`: Number of retries on a connection problem, default is `0`
 * `reconnection_backoff`: Number of seconds to backoff in between reconnection attempts (first sleeps X, then sleeps 2*X, 4*X, 8*X, ...), default is `2.0`
-* `certificate_key_pem`: The path to the certificate key used in `certificate` authentication
+* `certificate_key_pem`: The path to the certificate key used in `certificate` authentication. The key can be in either a `PKCS#1` or `PKCS#8` format
+* `certificate_key_password`: The password for `certificate_key_pem` if it is encrypted
 * `certificate_pem`: The path to the certificate used in `certificate` authentication
 * `credssp_auth_mechanism`: The sub-auth mechanism used in CredSSP, default is `auto`, choices are `auto`, `ntlm`, or `kerberos`
 * `credssp_disable_tlsv1_2`: Whether to used CredSSP auth over the insecure TLSv1.0, default is `False`

@@ -41,7 +41,7 @@ log = logging.getLogger(__name__)
 SUPPORTED_AUTHS = ["basic", "certificate", "credssp", "kerberos", "negotiate", "ntlm"]
 
 AUTH_KWARGS: typing.Dict[str, typing.List[str]] = {
-    "certificate": ["certificate_key_pem", "certificate_pem"],
+    "certificate": ["certificate_key_pem", "certificate_pem", "certificate_key_password"],
     "credssp": ["credssp_auth_mechanism", "credssp_disable_tlsv1_2", "credssp_minimum_version"],
     "negotiate": ["negotiate_delegate", "negotiate_hostname_override", "negotiate_send_cbt", "negotiate_service"],
 }
@@ -800,6 +800,7 @@ class _TransportHTTP(object):
 
         self.certificate_key_pem: typing.Optional[str] = None
         self.certificate_pem: typing.Optional[str] = None
+        self.certificate_key_password: typing.Optional[str] = None
         for kwarg_list in AUTH_KWARGS.values():
             for kwarg in kwarg_list:
                 setattr(self, kwarg, kwargs.get(kwarg, None))
@@ -983,9 +984,14 @@ class _TransportHTTP(object):
             del retry_kwargs["status"]
             retries = Retry(**retry_kwargs)
 
-        adapter = _pool_manager.create_request_adapter(max_retries=retries)
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
+        session.mount(
+            "http://",
+            _pool_manager.create_request_adapter(max_retries=retries),
+        )
+        session.mount(
+            "https://",
+            _pool_manager.create_request_adapter(max_retries=retries, key_password=self.certificate_key_password),
+        )
 
         # set cert validation config
         session.verify = self.cert_validation
@@ -1023,6 +1029,9 @@ class _TransportHTTP(object):
         if self.ssl is False:
             raise ValueError("For certificate auth, SSL must be used")
 
+        # requests does not expose the password through the cert tuple. If set
+        # it'll be passed to urllib3 through the custom adapter created for the
+        # session.
         session.cert = (self.certificate_pem, self.certificate_key_pem)
         session.headers["Authorization"] = "http://schemas.dmtf.org/wbem/wsman/1/wsman/secprofile/https/mutual"
 

@@ -14,6 +14,7 @@
   * `WSMAN` was used for CredSSP authentication only on the native Windows client while `Negotiate/Kerberos` auth used `HOST`
   * This should fix errors when authenticating with domain controllers which sometimes fail to register the `WSMAN` service for the host
 * Added `is_alive(timeout=...)` on `RunspacePool` to check if the Runspace Pool is still alive and ready for use on the server
+* Added `certificate_key_password` option to `WSMan` to support loaded client certificate keys that have been encrypted
 
 ## 0.8.1 - 2022-02-22
 
