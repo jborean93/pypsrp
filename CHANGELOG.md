@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.9.0 - TBD
+## 0.9.0 - 2026-02-17
 
 * Raised minimum Python version to 3.10
 * Added retry handler for WSMan `Receive` operations that can attempt to recover from a network disconnect during a command operation
