@@ -135,8 +135,11 @@ def create_request_adapter(  # type: ignore[no-any-unimported]  # requests does 
     # the connection pool for http/https. We wrap the __init__ method so we can
     # inject our custom ConnectionCls that wraps the connect method when
     # created.
-    pool_classes = adapter.poolmanager.pool_classes_by_scheme
+    # Copy the dict so we only mutate this adapter's instance, not the
+    # module-level dict shared by all urllib3 PoolManager instances.
+    pool_classes = dict(adapter.poolmanager.pool_classes_by_scheme)
     for scheme, pool_cls in list(pool_classes.items()):
         pool_classes[scheme] = _wrap(pool_cls, after=_create_connection_pool)
+    adapter.poolmanager.pool_classes_by_scheme = pool_classes
 
     return adapter
