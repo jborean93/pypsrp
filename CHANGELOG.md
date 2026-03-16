@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1 - 2026-03-16
+
+* Fix recursion issue when generating requests HTTP adapter on each new connection
+
 ## 0.9.0 - 2026-02-17
 
 * Raised minimum Python version to 3.10
