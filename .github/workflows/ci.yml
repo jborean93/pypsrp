@@ -51,13 +51,6 @@ jobs:
         - '3.12'
         - '3.13'
         - '3.14'
-        python-arch:
-        - x86
-        - x64
-
-        exclude:
-        - os: ubuntu-latest
-          python-arch: x86
 
     steps:
     - uses: actions/checkout@v6
@@ -65,7 +58,6 @@ jobs:
     - uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
-        architecture: ${{ matrix.python-arch }}
 
     - uses: actions/download-artifact@v6
       with:
@@ -110,14 +102,14 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v5
       with:
-        name: Unit Test Results (${{ matrix.os }} ${{ matrix.python-version }} ${{ matrix.python-arch }})
+        name: Unit Test Results (${{ matrix.os }} ${{ matrix.python-version }}
         path: ./junit/test-results.xml
 
     - name: Upload Coverage Results
       if: always() && !startsWith(github.ref, 'refs/tags/v')
       uses: actions/upload-artifact@v5
       with:
-        name: Coverage Results (${{ matrix.os }} ${{ matrix.python-version }} ${{ matrix.python-arch }})
+        name: Coverage Results (${{ matrix.os }} ${{ matrix.python-version }}
         path: ./coverage.xml
 
     - name: Upload Coverage to codecov
@@ -125,7 +117,7 @@ jobs:
       uses: codecov/codecov-action@v5
       with:
         files: ./coverage.xml
-        flags: ${{ env.OS }},py${{ matrix.python-version }},${{ matrix.python-arch }}
+        flags: ${{ env.OS }},py${{ matrix.python-version }}
         token: ${{ secrets.CODECOV_TOKEN }}
 
   publish:
